@@ -3,12 +3,16 @@
  * "Hidden" badge, a Hide or Restore row action, and a Restore that is disabled with
  * a note while the product is hidden with its company.
  */
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminListingHide, AdminVendorProductRow } from '@aeci/shared';
 
+import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { VendorProductsTable } from './vendor-products-table';
 
@@ -256,5 +260,54 @@ describe('VendorProductsTable delivered pairs (AECI-2045)', () => {
   it('offers no delivered pairs on an application row', async () => {
     const { el } = await setup([makeRow()]);
     expect(el.querySelector('[data-testid="delivered-pairs-toggle"]')).toBeNull();
+  });
+});
+
+describe('VendorProductsTable logo editor close paths (AECI-2112)', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+  });
+
+  const editLogo = (el: HTMLElement) =>
+    el.querySelector(`#product-logo-trigger-${PRODUCT_ID}`) as HTMLButtonElement;
+  const editorRow = (el: HTMLElement) =>
+    el.querySelector(`#product-logo-${PRODUCT_ID}`) as HTMLTableRowElement;
+
+  async function openEditor() {
+    const ctx = await setup([makeRow()]);
+    editLogo(ctx.el).click();
+    ctx.fixture.detectChanges();
+    await ctx.fixture.whenStable();
+    const editor = ctx.fixture.debugElement.query(By.directive(AdminLogoEditor))
+      .componentInstance as AdminLogoEditor;
+    return { ...ctx, editor };
+  }
+
+  it("the editor's close request closes it and returns focus to Edit logo", async () => {
+    const { fixture, el, editor } = await openEditor();
+    expect(editorRow(el).hidden).toBe(false);
+    editor.closeRequested.emit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(editorRow(el).hidden).toBe(true);
+    expect(document.activeElement).toBe(editLogo(el));
+  });
+
+  it('Edit logo and a close request leave the editor open while it saves', async () => {
+    const { fixture, el, editor } = await openEditor();
+    editor.savingChange.emit(true);
+    editLogo(el).click();
+    editor.closeRequested.emit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(editorRow(el).hidden).toBe(false);
+
+    editor.savingChange.emit(false);
+    editLogo(el).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(editorRow(el).hidden).toBe(true);
   });
 });

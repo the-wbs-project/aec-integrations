@@ -50,16 +50,46 @@ describe('AdminPaginator', () => {
     expect(emitted).toEqual([3, 1]);
   });
 
-  it('disables the edges and never emits out of range', () => {
+  it('marks the edges aria-disabled and never emits out of range', () => {
     const first = render(1, 50, 120);
-    expect(button(first.el, 'Previous').disabled).toBe(true);
+    expect(button(first.el, 'Previous').getAttribute('aria-disabled')).toBe('true');
     button(first.el, 'Previous').click();
     expect(first.emitted).toEqual([]);
 
     const last = render(3, 50, 120);
-    expect(button(last.el, 'Next').disabled).toBe(true);
+    expect(button(last.el, 'Next').getAttribute('aria-disabled')).toBe('true');
+    expect(button(last.el, 'Previous').getAttribute('aria-disabled')).toBeNull();
     button(last.el, 'Next').click();
     expect(last.emitted).toEqual([]);
+  });
+
+  it('keeps focus on Next when it reaches the last page (AECI-2102)', () => {
+    const { el, fixture } = render(2, 50, 120);
+    document.body.appendChild(el);
+    const next = button(el, 'Next');
+    next.focus();
+    next.click();
+    // The parent moves to the last page: Next can no longer act, but keeps focus.
+    fixture.componentRef.setInput('page', 3);
+    fixture.detectChanges();
+    expect(next.disabled).toBe(false);
+    expect(next.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(next);
+    el.remove();
+  });
+
+  it('ignores presses while busy, without dropping focus', () => {
+    const { el, fixture, emitted } = render(2, 50, 120);
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+    const next = button(el, 'Next');
+    // DESIGN.md: a busy state marks the nav aria-busy, not the buttons aria-disabled.
+    expect(el.querySelector('nav')?.getAttribute('aria-busy')).toBe('true');
+    expect(next.disabled).toBe(false);
+    expect(next.getAttribute('aria-disabled')).toBeNull();
+    next.click();
+    button(el, 'Previous').click();
+    expect(emitted).toEqual([]);
   });
 
   it('names the navigation landmark', () => {

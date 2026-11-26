@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "763ec955-7bd4-4f07-a0c8-404667fac2c5",
-  "prevId": "61a44138-ce8b-49da-9f01-2b42295bc427",
+  "id": "61a44138-ce8b-49da-9f01-2b42295bc427",
+  "prevId": "07c35aff-2064-4d5c-b5f2-8dc3fede8f19",
   "tables": {
     "acceptance_chain_exports": {
       "name": "acceptance_chain_exports",
@@ -972,109 +972,6 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "claim_owner_answers": {
-      "name": "claim_owner_answers",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "claim_id": {
-          "name": "claim_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "asserted": {
-          "name": "asserted",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "retracted_at": {
-          "name": "retracted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "claim_owner_answers_live_key": {
-          "name": "claim_owner_answers_live_key",
-          "columns": [
-            "claim_id"
-          ],
-          "isUnique": true,
-          "where": "\"retracted_at\" IS NULL"
-        },
-        "claim_owner_answers_claim_idx": {
-          "name": "claim_owner_answers_claim_idx",
-          "columns": [
-            "claim_id",
-            "updated_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "claim_owner_answers_claim_id_claims_id_fk": {
-          "name": "claim_owner_answers_claim_id_claims_id_fk",
-          "tableFrom": "claim_owner_answers",
-          "tableTo": "claims",
-          "columnsFrom": [
-            "claim_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "claim_owner_answers_vendor_id_vendors_id_fk": {
-          "name": "claim_owner_answers_vendor_id_vendors_id_fk",
-          "tableFrom": "claim_owner_answers",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -10983,6 +10880,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "vendor_requests_linear_issue_idx": {
+          "name": "vendor_requests_linear_issue_idx",
+          "columns": [
+            "linear_issue_id"
+          ],
+          "isUnique": false,
+          "where": "\"linear_issue_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {

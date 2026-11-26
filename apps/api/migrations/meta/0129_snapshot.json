@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "61a44138-ce8b-49da-9f01-2b42295bc427",
+  "id": "07c35aff-2064-4d5c-b5f2-8dc3fede8f19",
   "prevId": "56fd0ea5-a588-477a-b89a-d724c926be3b",
   "tables": {
     "acceptance_chain_exports": {
@@ -7938,13 +7938,6 @@
           "autoincrement": false,
           "default": "'application'"
         },
-        "connector_kind": {
-          "name": "connector_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "logo_url": {
           "name": "logo_url",
           "type": "text",
@@ -10880,6 +10873,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "vendor_requests_linear_issue_idx": {
+          "name": "vendor_requests_linear_issue_idx",
+          "columns": [
+            "linear_issue_id"
+          ],
+          "isUnique": false,
+          "where": "\"linear_issue_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {

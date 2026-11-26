@@ -21,7 +21,21 @@ import type {
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { SeatProvisionApi } from './seat-provision-api';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** `ProvisionVendorSeatSchema.reason`'s cap, mirrored so the textarea can stop an
  *  over-long note before the round trip. A 400 from this endpoint covers BOTH the
@@ -75,7 +89,8 @@ const REASON_MAX_LENGTH = 500;
  * announcements leave through {@link announce}.
  *
  * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
- * Opening the form focuses the email field, and Cancel returns focus to "Add a seat".
+ * Opening the form focuses the email field, and Cancel or Escape returns focus to "Add
+ * a seat". Escape does nothing while the request runs (AECI-2124).
  * A refusal focuses its message, because the confirm button was disabled while the
  * request ran and a disabled button drops focus. A provision also closes back to
  * "Add a seat", but `VendorDetail` then reloads the whole page, which loses focus
@@ -83,7 +98,7 @@ const REASON_MAX_LENGTH = 500;
  */
 @Component({
   selector: 'aec-provision-seat-control',
-  imports: [AecFormSubmit],
+  imports: [AecButton, AecFormSubmit],
   templateUrl: './provision-seat-control.html',
 })
 export class ProvisionSeatControl {
@@ -133,6 +148,17 @@ export class ProvisionSeatControl {
 
   protected readonly reasonMaxLength = REASON_MAX_LENGTH;
 
+  protected readonly bodyClass = 'text-t-14 text-(--text-primary)';
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+
   protected readonly canSubmit = computed(
     () => this.email().trim().length > 0 && this.reason().length <= REASON_MAX_LENGTH,
   );
@@ -151,6 +177,12 @@ export class ProvisionSeatControl {
     this.email.set('');
     this.reason.set('');
     this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  /** Escape is Cancel, except while the request runs: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.closeForm();
   }
 
   private focusAfterRender(target: () => HTMLElement | undefined): void {

@@ -731,11 +731,24 @@ describe('ClaimDetail', () => {
   });
 
   describe('structural a11y', () => {
-    it('keeps heading order h2 → h3 → h4 with no skips', async () => {
+    it('keeps heading order h2 → h3 with no skips, one h3 per panel (AECI-2111)', async () => {
       const { el } = await setup(makeApiMock(makeDetail({ duplicate_siblings: [makeSibling()] })));
       expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3').length).toBeGreaterThan(0);
-      expect(el.querySelector('h5, h6')).toBeNull();
+      expect([...el.querySelectorAll('h3')].map((h) => h.textContent?.trim())).toEqual([
+        'Claim',
+        'Verification signals',
+        'Operator note',
+        'Duplicate signal',
+        'Audit trail',
+      ]);
+      expect(el.querySelector('h4, h5, h6')).toBeNull();
+    });
+
+    it('prints the status as a console chip (AECI-2111)', async () => {
+      const { el } = await setup(makeApiMock(makeDetail()));
+      const chip = el.querySelector('aec-chip .aec-chip');
+      expect(chip?.textContent?.trim()).toBe('Open');
+      expect(chip?.getAttribute('data-tone')).toBe('waiting');
     });
 
     it('exposes EXACTLY ONE polite live region', async () => {

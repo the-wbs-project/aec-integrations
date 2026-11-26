@@ -382,7 +382,7 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1536: the same for migration 0100's `claim_threads`.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
-  // AECI-2039: the same for migration 0130's `claim_owner_answers`.
+  // AECI-2039: the same for migration 0131's `claim_owner_answers`.
   const claimOwnerAnswersTable =
     (runD1<{ name: string }>(target, CLAIM_OWNER_ANSWERS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1623: the same for migration 0102's `vendor_suspensions`.

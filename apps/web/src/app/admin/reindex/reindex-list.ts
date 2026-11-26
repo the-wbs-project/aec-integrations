@@ -18,7 +18,17 @@ import {
 
 import type { ListReindexQueueQuery, ReindexClearOutcome, ReindexQueueRow } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReindexApi } from './admin-reindex.api';
 import { ReindexHistory } from './reindex-history';
@@ -115,10 +125,13 @@ function humanizeReason(reason: string): string {
   selector: 'aec-reindex-list',
   imports: [
     AdminPaginator,
+    AecButton,
+    AecIcon,
     BrnDialog,
     BrnDialogContent,
     BrnDialogDescription,
     BrnDialogTitle,
+    Chip,
     ReindexHistory,
   ],
   templateUrl: './reindex-list.html',
@@ -129,6 +142,13 @@ export class ReindexList {
   /** The copy action touches `navigator`, which does not exist during SSR. A
    *  click cannot fire server-side either, but the guard is cheap and explicit. */
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+
+  // AECI-2125: the console recipe.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly tone = adminStatusTone;
 
   protected readonly rows = signal<readonly ReindexQueueRow[]>([]);
   protected readonly total = signal(0);

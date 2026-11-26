@@ -330,6 +330,17 @@ npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
 `main`'s `0016`–`0020`, whose numbers are unchanged. The out-of-order apply that follows (stage-2's
 seven were applied before `main`'s back-fill) is inert by the same disjoint-objects check above.
 
+##### AECI-2035, the Sync Services epic (`0129`–`0132` → `0130`–`0133`, 2026-11-26)
+
+`main` took `0129_lyrical_dragon_man` (AECI-1913, one partial index on `vendor_requests`) while the
+epic held `0129`–`0132`. `main` keeps its number. The epic's four moved up one, slugs kept:
+`0130_heavy_ender_wiggin`, `0131_vengeful_texas_twister`, `0132_brown_banshee`, `0133_conscious_payback`.
+The sets were disjoint (the epic never touched `vendor_requests`), so each epic snapshot was grafted:
+`main`'s `vendor_requests` definition copied in, `prevId` re-chained onto `main`'s `0129`, and each
+snapshot's diff from its parent checked to equal the epic's original diff. The SQL bodies are
+byte-identical. `db:generate` reports no changes. No remote tier had applied the epic's migrations, so
+no `d1_migrations` row needed renaming.
+
 ##### Reserved numbers
 
 **Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`
@@ -502,13 +513,13 @@ recreate of that table deletes every message. That is why its three CHECKs are h
 constraints, guarded by `migration-0100.spec.ts`. `claim_thread_reads.profile_id` also cascades from
 `profiles`. Carry each of these through the matching recreate. `d1.spec.ts` pins all four lists.
 
-**`claims` gained a second cascade child on 2026-11-24.** AECI-2039's `0130_vengeful_texas_twister.sql`
+**`claims` gained a second cascade child on 2026-11-24.** AECI-2039's `0131_vengeful_texas_twister.sql`
 added `claim_owner_answers` (`DATABASE_SCHEMA.md` §5a.2a), a plain `CREATE TABLE`. Its `claim_id` is
 `ON DELETE CASCADE`, so a recreate of `claims` now empties it as well as `attestations`. Carry both. It
 exists because a fourth `attestations.source` value would have been a CHECK change on `attestations`, which is
 this section's dangerous case. `d1.spec.ts` pins the `claims` child list.
 
-**Both edge tables and `claims` gained children on 2026-11-24.** AECI-2042's `0131_brown_banshee.sql`
+**Both edge tables and `claims` gained children on 2026-11-24.** AECI-2042's `0132_brown_banshee.sql`
 added `sync_service_pair_contests` (CASCADE from `integrations`, `connector_evidenced_pairs` and `claims`) and
 `sync_service_pair_vetoes` (SET NULL from both edge tables, CASCADE from `products`), two plain `CREATE TABLE`s,
 and `vetoed_at` on both edge tables, two plain `ADD COLUMN`s (`DATABASE_SCHEMA.md` §5a.2b). A recreate of either

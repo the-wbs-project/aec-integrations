@@ -18,16 +18,28 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminConnectorsApi } from './admin-connectors-api';
-import { mappingStatusLabel } from './connector-labels';
+import { mappingStatusLabel, mappingStatusTone } from './connector-labels';
 import { ManagedByControl } from './managed-by-control';
 import { MappingEditControl } from './mapping-edit-control';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FACT_VALUE_CLASS, CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 const STUB_PAGE_SIZE = 25;
 const PAIR_PAGE_SIZE = 25;
@@ -67,7 +79,10 @@ type StubState =
 @Component({
   selector: 'aec-connector-detail',
   imports: [
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     DatePipe,
     AecSelect,
     AdminNotes,
@@ -84,6 +99,32 @@ export class ConnectorDetail {
   private readonly api = inject(AdminConnectorsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
+
+  // AECI-2125: the console recipe.
+  protected readonly t = CONSOLE_TABLE;
+  /**
+   * "Machine proposals only" and "Include removed": two independent on/off
+   * toggles, so each is its own 44px framed button, not an option in the
+   * one-of-several segmented frame. Pressed: the Forest fill and the tick, as the
+   * segmented filter draws it, so the state is never colour alone.
+   */
+  protected readonly toggleClass =
+    'inline-flex min-h-11 items-center gap-2 rounded-control border border-(--border-strong) bg-(--surface-base) px-4 text-t-14 font-semibold leading-none text-(--text-primary) hover:bg-(--surface-sunken) aria-pressed:border-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) focus-visible:outline-3 focus-visible:outline-offset-3 forced-colors:aria-pressed:bg-[Highlight] forced-colors:aria-pressed:text-[HighlightText]';
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly tone = adminStatusTone;
+  protected readonly statusTone = mappingStatusTone;
+  /** Facts as label over value, in as many columns as fit (mock-up 14 `.facts-dl`). */
+  protected readonly factsClass =
+    'grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-6 gap-y-4';
+  protected readonly factValueClass = CONSOLE_FACT_VALUE_CLASS;
+  /** A link in a panel or a cell's body: Forest, underlined at rest. */
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
+  /** A neutral box for a fact or a section's own failure: sunken, hairline. */
+  protected readonly neutralBoxClass =
+    'rounded-control border border-(--border-default) bg-(--surface-sunken) p-4';
 
   protected readonly catalogId = signal(this.route.snapshot.paramMap.get('id') ?? '');
 

@@ -1,16 +1,14 @@
-import { NgTemplateOutlet } from '@angular/common';
 import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
 
 import type { TaxonomyResponse, VendorProduct } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { VendorApi } from '../vendor-api';
 import { VendorProductFacetEditor, type ProductFacetKind } from './vendor-product-facet-editor';
 import { VendorProductForm } from './vendor-product-form';
 
-/** Which product tab a section renders. `'all'` is the single-page concept. */
-export type VendorProductTab = 'all' | 'profile' | ProductFacetKind;
-
-const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audiences', 'phases'];
+/** Which product tab a section renders: the Profile form or one facet editor. */
+export type VendorProductTab = 'profile' | ProductFacetKind;
 
 /**
  * The "your products" editor of the vendor dashboard (AECI-522): the editable
@@ -19,25 +17,23 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
  * and shared by every form it renders, so a multi-product vendor makes a single
  * `GET /api/taxonomy` round-trip.
  *
- * ── TWO MODES, AND WHY ───────────────────────────────────────────────────────
- * `selectedSlug` decides what this renders:
+ * ── ONE PRODUCT, ONE TAB ─────────────────────────────────────────────────────
+ * `selectedSlug` names the ONE product whose form renders, with no disclosure
+ * wrapper. The routed portal sets it from the URL (`sections/vendor-products-page.ts`):
+ * a vendor with a hundred products reaches the one it came to edit by name.
  *
- *   - **set** → that ONE product's form, no disclosure wrapper. This is what the
- *     routed portal uses (`sections/vendor-products-page.ts`), where the choice
- *     is a URL segment driven by the picker beside the heading. A vendor with a
- *     hundred products has no use for a hundred stacked disclosures, and the
- *     product they came to edit is reachable by name rather than by scrolling.
- *   - **null** (the default) → every product as a collapsed `<details>`, primary
- *     (or first) open. That is the original AECI-522 rendering. Its one caller, the
- *     dev-only single-page concept, was deleted by AECI-1809.
+ * The old `null` mode, every product as a stacked `<details>`, is gone (AECI-1810).
+ * Its one caller, the dev-only single-page concept, was deleted by AECI-1809. Both
+ * callers (the Profile and facet pages) render inside `VendorProductsPage`'s
+ * `@else if (ctx.product())`, so the slug they pass is never null in practice.
  *
- * A `selectedSlug` naming no owned product renders nothing here — the routed
- * page detects that case first and says so, which is the right place for it: the
- * section has no idea whether the slug came from a URL or a stale link.
+ * A `selectedSlug` that is `null` or names no owned product renders nothing here.
+ * The routed page detects that case first and says so, which is the right place
+ * for it: the section has no idea whether the slug came from a URL or a stale link.
  */
 @Component({
   selector: 'aec-vendor-products-section',
-  imports: [NgTemplateOutlet, VendorProductForm, VendorProductFacetEditor],
+  imports: [AecButton, VendorProductForm, VendorProductFacetEditor],
   host: { class: 'block' },
   template: `
     @if (products().length === 0) {
@@ -54,8 +50,10 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
             Could not load the category options. You can still edit the other fields.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="retryClass"
             (click)="loadTaxonomy()"
             i18n="@@vendor.products.retry"
           >
@@ -63,67 +61,31 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
           </button>
         </div>
       }
-      @if (selectedSlug() !== null) {
-        @if (selectedProduct(); as product) {
-          <!--
-            No heading of its own: the form opens with its read-only identity
-            block (name + slug + the rename-is-a-correction-request hint), so a
-            card header would repeat the product name the page h1 already shows.
-            No panel either (AECI-1116). The form sits flat under the tab row,
-            the same depth as the vendor Profile form. A raised card here put the
-            identity block and the logo drop zone inside a second card, which
-            impeccable detect flags as nested-cards.
-          -->
-          <ng-container
-            [ngTemplateOutlet]="productBody"
-            [ngTemplateOutletContext]="{ $implicit: product }"
-          />
-        }
-      } @else {
-        <div class="space-y-4">
-          @for (product of products(); track product.id; let first = $first) {
-            <details
-              [open]="first || product.is_primary"
-              class="group rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-            >
-              <summary
-                class="flex cursor-pointer items-center justify-between gap-3 rounded-(--radius-md) px-5 py-4 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >
-                <span class="font-display text-lg">{{ product.name }}</span>
-                <span class="text-xs text-(--text-secondary)" aria-hidden="true">
-                  <span class="hidden group-open:inline" i18n="@@vendor.products.collapse"
-                    >Collapse</span
-                  >
-                  <span class="group-open:hidden" i18n="@@vendor.products.expand">Edit</span>
-                </span>
-              </summary>
-              <div class="border-t border-(--border-default) p-5">
-                <ng-container
-                  [ngTemplateOutlet]="productBody"
-                  [ngTemplateOutletContext]="{ $implicit: product }"
-                />
-              </div>
-            </details>
+      @if (selectedProduct(); as product) {
+        <!--
+          No heading of its own: the form opens with its read-only identity
+          block (name + slug + the rename-is-a-correction-request hint), so a
+          card header would repeat the product name the page h1 already shows.
+          No panel here either (AECI-1116): each form is its own portal form
+          card (AECI-1810), with the identity block and its notes above it, the
+          same shape as the vendor Profile form. A wrapper card here would nest
+          that card inside a second one, which impeccable detect flags.
+        -->
+        <div class="space-y-10">
+          @if (section() === 'profile') {
+            <aec-vendor-product-form [product]="product" />
+          }
+          @for (facet of facets(); track facet) {
+            <aec-vendor-product-facet-editor
+              [product]="product"
+              [facet]="facet"
+              [taxonomy]="taxonomy()"
+              [headingLevel]="2"
+            />
           }
         </div>
       }
     }
-
-    <ng-template #productBody let-product>
-      <div class="space-y-10">
-        @if (section() === 'all' || section() === 'profile') {
-          <aec-vendor-product-form [product]="product" />
-        }
-        @for (facet of facets(); track facet) {
-          <aec-vendor-product-facet-editor
-            [product]="product"
-            [facet]="facet"
-            [taxonomy]="taxonomy()"
-            [headingLevel]="facetHeadingLevel()"
-          />
-        }
-      </div>
-    </ng-template>
   `,
 })
 export class VendorProductsSection {
@@ -131,31 +93,22 @@ export class VendorProductsSection {
 
   readonly products = input.required<readonly VendorProduct[]>();
 
-  /** Which product to render, by slug. `null` renders the full stacked list —
-   *  see the mode note in the class doc. */
-  readonly selectedSlug = input<string | null>(null);
+  /** Which product to render, by slug. `null` renders nothing (see the class doc). */
+  readonly selectedSlug = input.required<string | null>();
 
   // No entitlement inputs (AECI-1214): each product form and facet editor gates
   // itself on its own product's `plan` through `productCan` (§13.7). The section
   // renders identically on every plan: every product and every value shows, and
   // only the controls a plan cannot use are read-only.
 
-  /** Which product tab to render (AECI-994): the Profile form, one facet editor,
-   *  or (`'all'`, the single-page concept) the form and all four editors. */
-  readonly section = input<VendorProductTab>('all');
+  /** Which product tab to render (AECI-994): the Profile form or one facet editor.
+   *  The facet editor takes `h2` headings, under the shell's product-name `h1`. */
+  readonly section = input.required<VendorProductTab>();
 
   protected readonly facets = computed<readonly ProductFacetKind[]>(() => {
     const section = this.section();
-    if (section === 'all') return ALL_FACETS;
     return section === 'profile' ? [] : [section];
   });
-
-  /** One product under the routed page's product-name `h1` gets `h2` facet
-   *  headings. The stacked list sits under the single page's "Your products"
-   *  `h2`, so its facets stay `h3` (AECI-1122). */
-  protected readonly facetHeadingLevel = computed<2 | 3>(() =>
-    this.selectedSlug() === null ? 3 : 2,
-  );
 
   protected readonly selectedProduct = computed(() => {
     const slug = this.selectedSlug();
@@ -164,9 +117,6 @@ export class VendorProductsSection {
 
   protected readonly taxonomy = signal<TaxonomyResponse | null>(null);
   protected readonly taxonomyFailed = signal(false);
-
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     // Browser-only: the taxonomy is a public read, fetched after hydration so the

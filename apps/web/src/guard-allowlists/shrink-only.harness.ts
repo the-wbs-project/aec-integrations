@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
  * `aecButton` on every button. The portal (`vendor/`) and the console (`admin/`) are
  * not clean yet. The redesign slices (AECI-1729) fix them file by file. Until then,
  * each guard keeps one allowlist file here: one line per offending file, its path from
- * `src/app` and its count today, sorted.
+ * `src/app` and its count today, sorted. A guard whose list empties loses it and holds
+ * both folders at zero (the heading guard since AECI-1729, the label and inline-icon
+ * guards since AECI-2132).
  *
  * The rule, for every guard:
  * - a listed file's count must equal its line. Above it is a new offender. Below it,

@@ -376,7 +376,9 @@ off switch, and the only one any job has.
    keeps that vendor's agreement acceptances and subscription grants, including the acceptances of a
    rejected claim on that company and of a deleted company with that id. An acceptance with no
    company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
-   it. A global hold keeps everything: the
+   it. A vendor hold also keeps that company's workflow history, the record of who moved its
+   claims, contests, review moderation and seat bans, by the same kind of ties (AECI-1913,
+   `docs/DATABASE_SCHEMA.md` §8.4). A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the
    `legal-retention-prune` row as `ok` for a vendor hold, with other records still deleted and the
    run metric tagged `audit:scoped`, or as `skipped` for a global hold.

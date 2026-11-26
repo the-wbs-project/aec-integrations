@@ -89,7 +89,7 @@ async function hasRetiredColumn(db: D1Database): Promise<boolean> {
 }
 
 /**
- * Whether this tier has migration 0131's `vetoed_at` yet (AECI-2042). One migration
+ * Whether this tier has migration 0132's `vetoed_at` yet (AECI-2042). One migration
  * adds it to both tables, so one probe of `integrations` answers for both. Without it
  * no row is vetoed, so the veto clause degrades to always-true.
  */

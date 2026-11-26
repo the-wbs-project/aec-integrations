@@ -20,6 +20,16 @@ import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BrandAssetRemovals } from './brand-asset-removals';
 import { isReplayedEvent } from '../../core/event-replay';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
@@ -104,13 +114,35 @@ type TriFilter = 'any' | 'true' | 'false';
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [AecSelect, BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
+  imports: [
+    AecButton,
+    Chip,
+    AecSelect,
+    BrandAssetRemovals,
+    RouterLink,
+    PaginationFooter,
+    SortHeader,
+    DatePipe,
+  ],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {
   private readonly api = inject(AdminVendorsApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+
+  // AECI-2112: the console table recipe and its shared pieces (mock-up 14).
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
 
   /** Every row loaded so far — chunk 1 plus whatever scroll has appended. */
   protected readonly vendors = signal<readonly AdminVendorRow[]>([]);

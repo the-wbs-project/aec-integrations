@@ -39,6 +39,23 @@ import {
   catalogueStatusLabel,
 } from './vendor-catalogue-labels';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import {
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** What a save told the host. `changed: false` is the server's 200 no-op. */
 export interface CatalogueMappingSaved {
@@ -100,155 +117,153 @@ export function catalogueSaveErrorMessage(err: unknown): string {
  */
 @Component({
   selector: 'aec-vendor-connector-mapping-form',
-  imports: [AecFormSubmit, AecSelect, ProductCombobox],
+  imports: [AecButton, AecFormSubmit, AecSelect, KeepClearOfSaveBar, ProductCombobox],
   host: { class: 'block' },
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       novalidate
-      class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+      [class]="formClass"
       [attr.aria-label]="formLabel()"
       (aecSubmit)="submit()"
     >
-      <div>
-        <aec-select
-          i18n-label="@@vendor.catalogue.form.status"
-          label="Status"
-          layout="stacked"
-          [options]="statusOptions"
-          [value]="status()"
-          [idPrefix]="idPrefix() + '-status'"
-          [describedBy]="idPrefix() + '-status-hint'"
-          (changed)="onStatusChange($event)"
-        />
-        <p
-          [id]="idPrefix() + '-status-hint'"
-          class="mt-1 max-w-[52ch] text-xs text-(--text-secondary)"
-        >
-          {{ statusHelp() }}
-        </p>
-      </div>
+      <div [class]="gridClass">
+        <div [class]="fieldClass">
+          <aec-select
+            i18n-label="@@vendor.catalogue.form.status"
+            label="Status"
+            layout="stacked"
+            [options]="statusOptions"
+            [value]="status()"
+            [idPrefix]="idPrefix() + '-status'"
+            [describedBy]="idPrefix() + '-status-hint'"
+            (changed)="onStatusChange($event)"
+          />
+          <p [id]="idPrefix() + '-status-hint'" [class]="hintClass">
+            {{ statusHelp() }}
+          </p>
+        </div>
 
-      @if (namesProduct()) {
-        <div>
-          @if (product(); as p) {
-            <p [class]="labelClass" i18n="@@vendor.catalogue.form.product">
-              Product on AEC Integrations
-            </p>
-            <p class="mt-1 flex flex-wrap items-center gap-3 text-sm text-(--text-primary)">
-              <span class="font-medium" data-chosen-product>{{ p.name }}</span>
-              <button
-                #changeButton
-                type="button"
-                [class]="secondaryButtonClass"
-                (click)="clearProduct()"
-                [attr.aria-label]="changeProductLabel(p.name)"
-                i18n="@@vendor.catalogue.form.product.change"
-              >
-                Change
-              </button>
-            </p>
-          } @else {
-            <label
-              [class]="labelClass"
-              [attr.for]="idPrefix() + '-product'"
-              i18n="@@vendor.catalogue.form.product"
-              >Product on AEC Integrations</label
-            >
-            <aec-product-combobox
-              class="mt-1"
-              [inputId]="idPrefix() + '-product'"
-              [search]="search"
-              [describedBy]="productDescribedBy()"
-              [invalid]="productError() !== ''"
-              (picked)="chooseProduct($event)"
-              (announce)="announcer.announce($event)"
-            />
-            <p
-              [id]="idPrefix() + '-product-hint'"
-              class="mt-1 max-w-[52ch] text-xs text-(--text-secondary)"
-              i18n="@@vendor.catalogue.form.product.hint"
-            >
-              Search the products published on AEC Integrations by name.
-            </p>
-            @if (productError()) {
-              <p
-                [id]="idPrefix() + '-product-error'"
-                class="mt-1 text-xs font-medium text-(--status-error)"
-              >
-                {{ productError() }}
+        @if (namesProduct()) {
+          <div [class]="fieldClass">
+            @if (product(); as p) {
+              <p [class]="labelClass" i18n="@@vendor.catalogue.form.product">
+                Product on AEC Integrations
               </p>
+              <p class="flex flex-wrap items-center gap-3 text-sm text-(--text-primary)">
+                <span class="font-semibold" data-chosen-product>{{ p.name }}</span>
+                <button
+                  #changeButton
+                  aecButton
+                  variant="secondary"
+                  compact
+                  type="button"
+                  (click)="clearProduct()"
+                  [attr.aria-label]="changeProductLabel(p.name)"
+                  i18n="@@vendor.catalogue.form.product.change"
+                >
+                  Change
+                </button>
+              </p>
+            } @else {
+              <label
+                [class]="labelClass"
+                [attr.for]="idPrefix() + '-product'"
+                i18n="@@vendor.catalogue.form.product"
+                >Product on AEC Integrations</label
+              >
+              <aec-product-combobox
+                [inputId]="idPrefix() + '-product'"
+                [search]="search"
+                [describedBy]="productDescribedBy()"
+                [invalid]="productError() !== ''"
+                (picked)="chooseProduct($event)"
+                (announce)="announcer.announce($event)"
+              />
+              <p
+                [id]="idPrefix() + '-product-hint'"
+                [class]="hintClass"
+                i18n="@@vendor.catalogue.form.product.hint"
+              >
+                Search the products published on AEC Integrations by name.
+              </p>
+              @if (productError()) {
+                <p [id]="idPrefix() + '-product-error'" [class]="errorClass">
+                  {{ productError() }}
+                </p>
+              }
             }
+          </div>
+        }
+
+        <!-- Wrapped: <aec-select> is an inline host, so the form's vertical rhythm
+             only reaches it through a block parent. -->
+        <div [class]="fieldClass">
+          <aec-select
+            i18n-label="@@vendor.catalogue.form.confidence"
+            label="Confidence"
+            layout="stacked"
+            [options]="confidenceOptions"
+            [value]="confidence()"
+            [idPrefix]="idPrefix() + '-confidence'"
+            (changed)="confidence.set($event)"
+          />
+        </div>
+
+        <div [class]="fieldClass + ' ' + spanClass">
+          <label
+            [class]="labelClass"
+            [attr.for]="idPrefix() + '-evidence'"
+            i18n="@@vendor.catalogue.form.evidence"
+            >Evidence link (optional)</label
+          >
+          <input
+            [id]="idPrefix() + '-evidence'"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            [attr.maxlength]="maxUrlLength"
+            [class]="inputClass"
+            [attr.aria-describedby]="evidenceDescribedBy()"
+            [attr.aria-invalid]="evidenceError() ? 'true' : null"
+            [value]="evidence()"
+            (input)="evidence.set(inputValue($event))"
+          />
+          <p [id]="idPrefix() + '-evidence-hint'" [class]="hintClass">
+            <strong class="font-semibold text-(--text-primary)"
+              ><span i18n="@@vendor.catalogue.form.evidence.rule"
+                >Starts with https://.</span
+              ></strong
+            >{{ ' '
+            }}<span i18n="@@vendor.catalogue.form.evidence.hint"
+              >A page that shows this listing connects to the product, such as its page in your
+              catalog.</span
+            >
+          </p>
+          @if (evidenceError()) {
+            <p [id]="idPrefix() + '-evidence-error'" [class]="errorClass">
+              {{ evidenceError() }}
+            </p>
           }
         </div>
-      }
 
-      <!-- Wrapped: <aec-select> is an inline host, so the form's vertical rhythm
-           only reaches it through a block parent. -->
-      <div>
-        <aec-select
-          i18n-label="@@vendor.catalogue.form.confidence"
-          label="Confidence"
-          layout="stacked"
-          [options]="confidenceOptions"
-          [value]="confidence()"
-          [idPrefix]="idPrefix() + '-confidence'"
-          (changed)="confidence.set($event)"
-        />
-      </div>
-
-      <div>
-        <label
-          [class]="labelClass"
-          [attr.for]="idPrefix() + '-evidence'"
-          i18n="@@vendor.catalogue.form.evidence"
-          >Evidence link (optional)</label
-        >
-        <input
-          [id]="idPrefix() + '-evidence'"
-          type="url"
-          inputmode="url"
-          autocomplete="off"
-          [attr.maxlength]="maxUrlLength"
-          [class]="evidenceError() ? inputErrorClass : inputClass"
-          [attr.aria-describedby]="evidenceDescribedBy()"
-          [attr.aria-invalid]="evidenceError() ? 'true' : null"
-          [value]="evidence()"
-          (input)="evidence.set(inputValue($event))"
-        />
-        <p
-          [id]="idPrefix() + '-evidence-hint'"
-          class="mt-1 max-w-[52ch] text-xs text-(--text-secondary)"
-        >
-          <strong class="font-semibold text-(--text-primary)"
-            ><span i18n="@@vendor.catalogue.form.evidence.rule">Starts with https://.</span></strong
-          >{{ ' '
-          }}<span i18n="@@vendor.catalogue.form.evidence.hint"
-            >A page that shows this listing connects to the product, such as its page in your
-            catalog.</span
-          >
+        <!-- Said out loud: saving is what makes a matched listing count publicly. -->
+        <p [class]="hintClass + ' ' + spanClass" i18n="@@vendor.catalogue.form.decider">
+          Saving records your company as the one who decided. A matched listing then counts toward
+          that product's reach on AEC Integrations.
         </p>
-        @if (evidenceError()) {
-          <p
-            [id]="idPrefix() + '-evidence-error'"
-            class="mt-1 text-xs font-medium text-(--status-error)"
-          >
-            {{ evidenceError() }}
-          </p>
-        }
       </div>
 
-      <!-- Said out loud: saving is what makes a matched listing count publicly. -->
-      <p
-        class="max-w-[52ch] text-xs text-(--text-secondary)"
-        i18n="@@vendor.catalogue.form.decider"
-      >
-        Saving records your company as the one who decided. A matched listing then counts toward
-        that product's reach on AEC Integrations.
-      </p>
-
-      <div class="flex flex-wrap items-center gap-3">
-        <button type="submit" [class]="primaryButtonClass" [disabled]="pending()">
+      <div [class]="saveBarClass">
+        <div [class]="saveStatusClass">
+          @if (failed()) {
+            <p class="font-semibold text-(--text-primary)" role="alert" data-save-error>
+              {{ failed() }}
+            </p>
+          }
+        </div>
+        <button aecButton type="submit" [class]="saveButtonClass" [disabled]="pending()">
           @if (pending()) {
             <span i18n="@@vendor.catalogue.form.saving">Saving…</span>
           } @else {
@@ -256,8 +271,10 @@ export function catalogueSaveErrorMessage(err: unknown): string {
           }
         </button>
         <button
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="secondaryButtonClass"
+          [class]="saveButtonClass"
           [disabled]="pending()"
           (click)="cancelled.emit()"
           i18n="@@vendor.catalogue.form.cancel"
@@ -265,12 +282,6 @@ export function catalogueSaveErrorMessage(err: unknown): string {
           Cancel
         </button>
       </div>
-
-      @if (failed()) {
-        <p class="text-sm font-medium text-(--text-primary)" role="alert" data-save-error>
-          {{ failed() }}
-        </p>
-      }
     </form>
   `,
 })
@@ -414,18 +425,24 @@ export class VendorConnectorMappingForm {
     }
   }
 
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** The error tell is the border plus the message, never a dimmed value. The
-   *  border colour is an arbitrary-property class. It never painted until
-   *  AECI-2088 moved the `*` border rule in `styles.css` into `@layer base`. */
-  protected readonly inputErrorClass =
-    'w-full rounded-(--radius-md) border [border-color:var(--status-error)] bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */
-  protected readonly primaryButtonClass =
-    'inline-flex min-h-10 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
-  protected readonly secondaryButtonClass =
-    'inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
+  // AECI-1811: the portal form layout (`vendor/shared/portal-form.ts`) and the shared
+  // field recipe. The form is a bordered panel inside a listing row, not a card, so
+  // the panel carries the padding and the bar keeps to the panel's width.
+  protected readonly formClass = `${PORTAL_FORM_CLASS} mt-4 block max-w-3xl rounded-panel border border-(--border-default) bg-(--surface-base) p-6`;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  /**
+   * The portal save bar without its pull over a card's padding (the panel is not a
+   * card, see `vendor-integration-edit-form.ts`). Same sticky foot, hairline, order
+   * and wrap, and the `aec-portal-save-bar` marker `PORTAL_FORM_CLASS` reads.
+   */
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = `max-w-[52ch] ${FIELD_HINT_CLASS}`;
+  /** `aria-invalid` paints the field's red edge (`.aec-field-control`, AECI-1984). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
 }

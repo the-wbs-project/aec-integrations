@@ -1,157 +1,68 @@
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import type { ChipTone } from '../../shared/chip/chip';
+import type { AecIconName } from '../../shared/icon/icon-registry';
+import { PORTAL_FORM_CLASS } from '../shared/portal-form';
+
+import type { Tone } from './integration-detail-model';
+
 /**
- * Shared styling for the integration detail page (§6.17).
+ * Shared styling for the integration detail page (§6.17), in the portal's design
+ * language (AECI-1811, mock-up 13).
  *
- * ── WHY COMPONENT CSS AND NOT TAILWIND FOR THESE ────────────────────────────
- * `styles.css` sets `border-color` on `*` outside any cascade layer, so a layered
- * `border-(--…)` utility never reaches the element (the `.aec-nav-tab` note in
- * `styles.css`, DESIGN.md "Vendor portal"). Emulated component styles are
- * unlayered and carry an attribute selector, so they win. Every coloured border
- * on the page therefore lives here, and every component in this folder includes
- * {@link ID_STYLES}.
+ * Buttons are `aecButton`, icons `aec-icon`, statuses `aec-chip`, panels `aecCard`.
+ * What is left here is the handful of class strings several files in this folder
+ * share. The page used to carry its own unlayered component CSS (borders, heading
+ * sizes, pills, segmented toggles). AECI-2088 made border utilities apply, and the
+ * global heading rules size `h2` and `h3`, so all of that is gone.
  *
- * Heading sizes live here for the same reason: `styles.css` sizes `h1` to `h3`
- * outside any layer, so a `text-*` utility on a heading is dead (DESIGN.md §3,
- * "The Unlayered-Heading Rule"). The classes below are unlayered too.
- *
- * Light only (AECI-226). Tokens only, no literals (AECI-597).
+ * Whole class names, so Tailwind's scanner sees each one. Light only.
  */
-export const ID_STYLES = `
-  :host { display: block; }
+export const ID_STYLES = `:host { display: block; }`;
 
-  .id-h2 { font-family: var(--font-display); font-size: 1.5rem; line-height: 1.25; font-weight: 600; }
-  .id-h3 { font-family: var(--font-display); font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
-  .id-h3-slim { font-family: var(--font-display); font-size: 1.125rem; line-height: 1.3; font-weight: 600; }
-  .id-h4 {
-    font-family: var(--font-body);
-    font-size: 0.875rem;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--text-primary);
-  }
+/** Help under a control: 12px secondary ink. */
+export const HELP = `mt-1 ${FIELD_HINT_CLASS}`;
+/** An inline refusal or field error. Carries `role="alert"` where it is used. */
+export const ALERT = FIELD_ERROR_CLASS;
+/** A text input, textarea or select: the shared field recipe. */
+export const INPUT = FIELD_INPUT_CLASS;
 
-  .id-card {
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    background-color: var(--surface-base);
-  }
-  .id-well {
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    background-color: var(--surface-raised);
-  }
-  .id-callout {
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-lg);
-    background-color: var(--accent-warm);
-  }
-  .id-danger {
-    border: 1px solid var(--status-error);
-    border-radius: var(--radius-lg);
-    background-color: var(--surface-base);
-  }
+/**
+ * A form nested inside a row or a section: a white panel with the default edge. It
+ * is white so the nested save bar (below) sits on the same ground. It carries
+ * `PORTAL_FORM_CLASS` whole: that class is scroll margins only, no layout, and it
+ * keeps a control focused by Tab clear of the sticky bar (WCAG 2.4.11). Every form
+ * that renders `PORTAL_NESTED_SAVE_BAR_CLASS` (`vendor/shared/portal-form.ts`) binds this panel.
+ */
+export const FORM_PANEL = `rounded-panel border border-(--border-default) bg-(--surface-base) p-4 ${PORTAL_FORM_CLASS}`;
 
-  .id-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    white-space: nowrap;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    background-color: var(--surface-raised);
-    padding: 0.125rem 0.5rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    line-height: 1.25rem;
-    color: var(--text-primary);
-  }
-  .id-pill[data-tone='ok'] {
-    border-color: var(--accent-primary);
-    background-color: var(--accent-primary-soft);
-    color: var(--accent-primary);
-  }
-  .id-pill[data-tone='conflict'] {
-    border-color: var(--status-error);
-    background-color: var(--surface-base);
-    color: var(--status-error);
-  }
-
-  .id-seg {
-    display: inline-flex;
-    overflow: hidden;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-  }
-  .id-seg-btn + .id-seg-btn { border-inline-start: 1px solid var(--border-strong); }
-  .id-seg-btn[aria-pressed='true'],
-  .id-seg-btn[aria-pressed='true']:hover {
-    background-color: var(--accent-primary);
-    color: var(--surface-base);
-  }
-
-  .id-chip { border: 1px solid var(--border-strong); }
-  .id-chip[aria-pressed='true'] {
-    border-color: var(--accent-primary);
-    background-color: var(--accent-primary-soft);
-    color: var(--accent-primary);
-  }
-
-  .id-navlink { border-inline-start: 2px solid transparent; }
-  .id-navlink[aria-current='location'] {
-    border-inline-start-color: var(--accent-primary);
-    color: var(--text-primary);
-    background-color: var(--surface-sunken);
-  }
-
-  /* "You submitted a change" (§6.17.4, AECI-1246): attached to the row above it,
-     so it reads as part of that row and not as another data row. */
-  .id-change-box {
-    border-inline-start: 3px solid var(--accent-primary);
-    background-color: var(--surface-sunken);
-  }
-
-  .id-rail { border-inline-start: 1px solid var(--border-strong); }
-  .id-rail-dot {
-    border: 2px solid var(--surface-base);
-    background-color: var(--text-secondary);
-  }
-
-  .id-input {
-    width: 100%;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
-    background-color: var(--surface-base);
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    color: var(--text-primary);
-  }
-  .id-input-search { padding-inline-start: 2.25rem; }
-  .id-input:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
-  .id-input[aria-invalid='true'] { border-color: var(--status-error); }
-
-  .id-btn-secondary { border: 1px solid var(--border-strong); }
-  .id-icon-btn { border: 1px solid transparent; }
-  .id-icon-btn-bordered { border: 1px solid var(--border-strong); }
-`;
-
-const FOCUS =
-  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-export const BTN_PRIMARY = `inline-flex min-h-9 items-center justify-center gap-2 rounded-(--radius-md) bg-(--accent-primary) px-4 py-2 text-sm font-semibold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`;
-
-export const BTN_SECONDARY = `id-btn-secondary inline-flex min-h-9 items-center justify-center gap-2 rounded-(--radius-md) bg-(--surface-base) px-3.5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`;
-
-export const BTN_DANGER = `inline-flex min-h-9 items-center justify-center rounded-(--radius-md) bg-(--status-error) px-4 py-2 text-sm font-semibold text-(--surface-base) transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`;
-
-/** A text-style action that sits on a row ("Request a change", "Claim to edit"). */
-export const ROW_ACTION = `inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`;
-
-/** The pencil and other icon-only buttons: at least 32 by 32, above the 24 by 24
- *  WCAG 2.5.8 floor. */
-export const ICON_BUTTON = `id-icon-btn inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-(--radius-md) text-(--text-secondary) hover:bg-(--surface-sunken) hover:text-(--text-primary) ${FOCUS}`;
-
-export const LABEL = 'block text-sm font-semibold text-(--text-primary)';
-export const HELP = 'mt-1 text-sm text-(--text-secondary)';
-export const ALERT = 'text-sm font-medium text-(--status-error)';
+/** A read-only note inside a row (a company's note, a reason): the sunken panel. */
+export const NOTE_PANEL = 'rounded-panel bg-(--surface-sunken) px-4 py-3';
 
 /** The in-text link role (DESIGN.md, "The Link Treatment Rule"). */
-export const IN_TEXT_LINK = `rounded-(--radius-sm) text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) ${FOCUS}`;
+export const IN_TEXT_LINK =
+  'rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+
+/**
+ * A status on `aec-chip` (AECI-1811). The tones are the ones the portal's status
+ * pill already drew: Forest wash for up to date, the one red for a disagreement, a
+ * strong edge for everything else. Work that needs someone keeps its own mark (it
+ * was a Clay dot), so the two strong-edged states still differ by more than words.
+ * The integrations list and every status on the detail page read these two maps.
+ */
+export const STATUS_CHIP_TONE: Record<Tone, ChipTone> = {
+  ok: 'wash',
+  conflict: 'error',
+  attention: 'strong',
+  neutral: 'strong',
+};
+
+export const STATUS_CHIP_ICON: Record<Tone, AecIconName | null> = {
+  ok: 'check',
+  conflict: 'x',
+  attention: 'exclamation',
+  neutral: null,
+};

@@ -1429,8 +1429,8 @@ portal still never recomputes agreement. States, most urgent first:
 | `empty` | No data flows | No claims. |
 
 A counterpart takes its most urgent integration's state, and its counts are the sum. Pill tones reuse
-the overview's "What needs you" pills (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10), including the
-unlayered `.aec-pill-*` border classes. The copy says "data flows", not "data points", to match
+the overview's "What needs you" pills (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). Since AECI-1811
+they are `aec-chip` tones, and the old unlayered pill border classes are gone (AECI-1729). The copy says "data flows", not "data points", to match
 every other sentence on the tab.
 
 **Order is alphabetical by counterpart, never by health.** An Affirm is optimistic and changes health
@@ -3368,7 +3368,7 @@ CHECK. Changing it recreates the table on D1, and a recreate fires `ON DELETE CA
 | Option | Verdict |
 |---|---|
 | (a) a nullable marker column on `attestations` | Rejected. The answer still needs a `source` under the CHECK. In `vendor_a`/`vendor_b` it reads as an endpoint vendor's vote in every reader that ignores the marker. In `aeci` it collides with AECi's live seed on `attestations_slot_key`. |
-| (b) a new table, `claim_owner_answers` (migration 0130, plain `CREATE TABLE`) | **Chosen.** Every existing reader of `attestations` stays exactly as it was. A reader that does not know the table fails safe. |
+| (b) a new table, `claim_owner_answers` (migration 0131, plain `CREATE TABLE`) | **Chosen.** Every existing reader of `attestations` stays exactly as it was. A reader that does not know the table fails safe. |
 | (c) reuse a slot with a marker | Rejected for the same reasons as (a). An unmarked `aeci` row would say AECi said it. |
 
 `claim_owner_answers` holds one live row per claim (`claim_owner_answers_live_key`, partial on

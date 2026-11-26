@@ -301,3 +301,63 @@ describe('restore', () => {
     );
   });
 });
+
+describe('focus and button severity (AECI-2112)', () => {
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('Escape closes the retire form and returns focus to Retire', async () => {
+    const row = makeRow();
+    const { fixture, el } = await create([row]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    escape(el.querySelector('textarea')!);
+    await settle(fixture);
+    expect(el.querySelector('form')).toBeNull();
+    expect(document.activeElement?.id).toBe(`admin-integration-action-${row.id}`);
+  });
+
+  it('Escape does nothing while the retire is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    api.setIntegrationRetired.mockReturnValue(new Promise((r) => (resolve = r)));
+    const row = makeRow();
+    const { fixture, el } = await create([row]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    typeReason(el, 'False listing.');
+    button(el, 'Retire integration')!.click();
+    await settle(fixture);
+    escape(el.querySelector('textarea')!);
+    await settle(fixture);
+    expect(el.querySelector('form')).not.toBeNull();
+    resolve({
+      integration: {
+        id: row.id,
+        retired_at: '2026-09-22T00:00:00.000Z',
+        retired_by: 'aeci',
+        updated_at: '2026-09-22T00:00:00.000Z',
+      },
+      withdrawn_contest_ids: [],
+    });
+    await settle(fixture);
+  });
+
+  it('a refused retire moves focus to its message', async () => {
+    api.setIntegrationRetired.mockRejectedValue(apiError(500, 'INTERNAL'));
+    const row = makeRow();
+    const { fixture, el } = await create([row]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    typeReason(el, 'False listing.');
+    button(el, 'Retire integration')!.click();
+    await settle(fixture);
+    expect(document.activeElement?.id).toBe(`admin-integration-${row.id}-error`);
+  });
+
+  it('confirms a retire with a danger button: Restore reopens none of what it closes (DESIGN.md §5)', async () => {
+    const { fixture, el } = await create([makeRow()]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    expect(button(el, 'Retire integration')!.getAttribute('data-variant')).toBe('danger');
+  });
+});

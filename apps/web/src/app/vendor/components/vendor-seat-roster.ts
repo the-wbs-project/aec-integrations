@@ -9,6 +9,10 @@ import {
   type VendorSeat,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -50,48 +54,50 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-seat-roster',
-  imports: [DatePipe],
+  imports: [AecButton, AecCard, Chip, DatePipe],
   template: `
     @if (canManage()) {
-      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.owner">
+      <p
+        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.seats.intro.owner"
+      >
         Everyone with access to this vendor. You can invite anyone who helps maintain this listing,
         and remove access when someone leaves.
       </p>
     } @else {
-      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.member">
+      <p
+        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.seats.intro.member"
+      >
         Everyone with access to this vendor. Ask an account owner (listed below) to add or remove a
         colleague.
       </p>
     }
 
     @if (canManage() && claims().length > 0) {
-      <section class="mt-6" aria-labelledby="vendor-seats-claims-heading">
-        <h3
-          id="vendor-seats-claims-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.seats.claims.heading"
-        >
-          Wants to join
-        </h3>
+      <!-- AECI-1812: the claims that need an owner sit on the shared white card, rows
+           divided by hairlines, like the Overview's "What needs you" list. -->
+      <section aecCard [class]="'mt-6 p-6'" aria-labelledby="vendor-seats-claims-heading">
+        <h3 id="vendor-seats-claims-heading" i18n="@@vendor.seats.claims.heading">Wants to join</h3>
         <p
-          class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.seats.claims.intro"
         >
           These people asked AEC Integrations to let them manage this company. Accept sends them a
           seat invite at the work email they gave. Their seat is not an owner seat. Decline tells
           them the claim was not approved. If no owner decides in time, AEC Integrations reviews it.
         </p>
-        <ul class="mt-3 divide-y divide-(--border-default) border-y border-(--border-default)">
+        <ul class="mt-4 divide-y divide-(--border-default) border-t border-(--border-default)">
           @for (claim of claims(); track claim.id) {
-            <li class="flex flex-wrap items-start justify-between gap-3 py-3">
+            <li class="flex flex-wrap items-start justify-between gap-4 py-4 last:pb-0">
               <div class="min-w-0 space-y-1">
-                <p class="text-sm font-semibold text-(--text-primary)">
+                <p class="text-sm font-semibold break-words text-(--text-primary)">
                   {{ claim.submitter_name || claim.submitter_email }}
                   @if (claim.submitter_title || claim.submitter_role; as title) {
                     <span class="font-normal text-(--text-secondary)">· {{ title }}</span>
                   }
                 </p>
-                <p class="text-sm text-(--text-secondary)">
+                <p class="text-sm break-words text-(--text-secondary)">
                   <span i18n="@@vendor.seats.claims.email">Work email:</span>
                   {{ claim.submitter_email }}
                 </p>
@@ -101,36 +107,38 @@ import { VendorPortalStore } from '../vendor-portal-store';
                       [href]="linkedin"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="rounded-mark text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       i18n="@@vendor.seats.claims.linkedin"
                       >LinkedIn profile</a
                     >
                   </p>
                 }
                 @if (claim.context_product_name; as product) {
-                  <p class="text-xs text-(--text-secondary)">
+                  <p class="text-t-13 text-(--text-secondary)">
                     <span i18n="@@vendor.seats.claims.cameFrom">Sent from the page for</span>
                     {{ product }}
                   </p>
                 }
                 @if (claim.comments) {
-                  <p class="text-sm whitespace-pre-line text-(--text-primary)">
+                  <p class="text-sm break-words whitespace-pre-line text-(--text-primary)">
                     {{ claim.comments }}
                   </p>
                 }
-                <p class="text-xs text-(--text-secondary)">
+                <p class="text-t-13 text-(--text-secondary)">
                   <ng-container i18n="@@vendor.seats.claims.asked">Asked</ng-container>
                   {{ claim.created_at | date: 'mediumDate' }}
                   <ng-container i18n="@@vendor.seats.claims.decideBy">· decide by</ng-container>
                   {{ decideBy(claim) | date: 'mediumDate' }}
                 </p>
               </div>
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex shrink-0 flex-wrap items-center gap-2">
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
                   [disabled]="busyClaim() !== null"
                   (click)="acceptClaim(claim)"
-                  [class]="dangerClass"
                 >
                   @if (isClaimBusy(claim, 'accept')) {
                     <span i18n="@@vendor.seats.claims.accepting">Accepting…</span>
@@ -142,10 +150,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   >
                 </button>
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
                   [disabled]="busyClaim() !== null"
                   (click)="declineClaim(claim)"
-                  [class]="dangerClass"
                 >
                   @if (isClaimBusy(claim, 'decline')) {
                     <span i18n="@@vendor.seats.claims.declining">Declining…</span>
@@ -164,60 +174,52 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (loading()) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.seats.loading">
+      <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.seats.loading">
         Loading seats…
       </p>
     } @else if (failed()) {
-      <div class="mt-4 flex flex-wrap items-center gap-3">
+      <div class="mt-6 flex flex-wrap items-center gap-4">
         <p class="text-sm text-(--text-primary)" i18n="@@vendor.seats.error">
           Could not load the seat list.
         </p>
-        <button type="button" [class]="retryClass" (click)="reload()" i18n="@@vendor.seats.retry">
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          (click)="reload()"
+          i18n="@@vendor.seats.retry"
+        >
           Try again
         </button>
       </div>
     } @else if (seats().length === 0) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.seats.empty">
+      <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.seats.empty">
         No seats to show.
       </p>
     } @else {
-      <div class="mt-4 overflow-x-auto">
+      <!-- The region is positioned, so the visually hidden names inside the row
+           buttons (absolute boxes) stay inside it. Unpositioned, they escaped the
+           scroller and pushed the whole page sideways at 390px (AECI-1812). -->
+      <div
+        class="relative mt-6 min-w-0 overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        role="region"
+        tabindex="0"
+        aria-labelledby="vendor-seats-caption"
+        data-seats-region
+      >
         <table class="w-full min-w-[32rem] border-collapse text-start text-sm">
-          <caption class="sr-only" i18n="@@vendor.seats.caption">
+          <caption id="vendor-seats-caption" class="sr-only" i18n="@@vendor.seats.caption">
             Vendor seats
           </caption>
           <thead>
-            <tr class="border-b border-(--border-default) text-(--text-secondary)">
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.name"
-              >
-                Name
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.email"
-              >
-                Email
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.status"
-              >
-                Status
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.added"
-              >
-                Added
-              </th>
+            <tr>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.name">Name</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.email">Email</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.status">Status</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.added">Added</th>
               @if (canManage()) {
-                <th scope="col" class="py-2 font-label font-semibold">
+                <th scope="col" [class]="headClass">
                   <span class="sr-only" i18n="@@vendor.seats.col.actions">Actions</span>
                 </th>
               }
@@ -225,50 +227,48 @@ import { VendorPortalStore } from '../vendor-portal-store';
           </thead>
           <tbody>
             @for (seat of seats(); track seat.user_id) {
-              <tr class="border-b border-(--border-default) last:border-0">
-                <td class="py-3 pe-4 text-(--text-primary)">
-                  {{ seat.display_name || fallbackName }}
+              <tr>
+                <td [class]="cellClass + ' text-(--text-primary)'">
+                  <span class="font-semibold">{{ seat.display_name || fallbackName }}</span>
                   @if (seat.is_self) {
-                    <span class="text-(--text-secondary)" i18n="@@vendor.seats.you">(you)</span>
+                    <span class="ms-1 text-(--text-secondary)" i18n="@@vendor.seats.you"
+                      >(you)</span
+                    >
                   }
                   @if (seat.owner) {
-                    <span
-                      class="ms-1 text-xs text-(--text-secondary)"
+                    <aec-chip
+                      class="ms-2 align-middle"
+                      density="dense"
                       i18n="@@vendor.seats.ownerLabel"
-                      >Owner</span
+                      >Owner</aec-chip
                     >
                   }
                 </td>
-                <td class="py-3 pe-4 text-(--text-secondary)">
+                <td [class]="cellClass + ' break-words text-(--text-secondary)'">
                   {{ seat.email || emailUnavailable }}
                 </td>
-                <td class="py-3 pe-4">
-                  <span
-                    class="inline-flex items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]"
-                    [class]="
-                      seat.banned
-                        ? 'border-(--border-strong) bg-(--surface-raised) text-(--text-primary)'
-                        : 'border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)'
-                    "
-                  >
+                <td [class]="cellClass">
+                  <aec-chip density="dense" [tone]="seat.banned ? 'strong' : 'forest'">
                     @if (seat.banned) {
                       <span i18n="@@vendor.seats.status.banned">Banned</span>
                     } @else {
                       <span i18n="@@vendor.seats.status.active">Active</span>
                     }
-                  </span>
+                  </aec-chip>
                 </td>
-                <td class="py-3 pe-4 text-(--text-secondary)">
+                <td [class]="cellClass + ' whitespace-nowrap text-(--text-secondary)'">
                   {{ seat.created_at | date: 'mediumDate' }}
                 </td>
                 @if (canManage()) {
-                  <td class="py-3 text-end">
+                  <td [class]="actCellClass">
                     @if (!seat.is_self) {
                       <button
+                        aecButton
+                        variant="secondary"
+                        compact
                         type="button"
                         [disabled]="busySeat() === seat.user_id"
                         (click)="remove(seat)"
-                        [class]="dangerClass"
                       >
                         <span i18n="@@vendor.seats.remove">Remove</span>
                         <span class="sr-only"
@@ -286,19 +286,16 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (invites().length > 0) {
-      <section class="mt-6">
-        <h3
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.seats.pending.heading"
-        >
-          Pending invites
-        </h3>
-        <ul class="mt-2 divide-y divide-(--border-default) border-y border-(--border-default)">
+      <section class="mt-8">
+        <h3 i18n="@@vendor.seats.pending.heading">Pending invites</h3>
+        <ul class="mt-4 divide-y divide-(--border-default) border-y border-(--border-default)">
           @for (invite of invites(); track invite.id) {
-            <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+            <li class="flex flex-wrap items-center justify-between gap-4 py-4">
               <div class="min-w-0">
-                <p class="text-sm text-(--text-primary)">{{ invite.email }}</p>
-                <p class="text-xs text-(--text-secondary)">
+                <p class="text-sm font-semibold break-words text-(--text-primary)">
+                  {{ invite.email }}
+                </p>
+                <p class="mt-1 text-t-13 text-(--text-secondary)">
                   <ng-container i18n="@@vendor.seats.pending.sent">Sent</ng-container>
                   {{ invite.last_sent_at || invite.created_at | date: 'mediumDate' }}
                   <ng-container i18n="@@vendor.seats.pending.expires">· expires</ng-container>
@@ -310,16 +307,18 @@ import { VendorPortalStore } from '../vendor-portal-store';
                 </p>
               </div>
               @if (canManage()) {
-                <div class="flex shrink-0 items-center gap-2">
+                <div class="flex shrink-0 flex-wrap items-center gap-2">
                   <!-- Disabled states carry their reason in the accessible name,
                        not just in the visual state: a cooldown clears itself in
                        minutes, a spent invite never does, and the two need
                        opposite next steps. -->
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
                     [disabled]="busyInvite() !== null || invite.resend_state !== 'ok'"
                     (click)="resend(invite)"
-                    [class]="dangerClass"
                     [attr.title]="resendHint(invite)"
                   >
                     @if (isBusy(invite, 'resend')) {
@@ -332,10 +331,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     >
                   </button>
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
                     [disabled]="busyInvite()?.id === invite.id"
                     (click)="revoke(invite)"
-                    [class]="dangerClass"
                   >
                     <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
                     <span class="sr-only">&ngsp;{{ invite.email }}</span>
@@ -349,16 +350,19 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (actionError(); as message) {
-      <p class="mt-3 text-sm text-(--text-primary)" role="alert">{{ message }}</p>
+      <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">{{ message }}</p>
     }
     @if (actionStatus(); as message) {
-      <p class="mt-3 text-sm text-(--text-secondary)" role="status">{{ message }}</p>
+      <!-- Plain text. The same sentence goes to the portal's one live region
+           (VendorPortalAnnouncer), so it is announced once (AECI-1812). -->
+      <p class="mt-4 text-sm text-(--text-secondary)" data-seats-status>{{ message }}</p>
     }
   `,
   styles: [':host { display: block; }'],
 })
 export class VendorSeatRoster {
   private readonly store = inject(VendorPortalStore);
+  private readonly announcer = inject(VendorPortalAnnouncer);
 
   /** The seat count from the dashboard payload — shown by the parent as a
    *  header; the detailed roster loads separately. Optional so the component is
@@ -386,10 +390,11 @@ export class VendorSeatRoster {
    *  whose `resend_state` makes a send impossible. */
   protected readonly busyInvite = signal<{ id: string; action: 'resend' | 'revoke' } | null>(null);
   protected readonly actionError = signal<string | null>(null);
-  /** The success half of {@link actionError} — a `role="status"` line, so a
-   *  re-send that produces no visible list change is still announced. Kept
-   *  separate rather than reusing the error signal so the two can never end up
-   *  in the same live region with the wrong politeness. */
+  /** The success half of {@link actionError}: a plain line under the list, so a
+   *  re-send that produces no visible list change still shows. The same sentence
+   *  is announced through {@link VendorPortalAnnouncer} (AECI-1812), the portal's
+   *  one live region. Kept separate from the error signal, which stays
+   *  `role="alert"`. */
   protected readonly actionStatus = signal<string | null>(null);
   protected readonly loading = this.store.seatsLoading;
   protected readonly failed = this.store.seatsFailed;
@@ -401,11 +406,15 @@ export class VendorSeatRoster {
   protected readonly fallbackName = $localize`:@@vendor.seats.name.fallback:Unnamed admin`;
   protected readonly emailUnavailable = $localize`:@@vendor.seats.email.unavailable:Email unavailable`;
 
-  protected readonly dangerClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-2.5 py-1 text-xs font-label text-(--text-primary) transition-colors hover:border-(--border-strong) disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** A header cell: the Label role, a hairline above and a strong rule below
+   *  (the console table's header, without borrowing the admin recipe). */
+  protected readonly headClass =
+    'whitespace-nowrap border-t border-b border-t-(--border-default) border-b-(--border-strong) py-2 pe-4 text-start align-bottom text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary) last:pe-0';
+  /** A body cell, on a hairline. */
+  protected readonly cellClass = 'border-b border-(--border-default) py-3 pe-4 align-middle';
+  /** The last cell, holding the row's one 44px action. */
+  protected readonly actCellClass =
+    'border-b border-(--border-default) py-2 text-end align-middle whitespace-nowrap';
 
   constructor() {
     // Browser-only: the seat read (with its Supabase email lookup) runs after
@@ -472,7 +481,7 @@ export class VendorSeatRoster {
    * change is a "Sent" date and a now-disabled button, and guessing either
    * locally would mean re-implementing the cooldown the server just applied.
    *
-   * The confirmation is a `role="status"` line rather than the list itself,
+   * The confirmation is a status line (announced once) rather than the list itself,
    * because a successful re-send moves no row — without it the only feedback
    * would be a button going quiet, which reads like a failure.
    */
@@ -483,7 +492,7 @@ export class VendorSeatRoster {
     this.actionStatus.set(null);
     try {
       await this.api.resendInvite(invite.id);
-      this.actionStatus.set(
+      this.settle(
         $localize`:@@vendor.seats.resend.sent:Invite sent again to ${invite.email}:email:.`,
       );
       // The server's row, not a local splice: it holds the new expiry and the
@@ -511,7 +520,7 @@ export class VendorSeatRoster {
       const { invite, invite_sent } = await this.api.acceptSeatClaim(claim.id);
       // `invite_sent: false` means the claimant already held a pending invite, so the
       // server reused it and mailed nothing. Saying "was sent" there would be false.
-      this.actionStatus.set(
+      this.settle(
         invite_sent
           ? $localize`:@@vendor.seats.claims.accepted:Accepted. A seat invite was sent to ${invite.email}:email:.`
           : $localize`:@@vendor.seats.claims.acceptedExistingInvite:Accepted. ${invite.email}:email: already has a seat invite, so no new email was sent.`,
@@ -537,7 +546,7 @@ export class VendorSeatRoster {
     try {
       await this.api.declineSeatClaim(claim.id);
       const who = claim.submitter_name || claim.submitter_email;
-      this.actionStatus.set(
+      this.settle(
         $localize`:@@vendor.seats.claims.declined:Declined the request from ${who}:name:.`,
       );
       await this.store.reload('seats');
@@ -549,6 +558,13 @@ export class VendorSeatRoster {
     } finally {
       this.busyClaim.set(null);
     }
+  }
+
+  /** A write succeeded: show the sentence as plain text under the list and say it
+   *  once through the portal's one live region (STAGE_2_REALTIME_SPEC.md §6.3). */
+  private settle(message: string): void {
+    this.actionStatus.set(message);
+    this.announcer.announce(message);
   }
 
   protected isClaimBusy(claim: PendingSeatClaim, action: 'accept' | 'decline'): boolean {

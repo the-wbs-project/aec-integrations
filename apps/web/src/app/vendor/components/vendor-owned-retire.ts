@@ -16,6 +16,7 @@ import {
 
 import type { OwnedIntegration } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -63,17 +64,20 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
  */
 @Component({
   selector: 'aec-vendor-owned-retire',
+  imports: [AecButton],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
     @switch (state()) {
       @case ('live') {
-        <div class="mt-3" data-testid="owned-retire">
+        <div class="mt-4" data-testid="owned-retire">
           @if (!confirming()) {
             <button
               #trigger
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryButtonClass"
               (click)="openConfirm()"
               data-testid="owned-retire-trigger"
               i18n="@@vendor.ownedRetire.trigger"
@@ -85,7 +89,7 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
               role="group"
               [attr.aria-labelledby]="id('title')"
               [attr.aria-describedby]="id('body')"
-              class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
+              class="rounded-panel border border-(--border-strong) bg-(--surface-sunken) p-6"
               data-testid="owned-retire-confirm"
             >
               <p
@@ -95,14 +99,15 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
               >
                 Retire this integration?
               </p>
-              <p [id]="id('body')" class="mt-1 max-w-prose text-sm text-(--text-secondary)">
+              <p [id]="id('body')" class="mt-2 max-w-prose text-sm text-(--text-secondary)">
                 {{ confirmBody() }}
               </p>
-              <div class="mt-3 flex flex-wrap gap-3">
+              <div class="mt-4 flex flex-wrap gap-3">
                 <button
                   #confirm
+                  aecButton
+                  variant="danger"
                   type="button"
-                  [class]="primaryButtonClass"
                   [disabled]="busy()"
                   (click)="onRetire()"
                   data-testid="owned-retire-submit"
@@ -114,8 +119,9 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
                   }
                 </button>
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
-                  [class]="secondaryButtonClass"
                   [disabled]="busy()"
                   (click)="cancelConfirm()"
                   i18n="@@vendor.ownedRetire.confirm.cancel"
@@ -129,17 +135,19 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
       }
       @case ('restorable') {
         <p
-          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+          class="mt-2 max-w-prose text-xs text-(--text-secondary)"
           i18n="@@vendor.ownedRetire.restoreHelp"
         >
           Its data flows and confirmations are kept. Restoring puts it back on the public site as it
           was.
         </p>
-        <div class="mt-3">
+        <div class="mt-4">
           <button
             #restoreButton
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryButtonClass"
             [disabled]="busy()"
             (click)="onRestore()"
             data-testid="owned-restore"
@@ -154,7 +162,7 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
       }
       @case ('retired-by-aeci') {
         <p
-          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+          class="mt-2 max-w-prose text-xs text-(--text-secondary)"
           data-testid="owned-retired-by-aeci"
           i18n="@@vendor.ownedRetire.aeciHelp"
         >
@@ -163,7 +171,7 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
       }
     }
     @if (notice(); as message) {
-      <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">{{ message }}</p>
+      <p role="alert" class="mt-2 text-sm font-semibold text-(--text-primary)">{{ message }}</p>
     }
   `,
 })
@@ -276,9 +284,4 @@ export class VendorOwnedRetire implements OnInit {
   protected id(key: string): string {
     return `vendor-owned-retire-${this.row().id}-${key}`;
   }
-
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 }

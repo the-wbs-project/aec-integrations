@@ -171,12 +171,12 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'integration_field_challenges.owner_vendor_id': 'detach',
   'claims.created_by_vendor_id': 'detach',
   'attestations.attested_by_vendor_id': 'detach',
-  // AECI-2039 (0130): an owner's answer on a Sync Service pair's flow. A NULL vendor
+  // AECI-2039 (0131): an owner's answer on a Sync Service pair's flow. A NULL vendor
   // matches no owner, so the answer stops counting and its history stays.
   'claim_owner_answers.vendor_id': 'detach',
   'page_views.vendor_id': 'detach',
   'integration_vendor_links.vendor_id': 'fk-action',
-  // AECI-2042 (0131). A report the vendor filed goes with it (CASCADE, uncounted). A
+  // AECI-2042 (0132). A report the vendor filed goes with it (CASCADE, uncounted). A
   // report routed to it as owner, and a veto it filed, are NULLed by SET NULL: the
   // veto stays in force, because only a withdraw or an AECi lift ends one.
   'sync_service_pair_contests.submitter_vendor_id': 'fk-action',
@@ -454,7 +454,7 @@ export interface VendorAuditInsertArgs {
    *  Defaults to true; the CLI passes its {@link AUDIT_LOG_DDL_SQL} probe. */
   auditVendorColumns?: boolean;
   /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
-   *  0130). Defaults to true; the CLI passes its {@link CLAIM_OWNER_ANSWERS_TABLE_SQL}
+   *  0131). Defaults to true; the CLI passes its {@link CLAIM_OWNER_ANSWERS_TABLE_SQL}
    *  probe so a tier without the table gets a plan that never names it. */
   claimOwnerAnswersTable?: boolean;
 }

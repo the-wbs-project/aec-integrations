@@ -7,8 +7,12 @@ import type {
   VendorHistoryKind,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 import { VendorApi, vendorHistoryCsvUrl } from '../vendor-api';
 
 import { VendorHistoryFollowUp } from './vendor-history-follow-up';
@@ -55,19 +59,15 @@ const NO_LINES: readonly FollowUpLine[] = [];
  */
 @Component({
   selector: 'aec-vendor-history-page',
-  imports: [VendorDocsLink, VendorHistoryFollowUp],
+  imports: [AecButton, AecCard, AecIcon, VendorDocsLink, VendorHistoryFollowUp],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-history-heading" data-vendor-history>
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="max-w-[52ch] space-y-2">
-          <h2 id="vendor-history-heading" class="m-0">
-            <!-- The size lives on the span: styles.css sizes h2 outside any cascade layer. -->
-            <span
-              class="block font-display text-xl font-semibold text-(--text-primary)"
-              i18n="@@vendor.history.heading"
-              >Changes</span
-            >
+          <!-- AECI-1812: the h2 at the global size, as on every portal section. -->
+          <h2 id="vendor-history-heading">
+            <span i18n="@@vendor.history.heading">Changes</span>
           </h2>
           <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.history.intro">
             Every change to your company, products, integrations and seats, newest first. It shows
@@ -75,27 +75,15 @@ const NO_LINES: readonly FollowUpLine[] = [];
           </p>
           <p><aec-vendor-docs-link page="change-history" /></p>
         </div>
-        <a [href]="csvUrl()" download [class]="secondaryClass" data-history-csv>
-          <svg
-            aria-hidden="true"
-            class="size-4 shrink-0"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M12 3v12" />
-            <polyline points="7 10 12 15 17 10" />
-            <path d="M5 21h14" />
-          </svg>
+        <a aecButton variant="secondary" [href]="csvUrl()" download data-history-csv>
+          <aec-icon name="download" decorative [size]="4" />
           <span i18n="@@vendor.history.csv">Download CSV</span>
         </a>
       </div>
 
+      <!-- A sunken hint panel (mock-up 13's .pf-hint), not a card and not a notice. -->
       <div
-        class="mt-4 max-w-[52ch] space-y-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
+        class="mt-6 max-w-[52ch] space-y-1 rounded-panel bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
         data-history-banner
       >
         <p i18n="@@vendor.history.banner.start">
@@ -107,8 +95,11 @@ const NO_LINES: readonly FollowUpLine[] = [];
         </p>
       </div>
 
+      <!-- The portal's own filter toggles, kept (ruled 2026-11-24), on the segmented
+           pressed-toggle recipe the Integrations tab uses (DESIGN.md §5 "Segmented
+           control"). The track wraps on a narrow screen. -->
       <div
-        class="mt-6 flex flex-wrap gap-2"
+        [class]="segmentedClass + ' mt-6'"
         role="group"
         [attr.aria-label]="filterLabel"
         data-history-filter
@@ -116,11 +107,14 @@ const NO_LINES: readonly FollowUpLine[] = [];
         @for (k of kinds; track k) {
           <button
             type="button"
-            [class]="chipClass"
+            [class]="segmentClass(kind() === k)"
             [attr.aria-pressed]="kind() === k"
             [attr.data-kind]="k"
             (click)="applyKind(k)"
           >
+            @if (kind() === k) {
+              <aec-icon name="check" decorative [size]="4" />
+            }
             {{ kindLabel(k) }}
           </button>
         }
@@ -133,8 +127,10 @@ const NO_LINES: readonly FollowUpLine[] = [];
             Could not load your change history.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryClass"
             (click)="reload()"
             i18n="@@vendor.history.retry"
           >
@@ -148,15 +144,17 @@ const NO_LINES: readonly FollowUpLine[] = [];
       } @else {
         @if (state() === 'failed') {
           <div
-            class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 text-sm text-(--text-primary)"
+            class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-4 text-sm text-(--text-primary)"
             data-history-refresh-failed
           >
             <span role="alert" i18n="@@vendor.history.refreshFailed"
               >Could not refresh the list. It shows what was loaded last.</span
             >
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryClass"
               (click)="reload()"
               i18n="@@vendor.history.retry"
             >
@@ -178,13 +176,15 @@ const NO_LINES: readonly FollowUpLine[] = [];
             {{ emptyMessage() }}
           </p>
         } @else {
+          <!-- One shared white card, rows divided by hairlines. -->
           <ol
-            class="mt-6 divide-y divide-(--border-default) rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
+            aecCard
+            [class]="'mt-6 divide-y divide-(--border-default) overflow-hidden p-0'"
             [attr.aria-busy]="refreshing() ? 'true' : null"
           >
             @for (item of items(); track item.id) {
               <li
-                class="px-5 py-4"
+                class="px-4 py-4 sm:px-6"
                 [attr.data-history-row]="item.id"
                 [attr.data-actor]="item.actor_kind"
               >
@@ -199,23 +199,23 @@ const NO_LINES: readonly FollowUpLine[] = [];
                     }
                   </p>
                   <time
-                    class="shrink-0 text-xs text-(--text-secondary) tabular-nums"
+                    class="shrink-0 text-t-13 text-(--text-secondary) tabular-nums"
                     [attr.datetime]="item.at"
                     >{{ timeLabel(item) }}</time
                   >
                 </div>
 
-                <dl class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-(--text-secondary)">
+                <dl class="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-t-13 text-(--text-secondary)">
                   <div class="flex gap-1">
                     <dt i18n="@@vendor.history.row.who">By</dt>
-                    <dd class="font-medium text-(--text-primary)" data-history-actor>
+                    <dd class="font-semibold text-(--text-primary)" data-history-actor>
                       {{ actorLabel(item) }}
                     </dd>
                   </div>
                   @if (item.plan; as plan) {
                     <div class="flex gap-1" data-history-plan>
                       <dt i18n="@@vendor.history.row.plan">Plan at the time</dt>
-                      <dd class="font-medium text-(--text-primary)">{{ planLabel(item) }}</dd>
+                      <dd class="font-semibold text-(--text-primary)">{{ planLabel(item) }}</dd>
                     </div>
                   }
                   @if (item.fields.length > 0) {
@@ -229,7 +229,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
                 @if (item.actor_kind === 'aeci' && item.reason) {
                   <div class="mt-3 max-w-[52ch] border-s-2 ps-3 text-sm" data-history-reason>
                     <p
-                      class="text-xs font-semibold text-(--text-secondary)"
+                      class="text-t-13 font-semibold text-(--text-secondary)"
                       i18n="@@vendor.history.reason.label"
                     >
                       Our reason
@@ -246,10 +246,11 @@ const NO_LINES: readonly FollowUpLine[] = [];
           </ol>
 
           @if (pageCount() > 1) {
-            <nav class="mt-6 flex items-center gap-3" [attr.aria-label]="pagingLabel">
+            <nav class="mt-6 flex flex-wrap items-center gap-4" [attr.aria-label]="pagingLabel">
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="page() <= 1"
                 (click)="goToPage(page() - 1)"
                 i18n="@@vendor.history.page.prev"
@@ -260,8 +261,9 @@ const NO_LINES: readonly FollowUpLine[] = [];
                 pageLabel()
               }}</span>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="page() >= pageCount()"
                 (click)="goToPage(page() + 1)"
                 i18n="@@vendor.history.page.next"
@@ -447,12 +449,13 @@ export class VendorHistoryPage {
     return $localize`:@@vendor.history.live.shown:${filter}:FILTER:, page ${this.page()}:PAGE: of ${this.pageCount()}:COUNT:.`;
   }
 
-  /** The integrations tab's filter chip. The pressed colours are the unlayered
-   *  `.aec-period[aria-pressed='true']` rule in `styles.css`. */
-  protected readonly chipClass =
-    'aec-period inline-flex min-h-8 cursor-pointer items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2.5 py-1 text-xs font-semibold text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The filter track: the Integrations tab's segmented control (one behaviour
+   *  per pattern). A 44px framed track with the field edge; it wraps. */
+  protected readonly segmentedClass = SEGMENTED_CLASS;
 
-  /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */
-  protected readonly secondaryClass =
-    'inline-flex min-h-10 items-center justify-center gap-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
+  /** One filter toggle: Forest when pressed, with a tick, so the state is not
+   *  colour alone. */
+  protected segmentClass(pressed: boolean): string {
+    return segmentClass(pressed);
+  }
 }

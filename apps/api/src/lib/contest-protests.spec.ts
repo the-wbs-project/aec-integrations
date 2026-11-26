@@ -30,6 +30,12 @@ const PROTEST_ALLOWED = new Set([
   'lib/email.ts', // the protest email templates, private mail to the two parties
   'lib/notifications/registry.ts', // names `protestedAt` in the protest emails' dedupe keys
   'lib/cron-schedules.ts', // the same key, in the reminder cron's comment
+  // AECI-1913: the nightly legal prune counts the contest workflow links its instance
+  // delete sets to NULL, and reads contests for a vendor hold. A cron, never a public read.
+  'lib/legal-retention-prune.ts',
+  // AECI-1913: re-creates a pruned contest or protest instance and relinks the contest.
+  // Called only from the contest write paths, never a public read.
+  'lib/workflow-restore.ts',
   'routes/account.ts',
   'routes/admin-contests.ts',
   'routes/admin-contest-protests.ts',

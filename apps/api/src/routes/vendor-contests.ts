@@ -183,6 +183,7 @@ import {
   vendorAuditEntry,
   stampCauseProductPlan,
 } from './vendor-shared';
+import { contestWorkflowStmts } from '../lib/workflow-restore';
 
 /** `workflow_instances.workflow_type` for a contest. Reused, not added: the CHECK
  *  is closed and opening it is a table recreate (§11b). `entity_id` is the
@@ -330,9 +331,11 @@ export async function endpointSlugs(
 
 /**
  * The shared tail of a decision: the transition row plus the workflow instance
- * moving to its terminal state. A contest always has an instance (submit creates
- * it); a `null` `workflow_id` would be a corrupt row, so one is minted rather than
- * losing the transition.
+ * moving to its terminal state. Submit creates the instance, but the legal retention
+ * prune deletes it four years after its last action and the FK sets `workflow_id` to
+ * NULL (AECI-1913). Then the instance is re-created under its deterministic id and
+ * relinked to the contest (`lib/workflow-restore.ts`), so the transition is never lost
+ * and never detached.
  */
 export function closeWorkflow(
   db: Db,
@@ -341,27 +344,18 @@ export function closeWorkflow(
   entry: Omit<WorkflowTransitionEntry, 'workflowId' | 'fromState' | 'toState'>,
   now: string,
 ): { stmts: BatchStmt[]; transition: WorkflowTransitionEntry } {
-  const workflowId = row.workflowId ?? crypto.randomUUID();
+  const instance = contestWorkflowStmts(db, row, 'contest', now, {
+    currentState: toState,
+    completedAt: now,
+    finalOutcome: FINAL_OUTCOME[toState],
+  });
   const transition: WorkflowTransitionEntry = {
     ...entry,
-    workflowId,
+    workflowId: instance.workflowId,
     fromState: 'open',
     toState,
   };
-  const instance = row.workflowId
-    ? db
-        .update(workflowInstances)
-        .set({ currentState: toState, completedAt: now, finalOutcome: FINAL_OUTCOME[toState] })
-        .where(eq(workflowInstances.id, workflowId))
-    : db.insert(workflowInstances).values({
-        id: workflowId,
-        workflowType: CONTEST_WORKFLOW_TYPE,
-        entityId: row.id,
-        currentState: toState,
-        completedAt: now,
-        finalOutcome: FINAL_OUTCOME[toState],
-      });
-  return { stmts: [instance, workflowTransitionInsert(db, transition)], transition };
+  return { stmts: [...instance.stmts, workflowTransitionInsert(db, transition)], transition };
 }
 
 /**

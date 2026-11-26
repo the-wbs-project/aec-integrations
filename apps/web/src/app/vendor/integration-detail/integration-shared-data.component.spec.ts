@@ -729,7 +729,9 @@ describe('a submitted change (AECI-1246)', () => {
     expect(cell.getAttribute('colspan')).toBe('4');
     expect(cell.id).toBe('change-denied-docs');
     expect(cell.getAttribute('tabindex')).toBe('-1');
-    expect(cell.classList).toContain('id-change-box');
+    // Attached to the row above: a 3px Forest edge on the sunken fill (AECI-1811).
+    expect(cell.classList).toContain('border-s-3');
+    expect(cell.classList).toContain('border-(--accent-primary)');
     expect(box.textContent).toContain('You submitted a change');
     expect(box.textContent).toContain('Documents: To Procore becomes Both ways');
     expect(box.textContent).toContain('Your reason: They go both ways.');

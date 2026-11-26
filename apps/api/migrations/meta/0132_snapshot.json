@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bec0a2a6-1e54-40b9-9264-a4d7293250fa",
-  "prevId": "86ee1d0a-7e4a-4e1c-aaa0-0d5c08b98a63",
+  "id": "86ee1d0a-7e4a-4e1c-aaa0-0d5c08b98a63",
+  "prevId": "763ec955-7bd4-4f07-a0c8-404667fac2c5",
   "tables": {
     "acceptance_chain_exports": {
       "name": "acceptance_chain_exports",
@@ -8062,41 +8062,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "sync_frequency": {
-          "name": "sync_frequency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sync_support": {
-          "name": "sync_support",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sync_setup": {
-          "name": "sync_setup",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sync_facts_source_url": {
-          "name": "sync_facts_source_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sync_facts_recorded_at": {
-          "name": "sync_facts_recorded_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "logo_url": {
           "name": "logo_url",
           "type": "text",
@@ -11720,6 +11685,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "vendor_requests_linear_issue_idx": {
+          "name": "vendor_requests_linear_issue_idx",
+          "columns": [
+            "linear_issue_id"
+          ],
+          "isUnique": false,
+          "where": "\"linear_issue_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {

@@ -1020,7 +1020,7 @@ describe('DELETE /api/account', () => {
       'review_updates.moderated_by',
       'reviews.moderated_by',
       'reviews.reviewer_id',
-      // AECI-2042 (0131). SET NULL, and nulled explicitly by the erasure.
+      // AECI-2042 (0132). SET NULL, and nulled explicitly by the erasure.
       'sync_service_pair_contests.decided_by',
       'sync_service_pair_contests.protest_decided_by',
       'sync_service_pair_contests.protested_by',

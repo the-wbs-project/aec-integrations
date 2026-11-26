@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 
 import { VendorConnectorCatalogue } from '../components/vendor-connector-catalogue';
 import { showsCatalogTab } from '../vendor-capabilities';
+import { PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
+import { IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
 
 import { vendorProductContext } from './vendor-product-context';
 
@@ -32,7 +34,7 @@ import { vendorProductContext } from './vendor-product-context';
           <aec-vendor-connector-catalogue [productId]="p.id" [productName]="p.name" />
         } @else if (p.product_role === 'connector') {
           <p
-            class="max-w-[52ch] rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            [class]="noticeClass + ' max-w-[52ch] text-sm leading-relaxed'"
             data-catalogue-sync-service
           >
             <span i18n="@@vendor.catalogue.syncService"
@@ -42,14 +44,14 @@ import { vendorProductContext } from './vendor-product-context';
             {{ ' ' }}
             <a
               routerLink="../integrations"
-              class="font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="linkClass"
               i18n="@@vendor.catalogue.syncService.link"
               >Open the Integrations tab</a
             >
           </p>
         } @else {
           <p
-            class="max-w-[52ch] rounded-panel border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            [class]="noticeClass + ' max-w-[52ch] text-sm leading-relaxed'"
             data-catalogue-not-connector
             i18n="@@vendor.catalogue.notConnector"
           >
@@ -65,4 +67,8 @@ export class VendorProductCataloguePage {
   private readonly ctx = vendorProductContext();
   protected readonly product = computed(() => this.ctx.product());
   protected readonly showsCatalogTab = showsCatalogTab;
+  /** AECI-1811: a state, not a card, so it is the portal notice. */
+  protected readonly noticeClass = PORTAL_NOTICE_CLASS;
+  /** The in-text link role (DESIGN.md, "The Link Treatment Rule"). */
+  protected readonly linkClass = IN_TEXT_LINK;
 }

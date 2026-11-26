@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 
+import { AecCard } from '../../shared/card/card';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { vendorProductContext } from './vendor-product-context';
 
@@ -26,19 +27,11 @@ import { vendorProductContext } from './vendor-product-context';
  */
 @Component({
   selector: 'aec-vendor-products-page',
-  imports: [RouterLink, RouterOutlet],
+  imports: [RouterLink, RouterOutlet, AecCard],
   template: `
     @if (ctx.unknownProduct()) {
-      <h2
-        class="font-display text-xl font-semibold text-(--text-primary)"
-        i18n="@@vendor.products.unknownHeading"
-      >
-        Product not found
-      </h2>
-      <p
-        class="mt-4 max-w-prose rounded-(--radius-md) border border-(--border-default)
-          bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
-      >
+      <h2 i18n="@@vendor.products.unknownHeading">Product not found</h2>
+      <p aecCard class="mt-4 max-w-prose p-6 text-sm leading-relaxed text-(--text-primary)">
         <span i18n="@@vendor.products.unknown"
           >The link asks for “{{ ctx.routeSlug() }}”, which is not one of {{ companyName() }}'s
           products.</span

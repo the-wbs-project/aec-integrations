@@ -1,6 +1,8 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecIcon } from '../../shared/icon/icon';
+
 import type { AdminClaim, AdminClaimantSeat } from '@aeci/shared';
 
 /** The two `claimant_seat` kinds that block a grant (AECI-1420). */
@@ -30,39 +32,29 @@ export function claimantSeatConflict(claim: AdminClaim): ClaimantSeatConflict | 
  *
  * Red is the error token on an unlayered class (`.aec-notice-error` in
  * `styles.css`), written while a border-colour utility never reached the element
- * (fixed in AECI-2088). Light only.
+ * (fixed in AECI-2088). The one red box in the console, so it is not the Bone
+ * notice: the grant WILL be refused. Light only.
  */
 @Component({
   selector: 'aec-claim-account-conflict',
-  imports: [RouterLink],
+  imports: [AecIcon, RouterLink],
   template: `
     @if (conflict(); as c) {
       <div
         [id]="boxId()"
-        class="aec-notice-error flex items-start gap-3 rounded-(--radius-md) border bg-(--surface-raised) p-4"
+        class="aec-notice-error flex items-start gap-3 rounded-control border bg-(--surface-raised) p-4"
         data-testid="claim-account-conflict"
       >
-        <svg
-          class="mt-0.5 h-4 w-4 shrink-0 text-(--status-error)"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v6" />
-          <path d="M12 16h.01" />
-        </svg>
-        <div class="max-w-[75ch] text-sm leading-relaxed text-(--text-primary)">
+        <span class="inline-flex shrink-0 text-(--status-error)"
+          ><aec-icon name="alert-circle" decorative [size]="4"
+        /></span>
+        <div class="max-w-[75ch] text-t-14 leading-relaxed text-(--text-primary)">
           @if (c.kind === 'other_vendor') {
             <p i18n="@@admin.claims.accountConflict.otherVendor">
               This address already holds a seat on
               <a
                 [routerLink]="['/admin/vendors', c.vendor.id]"
-                class="font-bold text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="rounded-mark font-semibold text-(--text-primary) underline underline-offset-3 hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
                 data-testid="claim-account-conflict-vendor"
                 >{{ c.vendor.name }}</a
               >. One account belongs to one vendor, so the grant will be refused.
@@ -77,7 +69,9 @@ export function claimantSeatConflict(claim: AdminClaim): ClaimantSeatConflict | 
               This claim is rejected.
             </p>
           } @else if (status() === 'open' || status() === 'in_review') {
-            <p class="mt-1 font-bold" i18n="@@admin.claims.accountConflict.rejectIt">Reject it.</p>
+            <p class="mt-1 font-semibold" i18n="@@admin.claims.accountConflict.rejectIt">
+              Reject it.
+            </p>
           }
         </div>
       </div>

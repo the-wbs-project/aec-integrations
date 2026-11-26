@@ -54,20 +54,30 @@ import {
   theirAnswer,
   type Outcome,
   type RailEvent,
+  type Tone,
 } from './integration-detail-model';
 import { IntegrationDetailState, type RequestFilter } from './integration-detail-state';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_OPTIONAL_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import type { AecIconName } from '../../shared/icon/icon-registry';
 import {
   ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
   HELP,
   ID_STYLES,
-  LABEL,
-  ROW_ACTION,
+  INPUT,
+  NOTE_PANEL,
+  STATUS_CHIP_ICON,
+  STATUS_CHIP_TONE,
 } from './integration-detail-styles';
 import { IntegrationRequestForm } from './integration-request-form';
 import { IntegrationRowThread } from './integration-row-thread';
 import { VendorTip } from './vendor-tip';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 type OpenItem =
   | {
@@ -138,6 +148,9 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
 @Component({
   selector: 'aec-integration-change-requests',
   imports: [
+    AecButton,
+    AecIcon,
+    Chip,
     VendorTip,
     VendorDocsLink,
     IntegrationAnswerForm,
@@ -152,62 +165,55 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
       <h3
         id="change-requests-heading"
         tabindex="-1"
-        class="id-h3 text-(--text-primary) focus:outline-none"
+        class="text-(--text-primary) focus:outline-none"
         i18n="@@vendor.im.section.changeRequests"
       >
         Change requests
       </h3>
       <aec-vendor-tip [label]="aboutLabel" [lines]="[aboutTip]" />
     </div>
-    <p class="mt-1"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
+    <p><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
 
-    <div class="mt-3 flex flex-wrap items-center gap-3">
-      <div class="relative min-w-[14rem] flex-1 sm:max-w-sm">
+    <div class="mt-4 flex flex-wrap items-center gap-4">
+      <div class="min-w-[14rem] flex-1 sm:max-w-sm">
         <label for="change-requests-search" class="sr-only" i18n="@@vendor.im.requests.searchLabel"
           >Search change requests</label
         >
-        <svg
-          aria-hidden="true"
-          class="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="m21 21-4.34-4.34" />
-          <circle cx="11" cy="11" r="8" />
-        </svg>
         <input
           id="change-requests-search"
           type="search"
           autocomplete="off"
-          class="id-input id-input-search"
+          [class]="input"
           [attr.placeholder]="searchPlaceholder"
           [value]="state.requestQuery()"
           (input)="state.requestQuery.set(inputValue($event))"
           data-testid="requests-search"
         />
       </div>
-      <div class="flex items-center gap-1.5" role="group" [attr.aria-label]="showLabel">
+      <!-- The portal's own filter toggles, kept (ruled 2026-11-24), on the segmented
+           pressed-toggle track the integrations list uses. -->
+      <div [class]="segmented" role="group" [attr.aria-label]="showLabel">
         @for (chip of chips; track chip.key) {
           <button
             type="button"
-            class="id-chip min-h-8 rounded-(--radius-md) px-3 py-1 text-sm text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="segment(state.requestFilter() === chip.key)"
             [attr.aria-pressed]="state.requestFilter() === chip.key"
             [attr.data-testid]="'requests-filter-' + chip.key"
             (click)="state.requestFilter.set(chip.key)"
           >
+            @if (state.requestFilter() === chip.key) {
+              <aec-icon name="check" decorative [size]="4" />
+            }
             {{ chip.label }}
           </button>
         }
       </div>
       @if (canRequest() && !state.requestForm()) {
         <button
+          aecButton
+          compact
           type="button"
-          [class]="primary"
-          class="ms-auto"
+          [class]="'ms-auto'"
           (click)="state.openRequestForm(null)"
           data-testid="request-correction"
           i18n="@@vendor.im.requests.requestCorrection"
@@ -218,7 +224,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
     </div>
     @if (i.is_owner && i.claimed_at) {
       <p
-        class="mt-3 max-w-prose text-sm text-(--text-secondary)"
+        class="mt-4 max-w-prose text-sm text-(--text-secondary)"
         i18n="@@vendor.im.requests.ownerLine"
       >
         You own this integration. Change requests other companies send about its details come to you
@@ -226,7 +232,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
       </p>
     } @else if (i.is_owner) {
       <p
-        class="mt-3 max-w-prose text-sm text-(--text-secondary)"
+        class="mt-4 max-w-prose text-sm text-(--text-secondary)"
         i18n="@@vendor.im.requests.unclaimedLine"
       >
         Claim the integration to edit its details and decide requests from other companies.
@@ -250,7 +256,14 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
         <p class="text-sm text-(--text-primary)" i18n="@@vendor.im.requests.failed">
           Could not load the change requests.
         </p>
-        <button type="button" [class]="secondary" (click)="retry()" i18n="@@vendor.im.retry">
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          (click)="retry()"
+          i18n="@@vendor.im.retry"
+        >
           Try again
         </button>
       </div>
@@ -258,7 +271,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
 
     @if (state.requestFilter() !== 'closed') {
       <div class="mt-6" data-testid="requests-open">
-        <h4 class="id-h4">{{ openHeading() }}</h4>
+        <h4 class="aec-overline text-(--text-secondary)">{{ openHeading() }}</h4>
         @if (openItems().length === 0) {
           <p class="mt-2 text-sm text-(--text-secondary)">
             @if (query()) {
@@ -270,12 +283,12 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
             }
           </p>
         } @else {
-          <ul class="mt-2 list-none space-y-3 p-0">
+          <ul [class]="itemList">
             @for (item of openItems(); track item.id) {
               <li
                 [id]="item.id"
                 tabindex="-1"
-                class="id-well scroll-mt-20 p-4 text-sm focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary)"
+                class="scroll-mt-20 py-4 text-sm focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
                 [attr.data-testid]="'request-item-' + item.kind"
               >
                 @switch (item.kind) {
@@ -292,22 +305,19 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         [lines]="[o.explain]"
                       />
                     </div>
-                    <div class="mt-2 rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2">
+                    <div class="mt-2" [class]="notePanel">
                       <p class="font-semibold text-(--text-secondary)">
                         {{ reasonOf(c.submitter_vendor.name) }}
                       </p>
-                      <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                      <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                         {{ c.reason }}
                       </p>
                     </div>
                     @if (c.status === 'open') {
-                      <div class="mt-3">
+                      <div class="mt-4">
                         <label [for]="item.id + '-note'" [class]="label"
                           >{{ noteTo(c.submitter_vendor.name) }}
-                          <span
-                            class="font-normal text-(--text-secondary)"
-                            i18n="@@vendor.im.answer.optional"
-                          >
+                          <span [class]="optional" i18n="@@vendor.im.answer.optional">
                             (optional)</span
                           ></label
                         >
@@ -315,7 +325,8 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           [id]="item.id + '-note'"
                           rows="2"
                           maxlength="2000"
-                          class="id-input mt-1"
+                          [class]="input"
+                          class="mt-2"
                           [attr.aria-describedby]="item.id + '-note-help'"
                           [value]="noteFor(c.id)"
                           (input)="setNote(c.id, $event)"
@@ -324,10 +335,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           {{ declineHelp(c.submitter_vendor.name) }}
                         </p>
                       </div>
-                      <div class="mt-3 flex flex-wrap items-center gap-3">
+                      <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button
+                          aecButton
+                          compact
                           type="button"
-                          [class]="primary"
                           [disabled]="busy() !== null"
                           (click)="decide(c, 'accept')"
                           [attr.data-testid]="'accept-' + c.id"
@@ -336,8 +348,10 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           <span class="sr-only">: {{ fieldName(c) }}</span>
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           [disabled]="busy() !== null"
                           (click)="decide(c, 'decline')"
                           [attr.data-testid]="'decline-' + c.id"
@@ -360,25 +374,21 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     <p class="text-(--text-secondary)">{{ addedThemMeta(claim) }}</p>
                     <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
                       <p class="font-semibold text-(--text-primary)">{{ addedThemTitle(claim) }}</p>
-                      <span class="id-pill" data-tone="attention"
-                        ><span
-                          aria-hidden="true"
-                          class="h-2 w-2 rounded-full bg-(--accent-secondary-deep)"
-                        ></span
-                        ><span i18n="@@vendor.im.row.needsAnswer">Needs your answer</span></span
+                      <aec-chip density="dense" tone="strong" icon="exclamation"
+                        ><span i18n="@@vendor.im.row.needsAnswer">Needs your answer</span></aec-chip
                       >
                     </div>
                     <p class="mt-1 max-w-prose text-(--text-primary)">{{ addedThemBody(claim) }}</p>
                     @if (claim.counterparty?.note; as note) {
-                      <div class="mt-2 rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2">
+                      <div class="mt-2" [class]="notePanel">
                         <p class="font-semibold text-(--text-secondary)">{{ noteOfThem() }}</p>
-                        <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                        <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                           {{ note }}
                         </p>
                       </div>
                     }
                     @if (formFor() === item.id) {
-                      <div class="mt-3">
+                      <div class="mt-4">
                         <aec-integration-answer-form
                           [integration]="i"
                           [claim]="claim"
@@ -387,10 +397,12 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         />
                       </div>
                     } @else if (state.canAuthor()) {
-                      <div class="mt-3 flex flex-wrap items-center gap-3">
+                      <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           [disabled]="busy() !== null"
                           (click)="yes(item.id, claim)"
                           [attr.data-testid]="'added-yes-' + claim.id"
@@ -399,8 +411,10 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                           Yes, this is right
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           [disabled]="busy() !== null"
                           (click)="openAnswer(item.id, 'no')"
                           [attr.data-testid]="'added-no-' + claim.id"
@@ -441,41 +455,31 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                       <p class="font-semibold text-(--text-primary)">
                         {{ disagreementTitle(claim) }}
                       </p>
-                      <span class="id-pill" data-tone="conflict"
-                        ><svg
-                          aria-hidden="true"
-                          class="h-3 w-3"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="3"
-                          stroke-linecap="round"
-                        >
-                          <path d="M7 7l10 10M17 7L7 17" /></svg
-                        ><span i18n="@@vendor.im.row.disputed">Disputed</span></span
+                      <aec-chip density="dense" tone="error" icon="x"
+                        ><span i18n="@@vendor.im.row.disputed">Disputed</span></aec-chip
                       >
                     </div>
-                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                      <div class="rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2">
+                    <div class="mt-4 grid gap-4 md:grid-cols-2">
+                      <div [class]="notePanel">
                         <p class="font-semibold text-(--text-secondary)">
                           {{ yourAnswerLine(claim) }}
                         </p>
-                        <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                        <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                           {{ yourReason(claim) }}
                         </p>
                       </div>
-                      <div class="rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2">
+                      <div [class]="notePanel">
                         <p class="font-semibold text-(--text-secondary)">
                           {{ theirAnswerLine(claim) }}
                         </p>
-                        <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                        <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                           {{ theirReason(claim) }}
                         </p>
                       </div>
                     </div>
                     <p class="mt-2 max-w-prose text-(--text-primary)">{{ outcomeLine(claim) }}</p>
                     @if (formFor() === item.id) {
-                      <div class="mt-3">
+                      <div class="mt-4">
                         <aec-integration-answer-form
                           [integration]="i"
                           [claim]="claim"
@@ -484,18 +488,22 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         />
                       </div>
                     } @else if (state.canAuthor()) {
-                      <div class="mt-3 flex flex-wrap items-center gap-3">
+                      <div class="mt-4 flex flex-wrap items-center gap-3">
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           (click)="openAnswer(item.id, flipTo(claim))"
                           [attr.data-testid]="'change-answer-' + claim.id"
                         >
                           {{ changeAnswerLabel(claim) }}
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="secondary"
                           (click)="openAnswer(item.id, currentMode(claim))"
                           [attr.data-testid]="'edit-reason-' + claim.id"
                         >
@@ -533,18 +541,14 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     <p class="text-(--text-secondary)">{{ addedYouMeta(claim) }}</p>
                     <div class="mt-1 flex flex-wrap items-center justify-between gap-2">
                       <p class="font-semibold text-(--text-primary)">{{ addedYouTitle(claim) }}</p>
-                      <span class="id-pill"
-                        ><span
-                          aria-hidden="true"
-                          class="h-2 w-2 rounded-full bg-(--text-secondary)"
-                        ></span
-                        ><span i18n="@@vendor.im.requests.waiting">Waiting</span></span
+                      <aec-chip density="dense" tone="strong"
+                        ><span i18n="@@vendor.im.requests.waiting">Waiting</span></aec-chip
                       >
                     </div>
                     @if (myNoteOf(claim); as note) {
-                      <div class="mt-2 rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2">
+                      <div class="mt-2" [class]="notePanel">
                         <p class="font-semibold text-(--text-secondary)">{{ yourNoteFor() }}</p>
-                        <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                        <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                           {{ note }}
                         </p>
                       </div>
@@ -586,16 +590,18 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     <p class="mt-2 max-w-prose text-(--text-primary)">{{ o.explain }}</p>
                     @if (c.status === 'open') {
                       @if (confirming() === c.id) {
-                        <div class="mt-3 flex flex-wrap items-center gap-3">
+                        <div class="mt-4 flex flex-wrap items-center gap-3">
                           <span
                             class="text-(--text-primary)"
                             i18n="@@vendor.im.requests.withdrawConfirm"
                             >Withdraw this request? It cannot be reopened.</span
                           >
                           <button
+                            aecButton
+                            variant="danger"
+                            compact
                             type="button"
                             [id]="'withdraw-yes-' + c.id"
-                            [class]="secondary"
                             [disabled]="busy() !== null"
                             (click)="withdraw(item.id, c)"
                             i18n="@@vendor.im.requests.withdrawYes"
@@ -603,8 +609,10 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                             Yes, withdraw it
                           </button>
                           <button
+                            aecButton
+                            variant="secondary"
+                            compact
                             type="button"
-                            [class]="rowAction"
                             [disabled]="busy() !== null"
                             (click)="cancelWithdraw(c)"
                             i18n="@@vendor.im.requests.withdrawKeep"
@@ -614,10 +622,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </div>
                       } @else {
                         <button
+                          aecButton
+                          variant="ghost"
                           type="button"
                           [id]="'withdraw-' + c.id"
-                          [class]="rowAction"
-                          class="mt-3"
+                          [class]="'-ms-4 mt-2'"
                           [attr.aria-label]="withdrawLabel(c)"
                           (click)="startWithdraw(c)"
                           [attr.data-testid]="'withdraw-' + c.id"
@@ -642,7 +651,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
 
     @if (state.requestFilter() !== 'open') {
       <div class="mt-6" data-testid="requests-closed">
-        <h4 class="id-h4">{{ closedHeading() }}</h4>
+        <h4 class="aec-overline text-(--text-secondary)">{{ closedHeading() }}</h4>
         @if (closedItems().length === 0) {
           <p class="mt-2 text-sm text-(--text-secondary)">
             @if (query()) {
@@ -654,7 +663,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
             }
           </p>
         } @else {
-          <ul class="id-card mt-2 list-none divide-y divide-(--border-default) p-0">
+          <ul [class]="closedList">
             @for (item of closedItems(); track item.id) {
               @let o = closedOutcome(item);
               @let open = expanded().has(item.id);
@@ -665,53 +674,51 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
               >
                 <button
                   type="button"
-                  class="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-start hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  class="flex min-h-11 w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-start hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary)"
                   [attr.aria-expanded]="open"
                   [attr.aria-controls]="item.id + '-body'"
                   [attr.data-testid]="'closed-toggle-' + item.contest.id"
                   (click)="toggle(item.id)"
                 >
-                  <svg
-                    aria-hidden="true"
-                    class="h-4 w-4 shrink-0 text-(--text-secondary) transition-transform rtl:-scale-x-100"
-                    [class.rotate-90]="open"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                  <span
+                    class="flex shrink-0 text-(--text-secondary) transition-transform duration-fast ease-standard ltr:data-[open=true]:rotate-90 rtl:data-[open=true]:-rotate-90"
+                    [attr.data-open]="open"
                   >
-                    <path d="m9 18 6-6-6-6" />
-                  </svg>
-                  <span class="min-w-0 flex-1 text-(--text-primary)">{{
+                    <aec-icon name="chevron-right" decorative [size]="4" [mirrorRtl]="true" />
+                  </span>
+                  <span class="min-w-0 flex-[1_1_12rem] text-(--text-primary)">{{
                     change(item.contest)
                   }}</span>
-                  <span class="id-pill shrink-0" [attr.data-tone]="o.tone">{{ o.label }}</span>
+                  <aec-chip
+                    class="shrink-0"
+                    density="dense"
+                    [tone]="chipTone(o.tone)"
+                    [icon]="chipIcon(o.tone)"
+                    [attr.data-tone]="o.tone"
+                    >{{ o.label }}</aec-chip
+                  >
                   <span class="shrink-0 text-(--text-secondary)">{{ day(item.at) }}</span>
                 </button>
                 <div [id]="item.id + '-body'" [hidden]="!open" class="px-4 pb-4 ps-11">
                   <p class="max-w-prose text-(--text-primary)">{{ o.explain }}</p>
                   <ol
-                    class="id-rail ms-1.5 mt-3 list-none space-y-3 p-0 ps-5"
+                    class="ms-2 mt-4 list-none space-y-4 border-s border-(--border-strong) p-0 ps-5"
                     [attr.aria-label]="railLabel(item.contest)"
                   >
                     @for (event of events(item); track $index) {
                       <li class="relative">
                         <span
                           aria-hidden="true"
-                          class="id-rail-dot absolute -start-[1.625rem] top-1.5 h-3 w-3 rounded-full"
+                          class="absolute -start-[1.625rem] top-1 h-3 w-3 rounded-pill border-2 border-(--surface-base) bg-(--text-secondary)"
                         ></span>
                         <p class="text-(--text-primary)">
                           {{ event.text }}
                           <span class="text-(--text-secondary)">{{ day(event.at) }}</span>
                         </p>
                         @if (event.note) {
-                          <div
-                            class="mt-1 max-w-prose rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2"
-                          >
+                          <div class="mt-1 max-w-prose" [class]="notePanel">
                             <p class="font-semibold text-(--text-secondary)">{{ event.noteBy }}</p>
-                            <p class="mt-0.5 max-w-prose break-words text-(--text-primary)">
+                            <p class="mt-1 max-w-prose break-words text-(--text-primary)">
                               {{ event.note }}
                             </p>
                           </div>
@@ -1113,12 +1120,28 @@ export class IntegrationChangeRequests {
     return (event.target as HTMLInputElement).value;
   }
 
-  protected readonly label = LABEL;
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly rowAction = ROW_ACTION;
+  protected readonly input = INPUT;
+  protected readonly optional = FIELD_OPTIONAL_CLASS;
+  protected readonly notePanel = NOTE_PANEL;
+  protected readonly segmented = SEGMENTED_CLASS;
+  protected readonly segment = segmentClass;
+  /** Open requests: one list divided by hairlines, with no panel inside the section card. */
+  protected readonly itemList =
+    'mt-2 list-none divide-y divide-(--border-default) border-y border-(--border-default) p-0';
+  /** Closed requests: the same list, each row a disclosure. */
+  protected readonly closedList =
+    'mt-2 list-none divide-y divide-(--border-default) border-y border-(--border-default) p-0';
+
+  protected chipTone(tone: Tone): ChipTone {
+    return STATUS_CHIP_TONE[tone];
+  }
+
+  protected chipIcon(tone: Tone): AecIconName | null {
+    return STATUS_CHIP_ICON[tone];
+  }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 

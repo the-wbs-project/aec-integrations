@@ -1,8 +1,8 @@
-import { Component, signal } from '@angular/core';
+import { Component, ElementRef, afterNextRender, inject, signal } from '@angular/core';
 
 import { AdminPaginator } from '../../admin/admin-paginator';
 import { CONSOLE_PANEL_CLASS, CONSOLE_TABLE } from '../../admin/console/console-table';
-import { AdminDangerAction } from '../../admin/console/danger-action';
+import { AdminDangerAction, type AdminDangerConfirmStep } from '../../admin/console/danger-action';
 import { AdminDisclosureButton } from '../../admin/console/disclosure-button';
 import { AdminInlineControl } from '../../admin/console/inline-control';
 import { ADMIN_STATUS_TONES, type AdminStatusKey } from '../../admin/console/status-tones';
@@ -257,6 +257,137 @@ const ROWS: readonly DemoRow[] = [
           />
         </div>
       </section>
+
+      <!-- AECI-2104: each option of the danger form, open in the state it names. -->
+      <section [class]="panel" class="mt-8" aria-labelledby="lg-danger">
+        <h2 id="lg-danger">The danger form's options</h2>
+        <p class="mt-2 max-w-[48rem] text-t-14 text-(--text-secondary)">
+          Each form below opens in the state its heading names. Cancel or Escape closes it.
+        </p>
+
+        <h3 class="mt-8" id="lg-danger-length">A length rule, refused</h3>
+        <aec-admin-danger-action
+          id="lg-danger-length-form"
+          class="mt-4"
+          openerLabel="Reject"
+          confirmLabel="Confirm rejection"
+          reasonLabel="Reason for rejection"
+          reasonRequired="Enter a reason between 1 and 80 characters so the reviewer understands the decision."
+          [maxLength]="80"
+          lengthMessage="Enter a reason between 1 and 80 characters so the reviewer understands the decision."
+          [(open)]="lengthOpen"
+          (confirmed)="lengthOpen.set(false)"
+        />
+
+        <h3 class="mt-8" id="lg-danger-busy">Busy</h3>
+        <aec-admin-danger-action
+          id="lg-danger-busy-form"
+          class="mt-4"
+          openerLabel="Reject"
+          confirmLabel="Confirm rejection"
+          busyLabel="Rejecting…"
+          reasonLabel="Reason for rejection"
+          reasonRequired="Enter a reason."
+          [busy]="busyBusy()"
+          [(open)]="busyOpen"
+          (confirmed)="busyBusy.set(true)"
+        />
+
+        <h3 class="mt-8" id="lg-danger-step-one">Two steps: step one</h3>
+        <aec-admin-danger-action
+          id="lg-danger-step-one-form"
+          class="mt-4"
+          openerLabel="Remove from the page"
+          confirmLabel="Remove permanently"
+          busyLabel="Removing…"
+          reasonLabel="Why you are removing it (required)"
+          reasonRequired="Write a reason before you confirm."
+          reasonHelp="Shown to the reviewer on their account page. Name the guideline the review breaks."
+          [maxLength]="500"
+          [confirmStep]="removeStep"
+          [(open)]="stepOneOpen"
+          (confirmed)="stepOneOpen.set(false)"
+        />
+
+        <h3 class="mt-8" id="lg-danger-step-two">Two steps: step two, the reason locked</h3>
+        <aec-admin-danger-action
+          id="lg-danger-step-two-form"
+          class="mt-4"
+          openerLabel="Remove from the page"
+          confirmLabel="Remove permanently"
+          busyLabel="Removing…"
+          reasonLabel="Why you are removing it (required)"
+          reasonRequired="Write a reason before you confirm."
+          reasonHelp="Shown to the reviewer on their account page. Name the guideline the review breaks."
+          [maxLength]="500"
+          [confirmStep]="removeStep"
+          [(open)]="stepTwoOpen"
+          (confirmed)="stepTwoOpen.set(false)"
+        />
+
+        <h3 class="mt-8" id="lg-danger-rich">An error with a link</h3>
+        <aec-admin-danger-action
+          id="lg-danger-rich-form"
+          class="mt-4"
+          openerLabel="Ban reviewer"
+          confirmLabel="Confirm ban"
+          busyLabel="Banning…"
+          warning="They will be blocked from submitting new reviews. Their approved reviews stay visible. You can unban them later."
+          reasonLabel="Reason for ban"
+          reasonRequired="Enter a reason between 1 and 500 characters."
+          [errorTemplate]="lastSeat"
+          [(open)]="richOpen"
+          (confirmed)="richOpen.set(false)"
+        />
+        <ng-template #lastSeat
+          >This is the vendor's last unbanned seat, so it was not banned. To end a vendor, use
+          Suspend on its
+          <a
+            href="/preview/admin-console-legend#lg-danger"
+            class="underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary)"
+            >vendor page</a
+          >.</ng-template
+        >
+
+        <h3 class="mt-8" id="lg-danger-note">A note, a fact line and Cancel's own words</h3>
+        <aec-admin-danger-action
+          id="lg-danger-note-form"
+          class="mt-4"
+          openerLabel="Return records to AEC Integrations"
+          confirmLabel="Return the records"
+          busyLabel="Returning…"
+          warning="Use this only when the claim was approved in error. The records go back to AEC Integrations and the vendor can no longer edit them."
+          reasonLabel="Reason (required)"
+          reasonRequired="Enter a reason."
+          reasonHelp="Up to 1000 characters."
+          [maxLength]="1000"
+          noteLabel="Internal note (optional)"
+          noteHelp="Only admins see it."
+          [noteMaxLength]="1000"
+          cancelLabel="Keep the records"
+          [(open)]="noteOpen"
+          (confirmed)="noteOpen.set(false)"
+        >
+          <p dangerFacts class="text-t-14 text-(--text-primary)">
+            3 open product proposals will be discarded.
+          </p>
+        </aec-admin-danger-action>
+
+        <h3 class="mt-8" id="lg-danger-optional">An optional reason, and no warning box</h3>
+        <aec-admin-danger-action
+          id="lg-danger-optional-form"
+          class="mt-4"
+          openerLabel="Decline"
+          confirmLabel="Confirm decline"
+          busyLabel="Declining…"
+          reasonLabel="Why you are declining (recommended)"
+          [reasonRequired]="null"
+          reasonHelp="Shown to the vendor that filed the contest. A reason tells them what evidence would change the answer."
+          [maxLength]="2000"
+          [(open)]="optionalOpen"
+          (confirmed)="optionalOpen.set(false)"
+        />
+      </section>
     </div>
   `,
 })
@@ -276,6 +407,51 @@ export class AdminConsoleLegendPreview {
   protected readonly editingEmail = signal(false);
   protected readonly emailError = signal<string | null>(null);
   protected readonly suspending = signal(false);
+
+  // AECI-2104: the danger form's options, each open in the state its heading names.
+  protected readonly removeStep: AdminDangerConfirmStep = {
+    continueLabel: 'Continue to removal',
+    title: 'Remove this review permanently?',
+    body: "Removal is final. The review comes off the product page with its vendor replies and updates, and its ratings stop counting in the product's averages. Nobody can undo it from this screen.",
+    editLabel: 'Edit the reason',
+  };
+  protected readonly lengthOpen = signal(true);
+  protected readonly busyOpen = signal(true);
+  protected readonly busyBusy = signal(false);
+  protected readonly stepOneOpen = signal(true);
+  protected readonly stepTwoOpen = signal(true);
+  protected readonly richOpen = signal(true);
+  protected readonly noteOpen = signal(true);
+  protected readonly optionalOpen = signal(true);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  constructor() {
+    // Drive each form into its state the way an operator would: type, then confirm.
+    // Browser only, after hydration. The forms focus what they would focus for a
+    // real operator, so the page then hands focus back and returns to the top.
+    afterNextRender(() => {
+      const long = 'The review names a competitor and repeats one claim three times over the text.';
+      this.stage('lg-danger-length-form', `${long} It also has no rating.`, 1);
+      this.stage('lg-danger-busy-form', 'Breaks the guideline on personal details.', 1);
+      this.stage('lg-danger-step-one-form', 'Breaks the guideline on personal details.', 0);
+      this.stage('lg-danger-step-two-form', 'Breaks the guideline on personal details.', 1);
+      this.stage('lg-danger-note-form', 'The claim was approved for the wrong company.', 0);
+      setTimeout(() => {
+        const doc = this.host.nativeElement.ownerDocument;
+        (doc.activeElement as HTMLElement | null)?.blur();
+        doc.defaultView?.scrollTo(0, 0);
+      }, 250);
+    });
+  }
+
+  private stage(id: string, reason: string, confirms: number): void {
+    const form = this.host.nativeElement.querySelector<HTMLFormElement>(`#${id} form`);
+    const area = form?.querySelector<HTMLTextAreaElement>('textarea');
+    if (!form || !area) return;
+    area.value = reason;
+    area.dispatchEvent(new Event('input'));
+    for (let i = 0; i < confirms; i++) form.requestSubmit();
+  }
 
   /** The disclosure names what it opens, with no verb: `aria-expanded` gives the state. */
   protected reviewLabel(product: string): string {

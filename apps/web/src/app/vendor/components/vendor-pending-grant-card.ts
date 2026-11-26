@@ -20,18 +20,20 @@ import {
 } from '@aeci/shared';
 
 import { legalPath } from '../../legal/legal-manifest';
+import { AecButton } from '../../shared/button/button';
 import {
-  BUTTON_PRIMARY_CLASS,
   CHOICE_INPUT_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
+  FIELD_LABEL_TYPE_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorApi } from '../vendor-api';
 import { licenseActionErrorCode } from './vendor-license-action-errors';
 import { acceptanceHref } from './vendor-agreement-href';
+import { BILLING_LINK_CLASS } from './vendor-billing-styles';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
 import { AecConsentBox } from '../../shared/form-field/consent-box';
@@ -154,48 +156,44 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
  */
 @Component({
   selector: 'aec-vendor-pending-grant-card',
-  imports: [FormField, AecEarlyInput, AecConsentBox],
-  // One entry in the waiting panel. The panel is the only container: entries are split
+  imports: [AecButton, FormField, AecEarlyInput, AecConsentBox],
+  // One entry in the waiting card. The card is the only container: entries are split
   // by the section's dividers, never a card inside a card.
-  host: { class: 'block py-5 first:pt-0 last:pb-0' },
+  host: { class: 'block py-6 first:pt-0 last:pb-0' },
   template: `
     <article [attr.aria-labelledby]="id('heading')" data-testid="pending-grant">
       <h4
         [id]="id('heading')"
-        class="font-label text-sm font-semibold text-(--text-primary)"
+        class="text-t-16 font-semibold text-(--text-primary)"
         data-testid="pending-grant-heading"
       >
         {{ headingLabel() }}
       </h4>
-      <dl class="mt-2 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
-        <dt class="text-(--text-secondary)" i18n="@@vendor.billing.grantPending.source">Source</dt>
+      <dl class="mt-4 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 text-t-14">
+        <dt [class]="dtClass" i18n="@@vendor.billing.grantPending.source">Source</dt>
         <dd class="text-(--text-primary)" data-testid="pending-grant-source">
           {{ sourceLabel() }}
           @if (referenceLabel(); as ref) {
-            <span class="block text-xs text-(--text-secondary)">{{ ref }}</span>
+            <span class="mt-1 block text-t-13 text-(--text-secondary)">{{ ref }}</span>
           }
         </dd>
-        <dt class="text-(--text-secondary)" i18n="@@vendor.billing.grantPending.starts">Starts</dt>
+        <dt [class]="dtClass" i18n="@@vendor.billing.grantPending.starts">Starts</dt>
         <dd class="text-(--text-primary)">{{ startsLabel() }}</dd>
-        <dt class="text-(--text-secondary)" i18n="@@vendor.billing.grantPending.ends">Ends</dt>
+        <dt [class]="dtClass" i18n="@@vendor.billing.grantPending.ends">Ends</dt>
         <dd class="text-(--text-primary) tabular-nums" data-testid="pending-grant-ends">
           {{ endsLabel() }}
         </dd>
         @if (items().length > 0) {
-          <dt class="text-(--text-secondary)" i18n="@@vendor.billing.grantPending.goesOn">
-            Goes on
-          </dt>
+          <dt [class]="dtClass" i18n="@@vendor.billing.grantPending.goesOn">Goes on</dt>
           <dd class="text-(--text-primary)">
-            <ul class="m-0 list-none space-y-0.5 p-0" data-testid="pending-grant-products">
+            <ul class="m-0 list-none space-y-1 p-0" data-testid="pending-grant-products">
               @for (item of items(); track item.productId) {
                 <li>{{ item.label }}</li>
               }
             </ul>
           </dd>
         }
-        <dt class="text-(--text-secondary)" i18n="@@vendor.billing.grantPending.agreement">
-          Agreement
-        </dt>
+        <dt [class]="dtClass" i18n="@@vendor.billing.grantPending.agreement">Agreement</dt>
         <dd class="text-(--text-primary)">
           @if (agreementHref(); as href) {
             <a
@@ -214,7 +212,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
           }
           @if (!grant().terms_version_current) {
             <span
-              class="block text-xs text-(--text-secondary)"
+              class="mt-1 block text-t-13 text-(--text-secondary)"
               data-testid="pending-grant-superseded"
               i18n="@@vendor.billing.grantPending.superseded"
               >A later version is now current. This version governs this grant for its whole
@@ -224,8 +222,8 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
         </dd>
       </dl>
 
-      <form method="dialog" novalidate class="mt-4 space-y-4" (submit)="accept($event)">
-        <div class="space-y-1.5">
+      <form method="dialog" novalidate class="mt-6 space-y-6" (submit)="accept($event)">
+        <div class="space-y-2">
           <label
             [attr.for]="id('title')"
             [class]="labelClass"
@@ -265,7 +263,7 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
           }
         </div>
 
-        <div class="space-y-1.5">
+        <div class="space-y-2">
           <div class="flex items-start gap-3">
             <input
               [id]="id('accept')"
@@ -274,10 +272,14 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
               [formField]="form.accepted"
               [attr.aria-invalid]="acceptError() ? 'true' : null"
               [attr.aria-describedby]="acceptError() ? id('accept-error') : null"
-              [class]="choiceInputClass + ' mt-0.5'"
+              [class]="choiceInputClass + ' mt-1'"
               data-testid="pending-grant-accept-box"
             />
-            <label [attr.for]="id('accept')" class="text-sm leading-relaxed text-(--text-primary)">
+            <label
+              [attr.for]="id('accept')"
+              class="text-t-14 leading-[1.6] text-(--text-primary)"
+              data-testid="pending-grant-accept-label"
+            >
               @if (agreementHref(); as href) {
                 <span i18n="@@vendor.billing.grantPending.acceptLabel"
                   >I have read and accept the
@@ -309,8 +311,8 @@ export function grantAcceptFailure(err: unknown): GrantAcceptFailure {
         }
 
         <button
+          aecButton
           type="submit"
-          [class]="primaryClass"
           [disabled]="form().invalid() || busy()"
           [attr.aria-busy]="busy()"
           data-testid="pending-grant-accept"
@@ -468,7 +470,6 @@ export class VendorPendingGrantCard {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly linkClass =
-    'font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly dtClass = FIELD_LABEL_TYPE_CLASS;
+  protected readonly linkClass = `${BILLING_LINK_CLASS} font-semibold`;
 }

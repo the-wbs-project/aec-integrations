@@ -17,7 +17,7 @@ import type { AdminDeliveredPair, AdminDeliveredPairsResponse } from '@aeci/shar
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 
 import { AdminVendorsApi } from './admin-vendors-api';
 
@@ -115,7 +115,7 @@ const NO_OWNER = '__none__';
                         >
                         <select
                           [id]="fieldId(pair, 'owner')"
-                          class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
+                          [class]="inputClass"
                           (change)="pickedOwner.set(selectValue($event))"
                         >
                           <option
@@ -144,7 +144,7 @@ const NO_OWNER = '__none__';
                           [id]="fieldId(pair, 'reason')"
                           rows="2"
                           maxlength="1000"
-                          class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary)"
+                          [class]="inputClass"
                           [value]="reason()"
                           [attr.aria-invalid]="formError() ? 'true' : null"
                           (input)="reason.set(textValue($event))"
@@ -390,6 +390,8 @@ export class DeliveredPairsPanel implements OnInit {
 
   /** The Label role (AECI-2083 admin recipe). */
   protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** The shared field recipe (`shared/form-field/form-field-classes.ts`). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 }
 
 function errorCode(err: unknown): string | null {

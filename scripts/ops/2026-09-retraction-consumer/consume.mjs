@@ -1445,7 +1445,7 @@ async function main() {
   // `liveIntegrationSql` / `liveEvidencedPairSql`. Probed on `products`: migration 0113
   // reaches each tier at its next deploy, and without the column nothing is hidden.
   // AECI-2042: a row an endpoint vendor vetoed is not live either (`vetoed_at`,
-  // migration 0131, on both tables). The literal mirrors `notVetoedSql` in
+  // migration 0132, on both tables). The literal mirrors `notVetoedSql` in
   // `@aeci/shared/live-integration`. Probed on each table's DDL.
   const integrationsVetoFilter = ddlHasColumn(integrationsDdl, 'vetoed_at')
     ? 'AND vetoed_at IS NULL'

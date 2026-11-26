@@ -4,7 +4,14 @@ import { Component, afterNextRender, inject, signal } from '@angular/core';
 import type { AdminVeto, PairContest, PairRightPair } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AdminDangerAction } from '../console/danger-action';
+import { QUEUE_FORM_CLASS } from '../reviews/queue-classes';
 
 import { AdminContestsApi } from './admin-contests-api';
 
@@ -20,15 +27,21 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
  * - **Reports AEC Integrations decides**: existence reports, and data flow reports on
  *   unclaimed pairs. Accept needs a note; an existence accept also needs a proof link,
  *   and on a vendor-held pair it retires the pair. Data flow reports on a claimed pair
- *   are the owner's and are listed read-only.
+ *   are the owner's and are listed read-only. Decline is the console's shared danger
+ *   form (`aec-admin-danger-action`, AECI-2104), with an optional reason, as the field
+ *   contests' Decline above.
  * - **Reviews of an owner's answer**: protests. Upheld or rejected, with a note. Advice
  *   only: nothing on the listing changes.
  * - **Removals in force**: endpoint vetoes. Not judged. "End this removal" exists for a
- *   veto filed through a seat that should not have had it, and needs a note.
+ *   veto filed through a seat that should not have had it, and needs a note. It is the
+ *   shared danger form with a required reason.
+ *
+ * The forms that stay hand-built (Accept, and the two protest answers) use the console
+ * queue's form recipe and the shared field classes (`QUEUE_FORM_CLASS`, `FIELD_*`).
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [AecButton, DatePipe],
+  imports: [AdminDangerAction, AecButton, DatePipe],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -61,39 +74,43 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   With the owner, {{ r.owner_name }}. The owner decides.
                 </p>
               } @else {
-                <div class="mt-2 flex flex-wrap gap-2">
+                <div class="mt-2 flex flex-wrap items-start gap-2">
                   <button
                     type="button"
                     aecButton
                     variant="secondary"
                     compact
+                    [attr.aria-expanded]="isOpen(r.id, 'accept')"
                     (click)="openForm(r.id, 'accept')"
                     i18n="@@admin.pairRights.accept"
                   >
                     Accept
                   </button>
-                  <button
-                    type="button"
-                    aecButton
-                    variant="secondary"
-                    compact
-                    (click)="openForm(r.id, 'decline')"
-                    i18n="@@admin.pairRights.decline"
-                  >
-                    Decline
-                  </button>
+                  <aec-admin-danger-action
+                    class="min-w-0 flex-1"
+                    [openerLabel]="declineCopy.opener"
+                    [confirmLabel]="declineCopy.confirm"
+                    [busyLabel]="declineCopy.busy"
+                    [reasonLabel]="declineCopy.label"
+                    [reasonRequired]="null"
+                    [maxLength]="noteMax"
+                    [busy]="busy() && isOpen(r.id, 'decline')"
+                    [error]="isOpen(r.id, 'decline') ? error() : null"
+                    [open]="isOpen(r.id, 'decline')"
+                    (openChange)="setOpen(r.id, 'decline', $event)"
+                    (confirmed)="decline(r, $event)"
+                  />
                 </div>
-                @if (form()?.id === r.id) {
+                @if (isOpen(r.id, 'accept')) {
                   <form
                     method="dialog"
-                    class="mt-3 space-y-2"
-                    (submit)="$event.preventDefault(); decide(r)"
+                    [class]="formClass"
+                    class="mt-3"
+                    (submit)="$event.preventDefault(); accept(r)"
+                    (keydown.escape)="closeForm()"
                   >
-                    @if (form()?.kind === 'accept' && r.kind === 'existence') {
-                      <p
-                        class="text-(--text-secondary)"
-                        i18n="@@admin.pairRights.accept.existenceHelp"
-                      >
+                    @if (r.kind === 'existence') {
+                      <p [class]="hintClass" i18n="@@admin.pairRights.accept.existenceHelp">
                         On a vendor-held pair this retires it now. On a pair AEC Integrations holds,
                         retract it in the review app.
                       </p>
@@ -107,13 +124,15 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                     <textarea
                       id="rpt-note-{{ r.id }}"
                       rows="3"
-                      maxlength="1000"
-                      class="w-full rounded-control border border-(--border-default) p-2"
+                      [attr.maxlength]="noteMax"
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
                       (input)="note.set(valueOf($event))"
                     ></textarea>
-                    @if (form()?.kind === 'accept' && r.kind === 'existence') {
+                    @if (r.kind === 'existence') {
                       <label
                         [class]="labelClass"
+                        class="pt-2"
                         for="rpt-src-{{ r.id }}"
                         i18n="@@admin.pairRights.source"
                         >Proof link (required)</label
@@ -121,20 +140,38 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                       <input
                         id="rpt-src-{{ r.id }}"
                         type="url"
-                        class="w-full rounded-control border border-(--border-default) p-2"
+                        inputmode="url"
+                        autocomplete="off"
+                        placeholder="https://"
+                        [class]="inputClass"
                         (input)="source.set(valueOf($event))"
                       />
                     }
-                    <button
-                      type="submit"
-                      aecButton
-                      variant="secondary"
-                      compact
-                      [disabled]="busy()"
-                      i18n="@@admin.pairRights.confirm"
-                    >
-                      Confirm
-                    </button>
+                    @if (error()) {
+                      <p role="alert" [class]="errorClass">{{ error() }}</p>
+                    }
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        type="submit"
+                        aecButton
+                        compact
+                        [disabled]="busy()"
+                        i18n="@@admin.pairRights.confirm"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        aecButton
+                        variant="ghost"
+                        compact
+                        [disabled]="busy()"
+                        (click)="closeForm()"
+                        i18n="@@admin.pairRights.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </form>
                 }
               }
@@ -169,6 +206,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   aecButton
                   variant="secondary"
                   compact
+                  [attr.aria-expanded]="isOpen(r.id, 'upheld')"
                   (click)="openForm(r.id, 'upheld')"
                   i18n="@@admin.pairRights.upheld"
                 >
@@ -179,6 +217,7 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   aecButton
                   variant="secondary"
                   compact
+                  [attr.aria-expanded]="isOpen(r.id, 'rejected')"
                   (click)="openForm(r.id, 'rejected')"
                   i18n="@@admin.pairRights.rejected"
                 >
@@ -188,8 +227,10 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
               @if (form()?.id === r.id) {
                 <form
                   method="dialog"
-                  class="mt-3 space-y-2"
+                  [class]="formClass"
+                  class="mt-3"
                   (submit)="$event.preventDefault(); decideProtest(r)"
+                  (keydown.escape)="closeForm()"
                 >
                   <label
                     [class]="labelClass"
@@ -200,21 +241,37 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
                   <textarea
                     id="pp-note-{{ r.id }}"
                     rows="3"
-                    maxlength="1000"
+                    [attr.maxlength]="noteMax"
                     required
-                    class="w-full rounded-control border border-(--border-default) p-2"
+                    [class]="inputClass"
+                    class="min-h-24 resize-y py-3"
                     (input)="note.set(valueOf($event))"
                   ></textarea>
-                  <button
-                    type="submit"
-                    aecButton
-                    variant="secondary"
-                    compact
-                    [disabled]="busy()"
-                    i18n="@@admin.pairRights.confirm"
-                  >
-                    Confirm
-                  </button>
+                  @if (error()) {
+                    <p role="alert" [class]="errorClass">{{ error() }}</p>
+                  }
+                  <div class="mt-2 flex flex-wrap gap-3">
+                    <button
+                      type="submit"
+                      aecButton
+                      compact
+                      [disabled]="busy()"
+                      i18n="@@admin.pairRights.confirm"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      aecButton
+                      variant="ghost"
+                      compact
+                      [disabled]="busy()"
+                      (click)="closeForm()"
+                      i18n="@@admin.pairRights.cancel"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               }
             </li>
@@ -242,58 +299,29 @@ type Form = { id: string; kind: 'accept' | 'decline' | 'lift' | 'upheld' | 'reje
           @for (v of vetoes(); track v.id) {
             <li class="rounded-panel border border-(--border-default) p-4 text-sm">
               <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by">
+              <p class="mb-2 text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by">
                 Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }}:
                 {{ v.reason }}
               </p>
-              <button
-                type="button"
-                aecButton
-                variant="secondary"
-                compact
-                (click)="openForm(v.id, 'lift')"
-                i18n="@@admin.pairRights.lift"
-              >
-                End this removal
-              </button>
-              @if (form()?.id === v.id) {
-                <form
-                  method="dialog"
-                  class="mt-3 space-y-2"
-                  (submit)="$event.preventDefault(); lift(v)"
-                >
-                  <label
-                    [class]="labelClass"
-                    for="lift-note-{{ v.id }}"
-                    i18n="@@admin.pairRights.noteLift"
-                    >Why it ends, shown to the vendors (required)</label
-                  >
-                  <textarea
-                    id="lift-note-{{ v.id }}"
-                    rows="3"
-                    maxlength="1000"
-                    required
-                    class="w-full rounded-control border border-(--border-default) p-2"
-                    (input)="note.set(valueOf($event))"
-                  ></textarea>
-                  <button
-                    type="submit"
-                    aecButton
-                    variant="secondary"
-                    compact
-                    [disabled]="busy()"
-                    i18n="@@admin.pairRights.confirm"
-                  >
-                    Confirm
-                  </button>
-                </form>
-              }
+              <aec-admin-danger-action
+                [openerLabel]="liftCopy.opener"
+                [confirmLabel]="liftCopy.confirm"
+                [busyLabel]="liftCopy.busy"
+                [reasonLabel]="liftCopy.label"
+                [reasonRequired]="liftCopy.required"
+                [maxLength]="noteMax"
+                [busy]="busy() && isOpen(v.id, 'lift')"
+                [error]="isOpen(v.id, 'lift') ? error() : null"
+                [open]="isOpen(v.id, 'lift')"
+                (openChange)="setOpen(v.id, 'lift', $event)"
+                (confirmed)="lift(v, $event)"
+              />
             </li>
           }
         </ul>
       </div>
 
-      @if (error()) {
+      @if (error() && !form()) {
         <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ error() }}</p>
       }
       <p class="sr-only" role="status">{{ status() }}</p>
@@ -313,8 +341,32 @@ export class AdminPairRights {
   protected readonly error = signal<string | null>(null);
   protected readonly status = signal('');
 
-  /** The Label role (AECI-2083 admin recipe). */
+  /** The Label role (AECI-2083 admin recipe) and the shared field recipe. */
   protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  /** The console queue's decision form (`reviews/queue-classes.ts`). */
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  /** Every note the API takes here is capped at 1000 characters. */
+  protected readonly noteMax = 1000;
+
+  /** Decline's words (the shared danger form, as on the field contests). */
+  protected readonly declineCopy = {
+    opener: $localize`:@@admin.pairRights.decline:Decline`,
+    label: $localize`:@@admin.pairRights.decline.label:Note shown to the vendor (optional)`,
+    confirm: $localize`:@@admin.pairRights.decline.confirm:Confirm decline`,
+    busy: $localize`:@@admin.pairRights.declining:Declining…`,
+  } as const;
+
+  /** "End this removal": the shared danger form with a required reason. */
+  protected readonly liftCopy = {
+    opener: $localize`:@@admin.pairRights.lift:End this removal`,
+    label: $localize`:@@admin.pairRights.noteLift:Why it ends, shown to the vendors (required)`,
+    required: $localize`:@@admin.pairRights.err.noteRequired:A note is required.`,
+    confirm: $localize`:@@admin.pairRights.lift.confirm:End the removal`,
+    busy: $localize`:@@admin.pairRights.lifting:Ending…`,
+  } as const;
 
   constructor() {
     afterNextRender(() => void this.load());
@@ -342,24 +394,51 @@ export class AdminPairRights {
   }
 
   protected openForm(id: string, kind: NonNullable<Form>['kind']): void {
+    if (this.busy()) return;
     this.note.set('');
     this.source.set('');
     this.error.set(null);
     this.form.set({ id, kind });
   }
 
-  protected decide(r: PairContest): Promise<void> {
-    const kind = this.form()?.kind === 'accept' ? 'accept' : 'decline';
+  protected closeForm(): void {
+    if (this.busy()) return;
+    this.error.set(null);
+    this.form.set(null);
+  }
+
+  protected isOpen(id: string, kind: NonNullable<Form>['kind']): boolean {
+    const f = this.form();
+    return f?.id === id && f.kind === kind;
+  }
+
+  /** The danger form's two-way `open`. */
+  protected setOpen(id: string, kind: NonNullable<Form>['kind'], open: boolean): void {
+    if (open) this.openForm(id, kind);
+    else if (this.isOpen(id, kind)) this.closeForm();
+  }
+
+  protected accept(r: PairContest): Promise<void> {
     const note = this.note().trim();
-    if (kind === 'accept' && !note) {
+    if (!note) {
       this.error.set($localize`:@@admin.pairRights.err.note:A note is required to accept.`);
       return Promise.resolve();
     }
     return this.write(async () => {
       await this.api.decidePairContest(r.id, {
-        decision: kind,
-        ...(note ? { note } : {}),
+        decision: 'accept',
+        note,
         ...(this.source().trim() ? { source_url: this.source().trim() } : {}),
+      });
+      this.status.set($localize`:@@admin.pairRights.done:Decided.`);
+    });
+  }
+
+  protected decline(r: PairContest, reason: string): Promise<void> {
+    return this.write(async () => {
+      await this.api.decidePairContest(r.id, {
+        decision: 'decline',
+        ...(reason ? { note: reason } : {}),
       });
       this.status.set($localize`:@@admin.pairRights.done:Decided.`);
     });
@@ -378,12 +457,7 @@ export class AdminPairRights {
     });
   }
 
-  protected lift(v: AdminVeto): Promise<void> {
-    const note = this.note().trim();
-    if (!note) {
-      this.error.set($localize`:@@admin.pairRights.err.noteRequired:A note is required.`);
-      return Promise.resolve();
-    }
+  protected lift(v: AdminVeto, note: string): Promise<void> {
     return this.write(async () => {
       const res = await this.api.liftVeto(v.id, note);
       this.status.set(

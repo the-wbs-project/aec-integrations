@@ -2,115 +2,45 @@
 # Guard: src/native-button.guard.spec.ts. Rules: src/guard-allowlists/shrink-only.harness.ts.
 # One line per file: its path from src/app and its count. A count only goes down.
 # Lower your line when you fix some. Delete it when the file reaches zero. Never add a line.
-admin/activity/activity-feed.html 3
+admin/activity/activity-feed.html 2
 admin/admin-nav-dropdown.ts 1
-admin/audience/audience.html 4
-admin/audit/audit-log.html 3
-admin/audit/audit-trail.html 2
-admin/catalog/additions-table.ts 1
-admin/catalog/catalog-coverage.html 1
-admin/claims/claim-detail.html 3
-admin/claims/claim-queue.html 8
-admin/connectors/connector-detail.html 7
-admin/connectors/connector-list.html 3
-admin/connectors/managed-by-control.html 6
-admin/connectors/mapping-edit-control.html 4
-admin/contests/contest-queue.html 15
-admin/dmca/dmca-notices.html 10
-admin/email/email-activity.html 7
-admin/email/email-switches.html 5
-admin/legal/legal-versions.html 7
-admin/legal/litigation-holds.html 7
-admin/reindex/reindex-history.html 4
-admin/reindex/reindex-list.html 7
-admin/requests/license-release-queue.html 6
-admin/requests/product-request-queue.ts 6
-admin/requests/request-queue.html 6
-admin/review-responses/review-response-queue.html 10
-admin/review-updates/review-update-queue.html 10
-admin/reviews/review-queue.html 20
-admin/subscribers/subscriber-list.html 3
-admin/threads/thread-detail.html 1
+admin/audience/audience.html 3
+admin/audit/audit-log.html 1
+admin/claims/claim-queue.html 1
+admin/connectors/connector-detail.html 2
+admin/connectors/managed-by-control.html 1
+admin/contests/contest-queue.html 4
+admin/email/email-activity.html 1
+admin/reindex/reindex-list.html 1
+admin/requests/license-release-queue.html 1
+admin/requests/product-request-queue.ts 1
+admin/requests/request-queue.html 1
+admin/review-responses/review-response-queue.html 1
+admin/review-updates/review-update-queue.html 1
+admin/reviews/review-queue.html 2
+admin/subscribers/subscriber-list.html 1
 admin/threads/thread-list.html 1
-admin/traffic/traffic.html 5
-admin/users/user-detail.html 6
-admin/users/user-list.html 3
-admin/vendors/admin-field-corrections.html 8
-admin/vendors/admin-field-hides.html 10
-admin/vendors/admin-logo-editor/admin-logo-editor.ts 4
-admin/vendors/ban-term-licenses-control.html 3
-admin/vendors/billing-email-control.ts 3
-admin/vendors/billing-licenses-table.html 1
-admin/vendors/brand-asset-removals.html 5
-admin/vendors/grant-licenses-control.html 4
-admin/vendors/legal-name-control.ts 3
-admin/vendors/license-bulk-actions.html 6
-admin/vendors/license-grant-actions.ts 3
-admin/vendors/license-row-actions.html 9
-admin/vendors/listing-hide-form.html 5
-admin/vendors/provision-seat-control.html 3
-admin/vendors/return-records-control.html 3
-admin/vendors/suspension-cost-log.html 6
-admin/vendors/suspension-terminate.html 4
-admin/vendors/vendor-detail.html 7
-admin/vendors/vendor-integrations-panel.html 5
-admin/vendors/vendor-list.html 4
-admin/vendors/vendor-listing-visibility.html 1
-admin/vendors/vendor-products-table.html 5
-admin/vendors/vendor-suspension-section.html 14
-vendor/components/vendor-billing-email-form.ts 3
-vendor/components/vendor-billing-legal-name-form.ts 3
-vendor/components/vendor-billing-stripe-panel.ts 6
-vendor/components/vendor-bullet-list-editor.ts 4
-vendor/components/vendor-connector-catalogue.ts 7
-vendor/components/vendor-connector-mapping-form.ts 3
-vendor/components/vendor-contest-form.ts 3
-vendor/components/vendor-contest-protest.ts 9
-vendor/components/vendor-contests-list.ts 6
-vendor/components/vendor-glance-band.ts 1
-vendor/components/vendor-integration-create.ts 10
-vendor/components/vendor-integration-edit-form.ts 2
-vendor/components/vendor-integrations-section.ts 3
-vendor/components/vendor-license-actions.ts 6
-vendor/components/vendor-license-assign.ts 3
-vendor/components/vendor-logo-field.ts 6
-vendor/components/vendor-looks-right.ts 1
-vendor/components/vendor-not-ours.ts 4
-vendor/components/vendor-notifications-list.ts 1
-vendor/components/vendor-nudge-mute-toggle.ts 2
-# The Yes/No segmented switch (aria-pressed, `.id-seg-btn` in ID_STYLES), native like its
-# integration-detail siblings. Arrived with the Sync Service branch (AECI-2039) after the list was
-# cut, so it is the one added line. The redesign slice for integration detail moves it.
+admin/traffic/traffic.html 4
+admin/users/user-detail.html 1
+admin/vendors/vendor-detail.html 1
+# Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
+vendor/components/vendor-integrations-section.ts 1
+# Kept: Release and Keep, menu items inside the actions popover.
+vendor/components/vendor-license-actions.ts 2
+# Kept: the email switch (role="switch", aria-checked).
+vendor/components/vendor-nudge-mute-toggle.ts 1
+# Kept: the owner's Yes and No toggles (aria-pressed segments on the portal segmented recipe, as in
+# integration-shared-data.ts). Arrived with the Sync Service branch (AECI-2039) after the list was cut.
 vendor/components/vendor-owned-flows.ts 2
-vendor/components/vendor-owned-integrations.ts 2
-vendor/components/vendor-owned-retire.ts 4
-vendor/components/vendor-pending-grant-card.ts 1
-vendor/components/vendor-product-connectors.ts 1
-vendor/components/vendor-product-create.ts 5
-vendor/components/vendor-product-facet-editor.ts 6
-vendor/components/vendor-product-form.ts 2
-vendor/components/vendor-product-requests-list.ts 1
-vendor/components/vendor-products-section.ts 1
-vendor/components/vendor-profile-form.ts 2
-vendor/components/vendor-proposal-card.ts 4
-vendor/components/vendor-removal-election.ts 5
-vendor/components/vendor-reviews-list.ts 11
-vendor/components/vendor-seat-invite-dialog.ts 2
-vendor/components/vendor-seat-invite-form.ts 1
-vendor/components/vendor-seat-roster.ts 6
-vendor/history/vendor-history-page.ts 5
-vendor/integration-detail/integration-answer-form.ts 3
-vendor/integration-detail/integration-change-requests.ts 13
-vendor/integration-detail/integration-links.ts 9
-vendor/integration-detail/integration-overview.ts 9
-vendor/integration-detail/integration-request-form.ts 2
-vendor/integration-detail/integration-row-thread.ts 8
-vendor/integration-detail/integration-settings.ts 4
-vendor/integration-detail/integration-shared-data.ts 11
-vendor/integration-detail/vendor-integration-detail-page.ts 3
+# Kept: the kind filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
+vendor/history/vendor-history-page.ts 1
+# Kept: the request filter toggles (ruling 2026-11-24) and a whole-row disclosure trigger.
+vendor/integration-detail/integration-change-requests.ts 2
+# Kept: the Yes and No answer toggles (aria-pressed segments that also open a form).
+vendor/integration-detail/integration-shared-data.ts 2
+# Kept: two text-link buttons that jump to an item on the page.
+vendor/integration-detail/vendor-integration-detail-page.ts 2
+# Kept: the tip trigger, a disclosure for its overlay panel.
 vendor/integration-detail/vendor-tip.ts 1
-vendor/sections/vendor-billing-section.ts 3
-vendor/sections/vendor-overview-section.ts 1
-vendor/sections/vendor-product-overview-page.ts 1
-vendor/sections/vendor-proposals-section.ts 1
-vendor/sections/vendor-threads-page.ts 5
+# Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
+vendor/sections/vendor-threads-page.ts 1

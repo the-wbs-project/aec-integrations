@@ -20,6 +20,9 @@
  *     disabled until it completes, and a save never closes a form it did not send.
  * 10. **A failed refresh is visible.** The earlier rows stay, under a banner that says the
  *     list may be out of date and offers "Try again". A successful load clears it.
+ * 11. **The console recipe (AECI-2128).** The restore clock is a dense console chip in its
+ *     ruled tone. Escape closes the form and returns focus to its opener, does nothing
+ *     while a save is in flight, and a refused save moves focus to its message.
  */
 
 import { HttpErrorResponse } from '@angular/common/http';
@@ -35,6 +38,7 @@ import { AecSelect } from '../../shared/aec-select/aec-select';
 import { AdminDmcaApi } from './admin-dmca-api';
 import {
   AdminDmcaNotices,
+  clockStatusKey,
   createBody,
   draftComplete,
   draftFrom,
@@ -543,5 +547,94 @@ describe('AdminDmcaNotices', () => {
     await rerender();
     expect(api.list).toHaveBeenCalledTimes(2);
     expect(el.querySelector('[data-testid="dmca-form"]')).toBeNull();
+  });
+});
+
+describe('AdminDmcaNotices on the console recipe (AECI-2128)', () => {
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('maps every clock state to its ruled console status', () => {
+    expect(clockStatusKey('awaiting_forward')).toBe('waitingToForward');
+    expect(clockStatusKey('waiting')).toBe('restoreWindowOpens');
+    expect(clockStatusKey('restore_window_open')).toBe('restoreBy');
+    expect(clockStatusKey('overdue')).toBe('overdue');
+    expect(clockStatusKey('court_action')).toBe('courtActionReported');
+    expect(clockStatusKey('restored')).toBe('restored');
+    expect(clockStatusKey('not_restored')).toBe('notRestored');
+  });
+
+  it('draws the restore clock as a dense chip in the waiting tone', async () => {
+    const { el } = await setup();
+    const chip = el.querySelector('[data-testid="dmca-clock"] .aec-chip');
+    expect(chip?.getAttribute('data-density')).toBe('dense');
+    expect(chip?.getAttribute('data-tone')).toBe('waiting');
+  });
+
+  it('puts the log in a labelled console table region', async () => {
+    const { el } = await setup();
+    const region = el.querySelector('[role="region"]');
+    expect(region?.getAttribute('tabindex')).toBe('0');
+    expect(region?.getAttribute('aria-labelledby')).toBe('admin-dmca-caption');
+    expect(region?.querySelector('caption')?.id).toBe('admin-dmca-caption');
+  });
+
+  it('Escape closes a new-notice form and returns focus to "Log a notice"', async () => {
+    const { el, rerender } = await setup();
+    el.querySelector<HTMLButtonElement>('[data-testid="dmca-new"]')!.click();
+    await rerender();
+    escape(el.querySelector('#admin-dmca-name')!);
+    await rerender();
+    expect(el.querySelector('[data-testid="dmca-form"]')).toBeNull();
+    expect(document.activeElement?.id).toBe('admin-dmca-new');
+  });
+
+  it("Escape closes an edit and returns focus to that row's Edit", async () => {
+    const { el, rerender } = await setup();
+    el.querySelector<HTMLButtonElement>('[data-id="c-1"] button')!.click();
+    await rerender();
+    escape(el.querySelector('#admin-dmca-notes')!);
+    await rerender();
+    expect(el.querySelector('[data-testid="dmca-form"]')).toBeNull();
+    expect(document.activeElement?.id).toBe('admin-dmca-edit-c-1');
+  });
+
+  it('Escape does nothing while a save is in flight', async () => {
+    const { el, api, rerender } = await setup();
+    let finish!: () => void;
+    api.update.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ notice: row(), changed: true });
+        }),
+    );
+    el.querySelector<HTMLButtonElement>('[data-testid="dmca-edit"]')!.click();
+    await rerender();
+    type(el, '#admin-dmca-notes', 'New note');
+    await rerender();
+    el.querySelector<HTMLButtonElement>('[data-testid="dmca-save"]')!.click();
+    await rerender();
+    escape(el.querySelector('#admin-dmca-notes')!);
+    await rerender();
+    expect(el.querySelector('[data-testid="dmca-form"]')).not.toBeNull();
+    finish();
+    await rerender();
+    expect(el.querySelector('[data-testid="dmca-form"]')).toBeNull();
+  });
+
+  it('a refused save moves focus to its message', async () => {
+    const refused = new HttpErrorResponse({
+      status: 400,
+      error: { error: { code: 'VALIDATION_FAILED', field: 'account_id', message: 'x' } },
+    });
+    const { el, rerender } = await setup({ update: refused });
+    el.querySelector<HTMLButtonElement>('[data-testid="dmca-edit"]')!.click();
+    await rerender();
+    type(el, '#admin-dmca-notes', 'New note');
+    await rerender();
+    el.querySelector<HTMLButtonElement>('[data-testid="dmca-save"]')!.click();
+    await rerender();
+    expect(document.activeElement?.id).toBe('admin-dmca-form-error');
+    expect(text(document.activeElement)).toBe('No account has that id.');
   });
 });

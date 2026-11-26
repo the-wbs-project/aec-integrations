@@ -13,6 +13,12 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import type { VendorIntegration } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import type { AecIconName } from '../../shared/icon/icon-registry';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import {
   INTEGRATION_STATUS_KEYS,
@@ -26,11 +32,15 @@ import {
   contestsFor,
   type IntegrationStatusKey,
 } from '../integration-detail/integration-detail-model';
-import { ID_STYLES } from '../integration-detail/integration-detail-styles';
 import { claimsOnRecord, waitingByProduct } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
+import {
+  STATUS_CHIP_ICON,
+  STATUS_CHIP_TONE,
+} from '../integration-detail/integration-detail-styles';
+import { PORTAL_NOTICE_BODY_CLASS, PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
 
 import { VendorIntegrationCreate, type VendorIntegrationLink } from './vendor-integration-create';
 import { VendorProductRequestsList } from './vendor-product-requests-list';
@@ -47,6 +57,7 @@ import {
   statusOf,
   statusTallies,
 } from './vendor-integration-list-model';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 /**
  * The product's Integrations list (AECI-606, reshaped by AECI-1149 /
@@ -83,11 +94,14 @@ import {
   imports: [
     NgTemplateOutlet,
     RouterLink,
+    AecButton,
+    AecCard,
+    AecIcon,
+    Chip,
     LogoOrInitial,
     VendorIntegrationCreate,
     VendorProductRequestsList,
   ],
-  styles: [ID_STYLES],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
       <!-- AECI-2045 QA: on a Sync Service's tab this list sits under its own heading,
@@ -99,7 +113,7 @@ import {
           }}</span>
         </h2>
       }
-      <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
+      <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
         These are the integrations on record for your products. Open one to check what data is
         shared and to fix anything that is wrong. The other company sees the same integration from
         their side.
@@ -128,11 +142,8 @@ import {
       }
 
       @if (!anyAuthorable()) {
-        <div class="rounded-(--radius-md) border border-(--border-default) p-4">
-          <p
-            class="text-sm text-(--text-secondary)"
-            i18n="@@vendor.attest.readOnly.listUnavailable"
-          >
+        <div [class]="noticeClass">
+          <p [class]="noticeBodyClass" i18n="@@vendor.attest.readOnly.listUnavailable">
             You can review everything on record here. Answering is not available for these
             integrations right now. Contact AEC Integrations if this does not change.
           </p>
@@ -149,8 +160,10 @@ import {
             Could not load your integrations.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="retryClass"
             (click)="reload()"
             i18n="@@vendor.attest.retry"
           >
@@ -174,16 +187,12 @@ import {
           can confirm what data it moves.
         </p>
       } @else {
-        <div
-          class="space-y-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-          role="search"
-          [attr.aria-label]="filterRegionLabel"
-        >
-          <div class="flex flex-wrap items-end gap-3">
-            <div class="min-w-0 flex-1 basis-64">
+        <div class="space-y-4" role="search" [attr.aria-label]="filterRegionLabel">
+          <div class="flex flex-wrap items-end gap-4">
+            <div class="min-w-0 flex-1 basis-64 space-y-2">
               <label
                 for="vendor-integrations-query"
-                class="block text-xs font-medium text-(--text-secondary)"
+                [class]="labelClass"
                 i18n="@@vendor.attest.filter.query.label"
                 >Search</label
               >
@@ -194,27 +203,21 @@ import {
                 [value]="filter().query"
                 [attr.placeholder]="queryPlaceholder"
                 (input)="onQuery($event)"
-                class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default)
-                  bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)
-                  focus-visible:outline-2 focus-visible:outline-offset-2
-                  focus-visible:outline-(--accent-primary)"
+                [class]="inputClass"
               />
             </div>
-            <div>
+            <div class="w-full space-y-2 sm:w-64">
               <label
                 for="vendor-integrations-side"
-                class="block text-xs font-medium text-(--text-secondary)"
+                [class]="labelClass"
                 i18n="@@vendor.attest.filter.side.label"
                 >Integrates with</label
               >
-              <div class="relative mt-1">
+              <div class="relative">
                 <select
                   id="vendor-integrations-side"
                   (change)="onSide($event)"
-                  class="appearance-none rounded-(--radius-sm) border border-(--border-default)
-                    bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary)
-                    focus-visible:outline-2 focus-visible:outline-offset-2
-                    focus-visible:outline-(--accent-primary)"
+                  [class]="selectClass"
                 >
                   @for (option of sideOptions; track option.value) {
                     <option [value]="option.value" [selected]="option.value === filter().side">
@@ -222,39 +225,29 @@ import {
                     </option>
                   }
                 </select>
-                <svg
-                  class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
+                <span
+                  class="pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
                 >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
+                  <aec-icon name="chevron-down" decorative [size]="4" />
+                </span>
               </div>
             </div>
           </div>
 
-          <div
-            class="flex flex-wrap items-center gap-2"
-            role="group"
-            [attr.aria-label]="statusGroupLabel"
-          >
+          <!-- The portal's own status toggles, kept (ruled 2026-11-24), on the site's
+               segmented pressed-toggle recipe (DESIGN.md §5 "Segmented control"). -->
+          <div [class]="segmentedClass" role="group" [attr.aria-label]="statusGroupLabel">
             @for (chip of statusChips(); track chip.value) {
               <button
                 type="button"
-                class="aec-period inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-(--radius-sm)
-                  border border-(--border-default) bg-(--surface-base) px-2.5 py-1 text-xs font-semibold
-                  text-(--text-secondary) transition-colors hover:text-(--text-primary)
-                  focus-visible:outline-2 focus-visible:outline-offset-2
-                  focus-visible:outline-(--accent-primary)"
+                [class]="segmentClass(filter().status === chip.value)"
                 [attr.aria-pressed]="filter().status === chip.value"
                 [attr.data-testid]="'status-chip-' + chip.value"
                 (click)="onStatus(chip.value)"
               >
+                @if (filter().status === chip.value) {
+                  <aec-icon name="check" decorative [size]="4" />
+                }
                 {{ chip.label }}
                 <span class="font-normal tabular-nums">{{ chip.count }}</span>
               </button>
@@ -263,14 +256,13 @@ import {
 
           @if (filterActive()) {
             <div
-              class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--text-secondary)"
+              class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-(--text-secondary)"
             >
               <span>{{ resultLine() }}</span>
               <button
+                aecButton
+                variant="ghost"
                 type="button"
-                class="cursor-pointer font-medium text-(--text-primary) underline decoration-(--border-strong)
-                  underline-offset-4 hover:text-(--accent-primary) focus-visible:outline-2
-                  focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 (click)="clearFilters()"
                 i18n="@@vendor.attest.filter.clear"
               >
@@ -285,8 +277,10 @@ import {
             No integrations match these filters.
           </p>
         } @else {
+          <!-- One card divided by hairlines, like mock-up 13's "What needs you" rows. -->
           <ul
-            class="id-card m-0 list-none divide-y divide-(--border-default) p-0"
+            aecCard
+            class="m-0 list-none divide-y divide-(--border-default) overflow-hidden p-0"
             data-testid="integration-list"
           >
             @for (group of groups(); track group.key) {
@@ -301,7 +295,7 @@ import {
                 </li>
               } @else {
                 <li [attr.aria-labelledby]="'group-' + group.key">
-                  <div class="flex items-center gap-3 px-5 pt-4 pb-1">
+                  <div class="flex items-center gap-3 px-6 pt-4 pb-1">
                     <aec-logo-or-initial
                       [claimStatus]="'stored'"
                       [src]="group.otherProduct.logo_url"
@@ -338,7 +332,7 @@ import {
     <ng-template #row let-integration let-nested="nested">
       <a
         [routerLink]="linkFor(integration)"
-        class="flex items-center gap-4 px-5 py-4 text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="flex items-center gap-4 px-6 py-4 text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary)"
         [attr.data-testid]="'integration-row-' + integration.id"
       >
         @if (!nested) {
@@ -349,72 +343,36 @@ import {
             size="sm"
           />
         }
-        <span class="min-w-0 flex-1">
-          <span class="flex flex-wrap items-baseline gap-x-2">
-            <span class="font-semibold text-(--text-primary)">{{
-              primaryName(integration, nested)
-            }}</span>
-            @if (byLine(integration); as by) {
-              <span class="text-sm text-(--text-secondary)">{{ by }}</span>
-            }
-          </span>
-          <span class="mt-0.5 block text-sm text-(--text-secondary)">{{
-            summary(integration)
-          }}</span>
-        </span>
-        <span class="id-pill shrink-0" [attr.data-tone]="tone(integration)">
-          @switch (tone(integration)) {
-            @case ('ok') {
-              <svg
-                aria-hidden="true"
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
-            }
-            @case ('conflict') {
-              <svg
-                aria-hidden="true"
-                class="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linecap="round"
-              >
-                <path d="M7 7l10 10M17 7L7 17" />
-              </svg>
-            }
-            @case ('attention') {
-              <span
-                aria-hidden="true"
-                class="h-2 w-2 rounded-full bg-(--accent-secondary-deep)"
-              ></span>
-            }
-            @default {
-              <span aria-hidden="true" class="h-2 w-2 rounded-full bg-(--text-secondary)"></span>
-            }
-          }
-          {{ statusText(integration) }}
-        </span>
-        <svg
-          aria-hidden="true"
-          class="h-5 w-5 shrink-0 text-(--text-secondary) rtl:-scale-x-100"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+        <!-- Below 640px the status chip drops under the text, so a long name keeps
+             the row's width instead of breaking a word per line. -->
+        <span
+          class="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4"
         >
-          <path d="m9 18 6-6-6-6" />
-        </svg>
+          <span class="min-w-0 flex-1 break-words">
+            <span class="flex flex-wrap items-baseline gap-x-2">
+              <span class="font-semibold text-(--text-primary)">{{
+                primaryName(integration, nested)
+              }}</span>
+              @if (byLine(integration); as by) {
+                <span class="text-sm text-(--text-secondary)">{{ by }}</span>
+              }
+            </span>
+            <span class="mt-1 block text-sm text-(--text-secondary)">{{
+              summary(integration)
+            }}</span>
+          </span>
+          <aec-chip
+            class="shrink-0"
+            density="dense"
+            [tone]="chipTone(integration)"
+            [icon]="chipIcon(integration)"
+            [attr.data-status-tone]="tone(integration)"
+            >{{ statusText(integration) }}</aec-chip
+          >
+        </span>
+        <span class="flex shrink-0 text-(--text-secondary)">
+          <aec-icon name="chevron-right" decorative [mirrorRtl]="true" />
+        </span>
       </a>
     </ng-template>
   `,
@@ -428,12 +386,14 @@ export class VendorIntegrationsSection implements OnInit {
   readonly vendorName = input.required<string>();
 
   /**
-   * Show only the integrations filed under THIS product (AECI-666). `null` keeps
-   * the whole surface (the single-page concept that rendered it was deleted by
-   * AECI-1809). Filtering happens here, not in the request: the store holds ONE
-   * vendor-wide read, and the freshness cursor scopes it the same way.
+   * Show only the integrations filed under THIS product (AECI-666). Filtering
+   * happens here, not in the request: the store holds ONE vendor-wide read, and the
+   * freshness cursor scopes it the same way. Required since AECI-1811: the unscoped
+   * `null` mode served only the single-page concept AECI-1809 deleted, and the one
+   * caller (`VendorIntegrationsPage`) always passes a product id, `''` while it
+   * resolves, which lists nothing rather than flashing every product's rows.
    */
-  readonly contextProductId = input<string | null>(null);
+  readonly contextProductId = input.required<string>();
 
   /** Mirror the filter into the URL (AECI-999). Only the routed page turns this on. */
   readonly urlState = input(false);
@@ -457,8 +417,7 @@ export class VendorIntegrationsSection implements OnInit {
 
   protected readonly integrations = computed(() => {
     const scope = this.contextProductId();
-    const all = this.store.integrations();
-    return scope === null ? all : all.filter((i) => i.context_product.id === scope);
+    return this.store.integrations().filter((i) => i.context_product.id === scope);
   });
 
   /**
@@ -549,8 +508,26 @@ export class VendorIntegrationsSection implements OnInit {
     return $localize`:@@vendor.im.list.summary:${total}:total: rows of data on record · ${awaiting}:awaiting: need your answer`;
   });
 
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly noticeClass = PORTAL_NOTICE_CLASS;
+  protected readonly noticeBodyClass = PORTAL_NOTICE_BODY_CLASS;
+  protected readonly segmentedClass = SEGMENTED_CLASS;
+
+  /** One status toggle: Forest when pressed, with a tick so the state is not colour alone. */
+  protected segmentClass(pressed: boolean): string {
+    return segmentClass(pressed);
+  }
+
+  /** The row's status on the shared chip, in the portal's existing tones (no new ones). */
+  protected chipTone(integration: VendorIntegration): ChipTone {
+    return STATUS_CHIP_TONE[this.tone(integration)];
+  }
+
+  protected chipIcon(integration: VendorIntegration): AecIconName | null {
+    return STATUS_CHIP_ICON[this.tone(integration)];
+  }
 
   constructor() {
     afterNextRender(() => {

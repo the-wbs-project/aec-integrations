@@ -1,0 +1,1 @@
+CREATE INDEX `vendor_requests_linear_issue_idx` ON `vendor_requests` (`linear_issue_id`) WHERE "linear_issue_id" IS NOT NULL;

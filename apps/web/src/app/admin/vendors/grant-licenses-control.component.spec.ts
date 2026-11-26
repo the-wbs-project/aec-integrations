@@ -481,3 +481,35 @@ describe('GrantLicensesControl', () => {
     });
   });
 });
+
+describe('GrantLicensesControl on the console recipe (AECI-2124)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('draws no box of its own: a secondary opener and a primary confirm', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    const root = el.querySelector('[data-testid="grant-licenses"]')!;
+    expect(root.className).not.toContain('border');
+    expect(root.className).not.toContain('rounded');
+    expect(button(el, 'Grant subscriptions').className).toContain('aec-btn-secondary');
+    button(el, 'Grant subscriptions').click();
+    await refresh();
+    expect(button(el, 'Grant the subscriptions').className).toContain('bg-(--accent-primary)');
+    // The signed-deal disclosure draws its chevron from the icon set, not an inline svg.
+    const deal = el.querySelector('[data-testid="grant-deal-toggle"]')!;
+    expect(deal.querySelector('aec-icon')).not.toBeNull();
+    expect(deal.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Escape closes the form and returns focus to "Grant subscriptions"', async () => {
+    const { el, refresh } = await setup(makeApiMock());
+    button(el, 'Grant subscriptions').click();
+    await refresh();
+    expect(document.activeElement).toBe(field(el, 'quantity'));
+    escape(field(el, 'quantity'));
+    await refresh();
+    expect(el.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(button(el, 'Grant subscriptions'));
+  });
+});

@@ -131,3 +131,53 @@ describe('ProvisionSeatControl focus (AECI-1994)', () => {
     expect(active()?.textContent).toContain('That account cannot take this seat');
   });
 });
+
+describe('ProvisionSeatControl on the console recipe (AECI-2124)', () => {
+  const active = () => document.activeElement as HTMLElement | null;
+  const escape = (target: HTMLElement) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('draws no box of its own; the opener is secondary and the confirm primary', async () => {
+    const { el, refresh, button } = await setup(vi.fn());
+    const root = el.querySelector('[data-testid="provision-seat"]')!;
+    expect(root.className).not.toContain('border');
+    expect(root.className).not.toContain('rounded');
+    expect(button('Add a seat')!.className).toContain('aec-btn-secondary');
+    button('Add a seat')!.click();
+    await refresh();
+    expect(button('Add the seat')!.className).toContain('bg-(--accent-primary)');
+    expect(button('Cancel')!.className).toContain('bg-transparent');
+  });
+
+  it('Escape closes the form and returns focus to "Add a seat"', async () => {
+    const { refresh, button, email } = await setup(vi.fn());
+    button('Add a seat')!.click();
+    await refresh();
+    escape(email()!);
+    await refresh();
+    expect(email()).toBeNull();
+    expect(active()).toBe(button('Add a seat'));
+  });
+
+  it('Escape does nothing while the provision runs', async () => {
+    let resolve!: (r: ProvisionVendorSeatResponse) => void;
+    const provisionSeat = vi.fn(
+      () => new Promise<ProvisionVendorSeatResponse>((done) => (resolve = done)),
+    );
+    const { refresh, button, email } = await setup(provisionSeat);
+    button('Add a seat')!.click();
+    await refresh();
+    email()!.value = 'ops@example.com';
+    email()!.dispatchEvent(new Event('input'));
+    await refresh();
+    button('Add the seat')!.click();
+    await refresh();
+    escape(email()!);
+    await refresh();
+    expect(email()).not.toBeNull();
+    expect(email()!.closest('form')?.getAttribute('aria-busy')).toBe('true');
+    resolve(RESULT);
+    await refresh();
+    expect(email()).toBeNull();
+  });
+});

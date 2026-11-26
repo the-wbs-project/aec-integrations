@@ -346,7 +346,7 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
-/** Whether `vetoed_at` exists yet (migration 0131, AECI-2042). One migration adds it
+/** Whether `vetoed_at` exists yet (migration 0132, AECI-2042). One migration adds it
  *  to both edge tables, so the `integrations` probe answers for both. Without it no
  *  row is vetoed. */
 export async function hasVetoedColumn(db: D1Database): Promise<boolean> {

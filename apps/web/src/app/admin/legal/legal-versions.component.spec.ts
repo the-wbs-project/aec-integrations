@@ -165,6 +165,9 @@ async function setup(opts: Opts = {}) {
 }
 
 const text = (node: Element | null | undefined) => node?.textContent?.replace(/\s+/g, ' ').trim();
+/** A `dl` read as its terms and values, one cell after another (AECI-2128: each is its own cell). */
+const pairsText = (dl: Element | null | undefined) =>
+  dl ? [...dl.children].map((cell) => text(cell)).join(' ') : undefined;
 const card = (el: HTMLElement, doc: string) =>
   el.querySelector<HTMLElement>(`[data-testid="legal-card"][data-document="${doc}"]`)!;
 const radio = (scope: HTMLElement, doc: string, q: 'material' | 'acceptance', a: 'yes' | 'no') =>
@@ -483,12 +486,14 @@ describe('AdminLegalVersions', () => {
     expect(dialogEl()).toBeNull();
     const c = card(ctx.el, 'vendor_terms');
     expect(document.activeElement?.id).toBe('admin-legal-vendor_terms-heading');
-    expect(text(c)).toContain('Published November 12, 2026 at 14:03 UTC by admin 49dd03ee');
+    expect(pairsText(c.querySelector('dl'))).toContain(
+      'Published November 12, 2026 at 14:03 UTC by admin 49dd03ee',
+    );
     expect(text(c.querySelector('[data-testid="legal-pdf"]'))).toBe(
       'legal/vendor-terms/v1.4.pdf, 143 KB, SHA-256 9f86d081884c',
     );
-    expect(text(c)).toContain('Material change Yes');
-    expect(text(c)).toContain('Needs acceptance Yes');
+    expect(pairsText(c.querySelector('dl'))).toContain('Material change Yes');
+    expect(pairsText(c.querySelector('dl'))).toContain('Needs acceptance Yes');
     expect(c.querySelector('form')).toBeNull();
     expect(text(ctx.el.querySelector('[role="status"]'))).toBe(
       'Version 1.4 of the Vendor Terms is published.',
@@ -581,7 +586,7 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
       ),
     });
     const n = notice(ctx.el);
-    expect(text(n.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
+    expect(pairsText(n.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
       'Companies queued 9 Delivered 5 Not yet delivered 1 Not reached 3',
     );
     const items = [...n.querySelectorAll('[data-testid="legal-notice-not-reached"] li')].map(text);
@@ -683,7 +688,12 @@ describe('AdminLegalVersions: the change notice (AECI-1620)', () => {
       'An address that already got this notice for a company is not emailed again.',
     );
 
-    dialogButton('Send the notice again').click();
+    // Ruled on PR #1495: a re-send takes nothing from anyone, so it confirms with the
+    // primary button, not danger.
+    const confirm = dialogButton('Send the notice again');
+    expect(confirm.className).toContain('bg-(--accent-primary)');
+    expect(confirm.className).not.toContain('bg-(--status-error)');
+    confirm.click();
     await ctx.rerender();
     expect(text(dialogEl())).toContain('Queuing…');
     expect(dialogButton('Cancel').disabled).toBe(true);
@@ -865,7 +875,7 @@ describe('AdminLegalVersions: the reader documents (AECI-1637)', () => {
     });
     const c = card(ctx.el, 'terms');
     expect(text(c)).toContain('The last send queued 40 accounts on');
-    expect(text(c.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
+    expect(pairsText(c.querySelector('[data-testid="legal-notice-companies"]'))).toBe(
       'Accounts queued 40 Delivered 38 Not yet delivered 0 Not reached 2',
     );
     expect(text(c)).toContain('Accounts not reached');
@@ -931,5 +941,28 @@ describe('AdminLegalVersions: the two policies (AECI-1969)', () => {
       summary: ['A response may link a help page.'],
       expedited_reason: null,
     });
+  });
+});
+
+describe('AdminLegalVersions on the console recipe (AECI-2128)', () => {
+  it('shows the card state as a dense console chip: not published waits, published is positive', async () => {
+    const ctx = await setup({
+      data: { ...BOTH, upcoming: [entry({ published: published() }), BOTH.upcoming[1]!] },
+    });
+    const done = card(ctx.el, 'vendor_terms').querySelector('.aec-chip');
+    expect(done?.getAttribute('data-density')).toBe('dense');
+    expect(done?.getAttribute('data-tone')).toBe('positive');
+    expect(text(done)).toBe('Published');
+    const open = card(ctx.el, 'managed_plan').querySelector('.aec-chip');
+    expect(open?.getAttribute('data-tone')).toBe('waiting');
+    expect(text(open)).toBe('Not published');
+  });
+
+  it('the card opener is secondary and the publish confirm is danger, with a ghost Cancel', async () => {
+    const ctx = await setup();
+    expect(publishButton(card(ctx.el, 'vendor_terms')).className).toContain('aec-btn-secondary');
+    await openDialog(ctx, { material: 'yes', acceptance: 'no' });
+    expect(dialogButton('Publish version').className).toContain('bg-(--status-error)');
+    expect(dialogButton('Cancel').className).toContain('bg-transparent');
   });
 });

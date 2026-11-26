@@ -4,8 +4,6 @@
  */
 import type { VendorSuspension } from '@aeci/shared';
 
-import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
-
 /** `AbuseCostEntryRequestSchema` and `TerminateVendorRequestSchema`: the amount cap. */
 const MAX_AMOUNT_CENTS = 100_000_000;
 
@@ -129,12 +127,3 @@ export function suspensionErrorMessage(err: unknown): string {
   }
   return $localize`:@@admin.vendors.suspension.error.failed:Something went wrong. Please try again.`;
 }
-
-const BUTTON_BASE =
-  'cursor-pointer rounded-(--radius-sm) border px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-/** The sibling controls' button, so this section reads as part of the same page. */
-export const SUSPENSION_BUTTON = `${BUTTON_BASE} border-(--border-default) text-(--text-primary)`;
-/** The confirm step of an action that cannot be undone from this screen. */
-export const SUSPENSION_CONFIRM_BUTTON = `${BUTTON_BASE} border-(--text-primary) bg-(--text-primary) text-(--surface-base)`;
-export const SUSPENSION_INPUT = `mt-2 ${FIELD_INPUT_CLASS}`;

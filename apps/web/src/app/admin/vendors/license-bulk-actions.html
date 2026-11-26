@@ -1,22 +1,29 @@
+<!-- AECI-2124: the bulk bar above the console table. The openers are compact secondary
+     toggles. The form opens under them with no box of its own: Set end date saves with
+     primary, Revoke confirms with danger. -->
 <div #triggers class="flex flex-wrap items-center gap-2">
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     data-mode="extend"
     (click)="open('extend')"
     [disabled]="pending() || extendable().length === 0"
     [attr.aria-pressed]="mode() === 'extend'"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     i18n="@@admin.vendors.licenseBulk.setEnd"
   >
     Set end date
   </button>
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     data-mode="revoke"
     (click)="open('revoke')"
     [disabled]="pending() || revocable().length === 0"
     [attr.aria-pressed]="mode() === 'revoke'"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     i18n="@@admin.vendors.licenseBulk.revoke"
   >
     Revoke
@@ -25,14 +32,21 @@
 
 @if (mode(); as m) {
 <div
-  class="mt-3 max-w-xl rounded-(--radius-md) bg-(--surface-sunken) p-3 text-start"
+  [class]="formWrapClass"
   data-testid="license-bulk-form"
+  [attr.aria-busy]="pending() ? 'true' : null"
 >
   @switch (m) { @case ('extend') {
-  <form method="dialog" novalidate (aecSubmit)="submitExtend()">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-2"
+    (aecSubmit)="submitExtend()"
+    (keydown.escape)="onEscape($event)"
+  >
     <label
       [attr.for]="idPrefix() + '-bulk-end'"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      [class]="labelClass"
       i18n="@@admin.vendors.licenseBulk.end.label"
     >
       End date for {extendable().length, plural, =1 {1 subscription} other {{{extendable().length}}
@@ -40,7 +54,7 @@
     </label>
     <p
       [id]="idPrefix() + '-bulk-end-help'"
-      class="mt-1 text-xs text-(--text-secondary)"
+      [class]="hintClass"
       i18n="@@admin.vendors.licenseBulk.end.help"
     >
       Must be after every selected subscription's current end date, or after today when it has none.
@@ -48,7 +62,7 @@
     </p>
     @if (extendSkipped() > 0) {
     <p
-      class="mt-1 text-xs text-(--text-secondary)"
+      [class]="hintClass"
       data-testid="license-bulk-skipped"
       i18n="@@admin.vendors.licenseBulk.end.skipped"
     >
@@ -67,23 +81,16 @@
       [attr.aria-invalid]="endTooEarly() ? 'true' : null"
       [value]="endsAt()"
       (input)="onEndInput($event)"
-      class="mt-2 w-full max-w-xs rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+      [class]="inputClass"
+      class="max-w-xs"
     />
     @if (endTooEarly()) {
-    <p
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@admin.vendors.licenseBulk.end.tooEarly"
-    >
+    <p [class]="errorClass" role="alert" i18n="@@admin.vendors.licenseBulk.end.tooEarly">
       Pick a date after every selected subscription's current end date.
     </p>
     }
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="pending() || !canExtend()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-      >
+    <div [class]="actionsClass" class="mt-2">
+      <button aecButton compact type="submit" [disabled]="pending() || !canExtend()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenseBulk.working">Working…</span>
         } @else {
@@ -91,10 +98,11 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="close()"
         [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.vendors.licenseBulk.cancel"
       >
         Cancel
@@ -102,14 +110,24 @@
     </div>
   </form>
   } @case ('revoke') {
-  <form method="dialog" novalidate (aecSubmit)="submitRevoke()">
-    <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.confirm">
+  <form
+    method="dialog"
+    novalidate
+    class="grid gap-4"
+    (aecSubmit)="submitRevoke()"
+    (keydown.escape)="onEscape($event)"
+  >
+    <div [class]="noticeClass" class="grid gap-2">
+      <!-- The two plural messages keep their source whitespace: an ICU message's id hashes
+           it, so reflowing them would change their ids (AECI-2124). -->
+      <!-- prettier-ignore -->
+      <p i18n="@@admin.vendors.licenseBulk.revoke.confirm">
       Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
       subscriptions}}? Each ends now.
     </p>
-    @if (revokeOnProduct() > 0) {
-    <p
-      class="mt-1 text-sm text-(--text-primary)"
+      @if (revokeOnProduct() > 0) {
+      <!-- prettier-ignore -->
+      <p
       data-testid="license-bulk-revoke-products"
       i18n="@@admin.vendors.licenseBulk.revoke.confirmProducts"
     >
@@ -118,84 +136,86 @@
       text stays live, the vendor loses the edit right on their Managed fields, and every seat gets
       one email per product.
     </p>
-    }
-    <p class="mt-1 text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.final">
-      Nothing is refunded or deleted, and there is no undo on this screen.
-    </p>
-    <!-- Paid Tiers spec section 5.2: a license revoke, a seat revoke and a ban are
+      }
+      <p i18n="@@admin.vendors.licenseBulk.revoke.final">
+        Nothing is refunded or deleted, and there is no undo on this screen.
+      </p>
+      <!-- Paid Tiers spec section 5.2: a license revoke, a seat revoke and a ban are
          three separate actions. -->
-    <p
-      class="mt-1 text-sm text-(--text-primary)"
-      data-testid="license-bulk-revoke-not-seat"
-      i18n="@@admin.vendors.licenseBulk.revoke.notSeatRevoke"
-    >
-      Seats and logins stay. This is not a seat revoke or a ban.
-    </p>
-    <label
-      [attr.for]="idPrefix() + '-bulk-reason'"
-      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseBulk.revoke.reasonLabel"
-    >
-      Reason shown to the vendor (required)
-    </label>
-    <p
-      [id]="idPrefix() + '-bulk-reason-help'"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseBulk.revoke.reasonHelp"
-    >
-      The same reason goes on every selected subscription. The vendor's seats read it in their
-      portal messages, and it is recorded in the audit trail with your name.
-    </p>
-    <textarea
-      #reasonInput
-      #firstField
-      [id]="idPrefix() + '-bulk-reason'"
-      rows="2"
-      [attr.maxlength]="reasonMax"
-      required
-      [disabled]="pending()"
-      [attr.aria-describedby]="
+      <p
+        data-testid="license-bulk-revoke-not-seat"
+        i18n="@@admin.vendors.licenseBulk.revoke.notSeatRevoke"
+      >
+        Seats and logins stay. This is not a seat revoke or a ban.
+      </p>
+    </div>
+    <div [class]="fieldClass">
+      <label
+        [attr.for]="idPrefix() + '-bulk-reason'"
+        [class]="labelClass"
+        i18n="@@admin.vendors.licenseBulk.revoke.reasonLabel"
+      >
+        Reason shown to the vendor (required)
+      </label>
+      <p
+        [id]="idPrefix() + '-bulk-reason-help'"
+        [class]="hintClass"
+        i18n="@@admin.vendors.licenseBulk.revoke.reasonHelp"
+      >
+        The same reason goes on every selected subscription. The vendor's seats read it in their
+        portal messages, and it is recorded in the audit trail with your name.
+      </p>
+      <textarea
+        #reasonInput
+        #firstField
+        [id]="idPrefix() + '-bulk-reason'"
+        rows="2"
+        [attr.maxlength]="reasonMax"
+        required
+        [disabled]="pending()"
+        [attr.aria-describedby]="
         reasonError()
           ? idPrefix() + '-bulk-reason-help ' + idPrefix() + '-bulk-reason-error'
           : idPrefix() + '-bulk-reason-help'
       "
-      [attr.aria-invalid]="reasonError() ? 'true' : null"
-      [value]="reason()"
-      (input)="onReasonInput($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    @if (reasonError()) {
-    <p
-      [id]="idPrefix() + '-bulk-reason-error'"
-      role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.licenseBulk.revoke.reasonRequired"
-    >
-      Enter a reason for the vendor. Its seats read it in their portal messages.
-    </p>
-    }
-    <label
-      [attr.for]="idPrefix() + '-bulk-note'"
-      class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.vendors.licenseBulk.revoke.noteLabel"
-    >
-      Internal note (optional, never shown to the vendor)
-    </label>
-    <textarea
-      [id]="idPrefix() + '-bulk-note'"
-      rows="2"
-      [attr.maxlength]="reasonMax"
-      [disabled]="pending()"
-      [value]="internalNote()"
-      (input)="onNoteInput($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        [attr.aria-invalid]="reasonError() ? 'true' : null"
+        [value]="reason()"
+        (input)="onReasonInput($event)"
+        [class]="inputClass"
+        class="min-h-20 resize-y"
+      ></textarea>
+      @if (reasonError()) {
+      <p
+        [id]="idPrefix() + '-bulk-reason-error'"
+        role="alert"
+        [class]="errorClass"
+        i18n="@@admin.vendors.licenseBulk.revoke.reasonRequired"
       >
+        Enter a reason for the vendor. Its seats read it in their portal messages.
+      </p>
+      }
+    </div>
+    <div [class]="fieldClass">
+      <label
+        [attr.for]="idPrefix() + '-bulk-note'"
+        [class]="labelClass"
+        i18n="@@admin.vendors.licenseBulk.revoke.noteLabel"
+      >
+        Internal note (optional, never shown to the vendor)
+      </label>
+      <textarea
+        [id]="idPrefix() + '-bulk-note'"
+        rows="2"
+        [attr.maxlength]="reasonMax"
+        [disabled]="pending()"
+        [value]="internalNote()"
+        (input)="onNoteInput($event)"
+        [class]="inputClass"
+        class="min-h-20 resize-y"
+      ></textarea>
+    </div>
+    <div [class]="actionsClass" class="mt-2">
+      <button aecButton variant="danger" compact type="submit" [disabled]="pending()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenseBulk.working">Working…</span>
         } @else {
@@ -206,10 +226,11 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="close()"
         [disabled]="pending()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         i18n="@@admin.vendors.licenseBulk.cancel"
       >
         Cancel
@@ -221,21 +242,21 @@
     #failedAlert
     tabindex="-1"
     role="alert"
-    class="mt-3 text-sm text-(--text-primary)"
+    class="text-t-14 text-(--text-primary)"
     data-testid="license-bulk-failures"
   >
     @if (failures().length > 0) {
-    <p class="font-medium" i18n="@@admin.vendors.licenseBulk.failures.heading">
+    <p class="font-semibold" i18n="@@admin.vendors.licenseBulk.failures.heading">
       {failures().length, plural, =1 {1 subscription was not changed and is still selected:} other
       {{{failures().length}} subscriptions were not changed and are still selected:}}
     </p>
     <ul class="mt-1 list-disc space-y-1 ps-5">
       @for (f of failures(); track f.id) {
-      <li><span class="font-medium">{{ f.label }}</span>: {{ f.message }}</li>
+      <li><span class="font-semibold">{{ f.label }}</span>: {{ f.message }}</li>
       }
     </ul>
     } @if (stoppedCount() > 0) {
-    <p class="mt-2 font-medium" i18n="@@admin.vendors.licenseBulk.failures.stopped">
+    <p class="mt-2 font-semibold" i18n="@@admin.vendors.licenseBulk.failures.stopped">
       The rate limit stopped the run with {stoppedCount(), plural, =1 {1 subscription} other
       {{{stoppedCount()}} subscriptions}} not tried. They are still selected. Wait a minute, then
       run it again.

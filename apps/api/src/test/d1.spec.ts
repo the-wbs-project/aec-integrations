@@ -993,7 +993,7 @@ describe('connector lane (AECI-714)', () => {
       )
       .all()
       .map((r) => (r as { name: string }).name);
-    // AECI-2042 (0131): `sync_service_pair_contests` is a cascade leaf like the contest
+    // AECI-2042 (0132): `sync_service_pair_contests` is a cascade leaf like the contest
     // table, and `sync_service_pair_vetoes` holds a SET NULL anchor. A recreate in
     // drizzle-kit's order would delete every report and detach every veto from its row
     // (the veto keeps its pair key, so it still blocks a re-create, but the row would
@@ -1025,7 +1025,7 @@ describe('connector lane (AECI-714)', () => {
       )
       .all()
       .map((r) => (r as { name: string }).name);
-    // AECI-2042 (0131): the two Sync Service pair tables, as on `integrations` above.
+    // AECI-2042 (0132): the two Sync Service pair tables, as on `integrations` above.
     expect(inbound).toEqual([
       'claims',
       'integration_field_challenges',
@@ -1181,13 +1181,13 @@ describe('connector lane (AECI-714)', () => {
     // leaves the integration page and no later close can find it (§15.10). Carry both
     // through a `__carry_*` table (`docs/migrations.md` §3.3a).
     const t = await makeTestDb();
-    // AECI-2039 (0130): the owner's answers on a Sync Service pair cascade too, so a
+    // AECI-2039 (0131): the owner's answers on a Sync Service pair cascade too, so a
     // recreate of `claims` would empty `claim_owner_answers` as well.
     expect(inboundOf(t, 'claims')).toEqual([
       ['attestations', 'claim_id', 'CASCADE'],
       ['claim_owner_answers', 'claim_id', 'CASCADE'],
       ['claim_threads', 'claim_id', 'SET NULL'],
-      // AECI-2042 (0131): a data flow report names one claim, and goes with it.
+      // AECI-2042 (0132): a data flow report names one claim, and goes with it.
       ['sync_service_pair_contests', 'claim_id', 'CASCADE'],
     ]);
     t.dispose();
@@ -1364,7 +1364,7 @@ describe('connector lane (AECI-714)', () => {
       ['product_vendors', 'product_id', 'CASCADE'],
       ['product_versions', 'product_id', 'CASCADE'],
       ['reviews', 'product_id', 'CASCADE'],
-      // AECI-2042 (0131): a veto keeps its pair key; a product delete ends it with the key.
+      // AECI-2042 (0132): a veto keeps its pair key; a product delete ends it with the key.
       ['sync_service_pair_vetoes', 'connector_product_id', 'CASCADE'],
       ['sync_service_pair_vetoes', 'product_a_id', 'CASCADE'],
       ['sync_service_pair_vetoes', 'product_b_id', 'CASCADE'],

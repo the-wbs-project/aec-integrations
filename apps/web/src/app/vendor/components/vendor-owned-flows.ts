@@ -6,8 +6,22 @@ import { compareText } from '@aeci/shared/text-sort';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { ownedFlowRowId } from '../integration-detail/integration-detail-model';
-import { ALERT, HELP, ID_STYLES } from '../integration-detail/integration-detail-styles';
+import {
+  ALERT,
+  FORM_PANEL,
+  HELP,
+  ID_STYLES,
+  INPUT,
+} from '../integration-detail/integration-detail-styles';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import {
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+} from '../shared/portal-form';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -67,10 +81,14 @@ export type OwnedFlowsRow = Pick<
  * `labelledBy` set to its own heading. The component then drops its own heading, so
  * the section keeps one. The controls are the same in both places (the Same-Behavior
  * Rule).
+ *
+ * The add form, the selects and the Yes and No switch are on the same recipes as
+ * "Data that's shared" (AECI-1811): the nested form panel and save bar, the shared field,
+ * and the portal's segmented control (`vendor/shared/portal-segmented.ts`).
  */
 @Component({
   selector: 'aec-vendor-owned-flows',
-  imports: [AecButton],
+  imports: [AecButton, AecIcon, KeepClearOfSaveBar],
   styles: [ID_STYLES],
   host: { class: 'block' },
   template: `
@@ -104,20 +122,23 @@ export type OwnedFlowsRow = Pick<
       <div [id]="prefix() + '-add'">
         @if (adding() && r.flows_editable) {
           <form
+            aecKeepClearOfSaveBar
             method="dialog"
-            class="id-well mt-3 space-y-3 p-4 text-sm"
+            [class]="panel"
+            class="mt-4 space-y-6 text-sm"
             [attr.aria-label]="addFormLabel"
             data-testid="owned-flow-add-form"
             (submit)="add($event)"
           >
-            <div class="flex flex-wrap items-end gap-3">
+            <div [class]="grid">
               <div>
                 <label [for]="prefix() + '-add-data'" [class]="label" i18n="@@vendor.im.add.data"
                   >Data</label
                 >
                 <select
                   [id]="prefix() + '-add-data'"
-                  class="id-input mt-1 min-w-[12rem]"
+                  [class]="input"
+                  class="mt-2"
                   (change)="draftData.set(selectValue($event))"
                 >
                   @for (option of dataOptions(); track option.slug) {
@@ -136,7 +157,8 @@ export type OwnedFlowsRow = Pick<
                 >
                 <select
                   [id]="prefix() + '-add-dir'"
-                  class="id-input mt-1 min-w-[12rem]"
+                  [class]="input"
+                  class="mt-2"
                   (change)="draftDirection.set(asDirection($event))"
                 >
                   @for (d of directions; track d) {
@@ -152,11 +174,11 @@ export type OwnedFlowsRow = Pick<
                 The list of data types could not be loaded, so a row cannot be added right now.
               </p>
             }
-            <div class="flex flex-wrap gap-3">
+            <div [class]="saveBar">
               <button
                 type="submit"
                 aecButton
-                compact
+                [class]="saveButton"
                 [disabled]="busy() !== null || dataOptions().length === 0"
                 data-testid="owned-flow-add-submit"
               >
@@ -166,7 +188,7 @@ export type OwnedFlowsRow = Pick<
                 type="button"
                 aecButton
                 variant="secondary"
-                compact
+                [class]="saveButton"
                 [disabled]="busy() !== null"
                 (click)="adding.set(false)"
                 i18n="@@vendor.im.add.cancel"
@@ -246,7 +268,7 @@ export type OwnedFlowsRow = Pick<
                         }}</label>
                         <select
                           [id]="prefix() + '-dir-' + flow.id"
-                          class="id-input"
+                          [class]="input"
                           (change)="draftChange.set(asDirection($event))"
                           (keydown.escape)="changing.set(null)"
                         >
@@ -303,25 +325,27 @@ export type OwnedFlowsRow = Pick<
                   </td>
                   <td class="py-2 pe-4">
                     @if (r.flows_editable) {
-                      <div class="id-seg" role="group" [attr.aria-label]="answerLabel(flow)">
+                      <div [class]="segmented" role="group" [attr.aria-label]="answerLabel(flow)">
                         <button
                           type="button"
-                          class="id-seg-btn inline-flex min-h-8 items-center gap-1 px-2.5 py-1 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          [class]="segment(flow.answer === 'yes')"
                           [attr.aria-pressed]="flow.answer === 'yes'"
                           [disabled]="busy() === flow.id"
                           [attr.data-testid]="'owned-flow-yes-' + flow.id"
                           (click)="press(flow, true)"
                         >
+                          <aec-icon name="check" decorative [size]="3.5" />
                           <span i18n="@@vendor.im.answer.yes">Yes</span>
                         </button>
                         <button
                           type="button"
-                          class="id-seg-btn inline-flex min-h-8 items-center gap-1 px-2.5 py-1 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          [class]="segment(flow.answer === 'no')"
                           [attr.aria-pressed]="flow.answer === 'no'"
                           [disabled]="busy() === flow.id"
                           [attr.data-testid]="'owned-flow-no-' + flow.id"
                           (click)="press(flow, false)"
                         >
+                          <aec-icon name="x" decorative [size]="3.5" />
                           <span i18n="@@vendor.im.answer.no">No</span>
                         </button>
                       </div>
@@ -367,6 +391,14 @@ export class VendorOwnedFlows {
   protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
+  protected readonly input = INPUT;
+  protected readonly panel = FORM_PANEL;
+  protected readonly grid = PORTAL_FORM_GRID_CLASS;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
+  /** The portal's segmented control, as on "Data that's shared" (AECI-1811). */
+  protected readonly segmented = SEGMENTED_CLASS;
+  protected readonly segment = segmentClass;
   protected readonly addFormLabel = $localize`:@@vendor.ownedFlows.addForm:Add a row of data`;
 
   protected readonly prefix = computed(() => `owned-flows-${this.row().id}`);

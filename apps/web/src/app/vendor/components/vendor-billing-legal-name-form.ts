@@ -12,9 +12,8 @@ import {
 
 import { UpdateVendorLegalNameRequestSchema, VENDOR_LEGAL_NAME_MAX } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
@@ -37,10 +36,11 @@ import { isReplayedEvent } from '../../core/event-replay';
  */
 @Component({
   selector: 'aec-vendor-billing-legal-name-form',
+  imports: [AecButton],
   template: `
-    <div class="space-y-1.5">
+    <div class="space-y-2">
       @if (!editing()) {
-        <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-center gap-4">
           @if (current(); as name) {
             <p class="text-sm text-(--text-primary)">
               {{ name }}
@@ -50,7 +50,14 @@ import { isReplayedEvent } from '../../core/event-replay';
               Not set
             </p>
           }
-          <button #changeButton type="button" [class]="secondaryClass" (click)="open()">
+          <button
+            #changeButton
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            (click)="open()"
+          >
             <span i18n="@@vendor.billing.legalName.change">Change</span>&ngsp;<span
               class="sr-only"
               i18n="@@vendor.billing.legalName.changeSr"
@@ -59,15 +66,24 @@ import { isReplayedEvent } from '../../core/event-replay';
           </button>
         </div>
       }
-      <p [class]="hintClass" id="billing-legal-name-hint" i18n="@@vendor.billing.legalName.hint">
+      <p
+        [class]="hintClass + ' max-w-[30rem] text-pretty'"
+        id="billing-legal-name-hint"
+        i18n="@@vendor.billing.legalName.hint"
+      >
         Your company's full legal name. We record it when an owner accepts the Managed plan
         agreement.
       </p>
     </div>
 
     @if (editing()) {
-      <form method="dialog" class="mt-3 space-y-3" (submit)="submit($event)" novalidate>
-        <div class="space-y-1.5">
+      <form
+        method="dialog"
+        class="mt-4 max-w-[32rem] space-y-4"
+        (submit)="submit($event)"
+        novalidate
+      >
+        <div class="space-y-2">
           <label
             class="sr-only"
             for="billing-legal-name-input"
@@ -104,14 +120,20 @@ import { isReplayedEvent } from '../../core/event-replay';
           }
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          <button type="submit" [disabled]="busy()" [class]="primaryClass">
+          <button aecButton type="submit" [disabled]="busy()">
             @if (busy()) {
               <span i18n="@@vendor.billing.legalName.saving">Saving…</span>
             } @else {
               <span i18n="@@vendor.billing.legalName.save">Save</span>
             }
           </button>
-          <button type="button" [disabled]="busy()" [class]="secondaryClass" (click)="cancel()">
+          <button
+            aecButton
+            variant="secondary"
+            type="button"
+            [disabled]="busy()"
+            (click)="cancel()"
+          >
             <span i18n="@@vendor.billing.legalName.cancel">Cancel</span>
           </button>
         </div>
@@ -140,8 +162,7 @@ export class VendorBillingLegalNameForm {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+
   protected readonly maxLength = VENDOR_LEGAL_NAME_MAX;
 
   protected open(): void {

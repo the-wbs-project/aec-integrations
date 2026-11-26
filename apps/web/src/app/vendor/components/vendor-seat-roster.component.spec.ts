@@ -3,6 +3,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_PENDING_SEAT_CLAIMS_FIXTURE,
@@ -311,9 +312,14 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     expect(resendInvite).toHaveBeenCalledWith(VENDOR_SEAT_INVITES_FIXTURE[0]!.id);
     // A successful re-send moves no row, so without the status line the only
     // feedback would be a button going quiet — which reads like a failure.
-    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    const status = fixture.nativeElement.querySelector('[data-seats-status]') as HTMLElement | null;
     expect(status?.textContent).toContain('Invite sent again');
     expect(status?.textContent).toContain('jordan@summitbim.example.com');
+    // AECI-1812: the line is plain text. The portal's one live region says it, once.
+    expect(fixture.nativeElement.querySelector('[role="status"], [aria-live]')).toBeNull();
+    expect(TestBed.inject(VendorPortalAnnouncer).message().trim()).toBe(
+      status?.textContent?.trim(),
+    );
     // Pessimistic: the new expiry and the cooldown verdict come from the server.
     expect(getSeats).toHaveBeenCalledTimes(2);
   });
@@ -531,8 +537,11 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     fixture.detectChanges();
 
     expect(acceptSeatClaim).toHaveBeenCalledWith(CLAIM.id);
-    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    const status = fixture.nativeElement.querySelector('[data-seats-status]') as HTMLElement | null;
     expect(status?.textContent).toContain('A seat invite was sent to riley@summitbim.example.com');
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain(
+      'A seat invite was sent to riley@summitbim.example.com',
+    );
     expect(getSeats).toHaveBeenCalledTimes(2);
   });
 
@@ -547,7 +556,7 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     await flush();
     fixture.detectChanges();
 
-    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    const status = fixture.nativeElement.querySelector('[data-seats-status]') as HTMLElement | null;
     expect(status?.textContent).toContain(
       'riley@summitbim.example.com already has a seat invite, so no new email was sent.',
     );
@@ -562,7 +571,7 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     fixture.detectChanges();
 
     expect(declineSeatClaim).toHaveBeenCalledWith(CLAIM.id);
-    const status = fixture.nativeElement.querySelector('[role="status"]') as HTMLElement | null;
+    const status = fixture.nativeElement.querySelector('[data-seats-status]') as HTMLElement | null;
     expect(status?.textContent).toContain('Declined the request from Riley Chen');
   });
 

@@ -74,6 +74,7 @@ import {
   type ContestRow,
 } from '../lib/integration-contests';
 import type { ContestPortalNotificationId } from '../lib/notifications/registry';
+import { contestWorkflowStmts } from '../lib/workflow-restore';
 import { closeWorkflow, CONTEST_WORKFLOW_TYPE, echo, endpointSlugs } from './vendor-contests';
 import {
   afterVendorWrite,
@@ -454,18 +455,19 @@ export function createReplyContestProtestHandler(
         ),
       contestStillOpenSentinel(db, id),
     ];
-    if (row.protestWorkflowId) {
-      stmts.push(
-        workflowTransitionInsert(db, {
-          workflowId: row.protestWorkflowId,
-          fromState: 'open',
-          toState: 'open',
-          actorId: session.userId,
-          reason: 'owner replied',
-          metadata,
-        }),
-      );
-    }
+    // AECI-1913: re-created when the retention prune deleted it (`lib/workflow-restore.ts`).
+    const protestWorkflow = contestWorkflowStmts(db, row, 'protest', now);
+    stmts.push(
+      ...protestWorkflow.stmts,
+      workflowTransitionInsert(db, {
+        workflowId: protestWorkflow.workflowId,
+        fromState: 'open',
+        toState: 'open',
+        actorId: session.userId,
+        reason: 'owner replied',
+        metadata,
+      }),
+    );
     stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
 
     const after = await runGuardedProtestBatch(db, id, stmts, async () => {
@@ -566,10 +568,8 @@ const PROTEST_FINAL_OUTCOME = {
 } as const;
 
 /**
- * Close the protest's own workflow instance and write its transition. A protest
- * always has an instance (the file batch creates it); a `NULL`
- * `protest_workflow_id` would be a corrupt row, so the transition is skipped
- * rather than pointed at nothing.
+ * Close the protest's own workflow instance and write its transition, re-creating the
+ * instance when the retention prune has deleted it (`contestWorkflowStmts`, AECI-1913).
  */
 export function closeProtestWorkflow(
   db: Db,
@@ -580,18 +580,15 @@ export function closeProtestWorkflow(
   metadata: Record<string, unknown>,
   now: string,
 ): BatchStmt[] {
-  if (!row.protestWorkflowId) return [];
+  const { workflowId, stmts } = contestWorkflowStmts(db, row, 'protest', now, {
+    currentState: toState,
+    completedAt: now,
+    finalOutcome: PROTEST_FINAL_OUTCOME[toState],
+  });
   return [
-    db
-      .update(workflowInstances)
-      .set({
-        currentState: toState,
-        completedAt: now,
-        finalOutcome: PROTEST_FINAL_OUTCOME[toState],
-      })
-      .where(eq(workflowInstances.id, row.protestWorkflowId)),
+    ...stmts,
     workflowTransitionInsert(db, {
-      workflowId: row.protestWorkflowId,
+      workflowId,
       fromState: 'open',
       toState,
       actorId,

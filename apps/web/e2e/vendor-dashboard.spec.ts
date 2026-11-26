@@ -205,11 +205,12 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
 
     // Optimistic + server-confirmed: the status message appears and the button
     // settles back to disabled (no pending changes after the echo re-seeds).
-    // Scoped to the form: the shell's announcement region is also `role="status"`
-    // and always present, so a bare `getByRole('status')` matches two elements.
-    await expect(page.locator('aec-vendor-profile-form [role="status"]')).toContainText(
+    // AECI-1810: the message is plain text in the form's save bar, and the shell's
+    // one announcement region (`role="status"`) reads the same sentence.
+    await expect(page.locator('aec-vendor-profile-form .aec-portal-save-bar')).toContainText(
       'Profile updated',
     );
+    await expect(page.getByRole('status').filter({ hasText: 'Profile updated' })).toHaveCount(1);
     await expect(save).toBeDisabled();
   });
 

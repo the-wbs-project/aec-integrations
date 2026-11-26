@@ -1,19 +1,22 @@
+<!-- AECI-2124: the panel around this is the vendor page's ("Suspension", mock-up 14). The
+     state is the console's Bone notice, and each stage (stage 2, the cost log, Terminate,
+     Lift, the history) is a part of the one panel under a hairline, not a box of its own.
+     Openers are secondary. Suspend and stage 2 penalise the vendor and send a notice, so
+     they confirm with danger. Lift gives every seat back, so it confirms with primary. -->
 @if (loading()) {
-<p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.loading">
+<p [class]="statusLineClass" i18n="@@admin.vendors.suspension.loading">
   Loading the suspension state…
 </p>
 } @else if (loadFailed()) {
-<div
-  role="alert"
-  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.suspension.loadError">
+<div role="alert" [class]="loadFailedClass">
+  <p [class]="failedTextClass" i18n="@@admin.vendors.suspension.loadError">
     We couldn't load the suspension state.
   </p>
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
-    class="mt-3"
-    [class]="buttonClass"
     (click)="retryLoad()"
     i18n="@@admin.vendors.suspension.retryLoad"
   >
@@ -21,18 +24,17 @@
   </button>
 </div>
 } @else {
-<div class="space-y-4" data-testid="vendor-suspension">
+<div class="grid gap-6" data-testid="vendor-suspension">
   @if (refreshFailed()) {
   <div role="alert" class="flex flex-wrap items-center gap-3">
-    <p
-      class="text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.refreshFailed"
-    >
+    <p [class]="failedTextClass" i18n="@@admin.vendors.suspension.refreshFailed">
       We couldn't refresh this section. It may be out of date.
     </p>
     <button
+      aecButton
+      variant="secondary"
+      compact
       type="button"
-      [class]="buttonClass"
       (click)="reload()"
       i18n="@@admin.vendors.suspension.refresh"
     >
@@ -41,126 +43,94 @@
   </div>
   } @if (open(); as s) {
   <!-- The state banner: what is true now, stage by stage. -->
-  <div
-    class="rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
-    data-testid="suspension-banner"
-  >
-    <p
-      class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.banner.lead"
-    >
+  <div [class]="noticeClass" class="grid gap-2" data-testid="suspension-banner">
+    <p class="font-semibold" i18n="@@admin.vendors.suspension.banner.lead">
       Suspended since {{ s.suspended_at | date: 'medium' : 'UTC' }} UTC ({{ kindLabel(s.kind) }}).
       Every seat is locked out. The listing stays live and billing is untouched.
     </p>
 
     @if (s.notice_sent_at && s.window_ends_at) {
-    <p
-      class="mt-2 text-sm text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.banner.stage1Sent"
-    >
+    <p i18n="@@admin.vendors.suspension.banner.stage1Sent">
       Stage 1 notice confirmed sent {{ s.notice_sent_at | date: 'medium' : 'UTC' }} UTC. The window
       of 7 business days ends {{ s.window_ends_at | date: 'medium' : 'UTC' }} UTC.
     </p>
     } @else {
-    <p
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.banner.stage1Unconfirmed"
-    >
+    <p class="font-semibold" i18n="@@admin.vendors.suspension.banner.stage1Unconfirmed">
       The stage 1 notice has not been confirmed sent. There is no clock yet.
     </p>
     } @if (s.stage_2_finding !== null) { @if (s.stage_2_notice_sent_at && s.stage_2_ends_at) {
-    <p
-      class="mt-2 text-sm text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.banner.stage2Sent"
-    >
+    <p i18n="@@admin.vendors.suspension.banner.stage2Sent">
       Stage 2 notice confirmed sent {{ s.stage_2_notice_sent_at | date: 'medium' : 'UTC' }} UTC. The
       window of 7 more business days ends {{ s.stage_2_ends_at | date: 'medium' : 'UTC' }} UTC.
     </p>
     } @else {
-    <p
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.banner.stage2Unconfirmed"
-    >
+    <p class="font-semibold" i18n="@@admin.vendors.suspension.banner.stage2Unconfirmed">
       The stage 2 notice has not been confirmed sent. Its clock has not started.
     </p>
     } } @if (noticeFailed() && noticeUnconfirmed()) {
-    <p
-      class="mt-2 text-sm font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@admin.vendors.suspension.banner.sendFailed"
-    >
+    <p class="font-semibold" role="alert" i18n="@@admin.vendors.suspension.banner.sendFailed">
       The last send reached no address. Check the owner seats and the billing email, then re-send.
     </p>
     } @if (noticeUnconfirmed()) {
-    <button
-      type="button"
-      class="mt-3"
-      [class]="buttonClass"
-      [disabled]="pendingAction() !== null"
-      (click)="resend()"
-    >
-      @if (pendingAction() === 'resend') {
-      <span i18n="@@admin.vendors.suspension.resend.pending">Sending…</span>
-      } @else {
-      <span i18n="@@admin.vendors.suspension.resend.action">Re-send notice</span>
-      }
-    </button>
+    <div class="mt-2">
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="button"
+        [disabled]="pendingAction() !== null"
+        (click)="resend()"
+      >
+        @if (pendingAction() === 'resend') {
+        <span i18n="@@admin.vendors.suspension.resend.pending">Sending…</span>
+        } @else {
+        <span i18n="@@admin.vendors.suspension.resend.action">Re-send notice</span>
+        }
+      </button>
+    </div>
     } @if (failureFor('resend')) {
-    <p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">
-      {{ failureFor('resend') }}
-    </p>
+    <p [class]="failedClass" role="alert">{{ failureFor('resend') }}</p>
     }
   </div>
 
-  <dl class="grid gap-3 text-sm">
+  <dl class="grid gap-4">
     <div>
-      <dt class="font-medium text-(--text-primary)" i18n="@@admin.vendors.suspension.detail.rule">
+      <dt [class]="labelClass" i18n="@@admin.vendors.suspension.detail.rule">
         Rule (in the notice to the vendor)
       </dt>
-      <dd class="mt-0.5 whitespace-pre-line text-(--text-secondary)">{{ s.rule }}</dd>
+      <dd [class]="valueClass">{{ s.rule }}</dd>
     </div>
     <div>
-      <dt
-        class="font-medium text-(--text-primary)"
-        i18n="@@admin.vendors.suspension.detail.evidence"
-      >
+      <dt [class]="labelClass" i18n="@@admin.vendors.suspension.detail.evidence">
         Evidence (in the notice to the vendor)
       </dt>
-      <dd class="mt-0.5 whitespace-pre-line text-(--text-secondary)">{{ s.evidence }}</dd>
+      <dd [class]="valueClass">{{ s.evidence }}</dd>
     </div>
     @if (s.stage_2_finding !== null) {
     <div>
-      <dt
-        class="font-medium text-(--text-primary)"
-        i18n="@@admin.vendors.suspension.detail.finding"
-      >
+      <dt [class]="labelClass" i18n="@@admin.vendors.suspension.detail.finding">
         Stage 2 finding (in the notice to the vendor)
       </dt>
-      <dd class="mt-0.5 whitespace-pre-line text-(--text-secondary)">{{ s.stage_2_finding }}</dd>
+      <dd [class]="valueClass">{{ s.stage_2_finding }}</dd>
     </div>
     }
     <div>
-      <dt class="font-medium text-(--text-primary)" i18n="@@admin.vendors.suspension.detail.reason">
+      <dt [class]="labelClass" i18n="@@admin.vendors.suspension.detail.reason">
         Reason (internal)
       </dt>
-      <dd class="mt-0.5 whitespace-pre-line text-(--text-secondary)">{{ s.reason }}</dd>
+      <dd [class]="valueClass">{{ s.reason }}</dd>
     </div>
   </dl>
 
   <!-- Stage 2 -->
   @if (s.can_start_stage_2) {
-  <div
-    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-    data-testid="suspension-stage-2"
-  >
-    <h4
-      class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.stage2.heading"
-    >
+  <div [class]="partClass" data-testid="suspension-stage-2">
+    <h4 [class]="partHeadingClass" i18n="@@admin.vendors.suspension.stage2.heading">
       Stage 2: false-claim finding
     </h4>
     <p
-      class="mt-1 text-sm text-(--text-secondary)"
+      [class]="captionClass"
+      class="max-w-[42rem]"
       i18n="@@admin.vendors.suspension.stage2.explain"
     >
       Stage 1 has elapsed. Starting stage 2 records a false-claim finding and sends its own notice.
@@ -168,21 +138,32 @@
       for them.
     </p>
     @if (!stage2Open()) {
-    <button
-      type="button"
-      class="mt-3"
-      [class]="buttonClass"
-      [disabled]="pendingAction() !== null"
-      (click)="openStage2()"
-      i18n="@@admin.vendors.suspension.stage2.open"
-    >
-      Start stage 2
-    </button>
+    <div>
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="button"
+        [id]="idPrefix() + '-stage2-open'"
+        [disabled]="pendingAction() !== null"
+        (click)="openStage2()"
+        i18n="@@admin.vendors.suspension.stage2.open"
+      >
+        Start stage 2
+      </button>
+    </div>
     } @else {
-    <form method="dialog" novalidate class="mt-3 space-y-3" (aecSubmit)="submitStage2()">
-      <div>
+    <form
+      method="dialog"
+      novalidate
+      [class]="formClass"
+      [attr.aria-busy]="pendingAction() === 'stage2' ? 'true' : null"
+      (aecSubmit)="submitStage2()"
+      (keydown.escape)="onEscape($event, 'stage2')"
+    >
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="fieldLabelClass"
           [attr.for]="idPrefix() + '-stage2-finding'"
           i18n="@@admin.vendors.suspension.stage2.field"
         >
@@ -191,6 +172,7 @@
         <textarea
           rows="3"
           [class]="inputClass"
+          class="min-h-24 resize-y"
           [attr.id]="idPrefix() + '-stage2-finding'"
           [attr.maxlength]="evidenceMax"
           [attr.aria-invalid]="findingError() ? 'true' : null"
@@ -201,7 +183,7 @@
         ></textarea>
         @if (findingError()) {
         <p
-          class="mt-1 text-sm font-medium text-(--text-primary)"
+          [class]="errorClass"
           [attr.id]="idPrefix() + '-stage2-finding-error'"
           i18n="@@admin.vendors.suspension.stage2.fieldError"
         >
@@ -210,12 +192,16 @@
         }
       </div>
       @if (failureFor('stage2')) {
-      <p class="text-sm font-medium text-(--text-primary)" role="alert">
-        {{ failureFor('stage2') }}
-      </p>
+      <p [class]="failedClass" role="alert">{{ failureFor('stage2') }}</p>
       }
-      <div class="flex flex-wrap gap-2">
-        <button type="submit" [class]="buttonClass" [disabled]="pendingAction() !== null">
+      <div [class]="actionsClass">
+        <button
+          aecButton
+          variant="danger"
+          compact
+          type="submit"
+          [disabled]="pendingAction() !== null"
+        >
           @if (pendingAction() === 'stage2') {
           <span i18n="@@admin.vendors.suspension.stage2.pending">Starting…</span>
           } @else {
@@ -225,8 +211,9 @@
           }
         </button>
         <button
+          aecButton
+          variant="ghost"
           type="button"
-          [class]="buttonClass"
           [disabled]="pendingAction() !== null"
           (click)="cancelStage2()"
           i18n="@@admin.vendors.suspension.stage2.cancel"
@@ -240,16 +227,8 @@
   }
 
   <!-- Cost log -->
-  <div
-    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-    data-testid="suspension-cost-log"
-  >
-    <h4
-      class="mb-1 text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.cost.heading"
-    >
-      Cost log
-    </h4>
+  <div [class]="partClass" data-testid="suspension-cost-log">
+    <h4 [class]="partHeadingClass" i18n="@@admin.vendors.suspension.cost.heading">Cost log</h4>
     <aec-suspension-cost-log
       [vendorId]="vendorId()"
       [entries]="s.cost_log"
@@ -262,14 +241,8 @@
   </div>
 
   <!-- Terminate -->
-  <div
-    class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-4"
-    data-testid="suspension-terminate"
-  >
-    <h4
-      class="mb-1 text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.terminate.heading"
-    >
+  <div [class]="partClass" data-testid="suspension-terminate">
+    <h4 [class]="partHeadingClass" i18n="@@admin.vendors.suspension.terminate.heading">
       Terminate
     </h4>
     <aec-suspension-terminate
@@ -285,37 +258,40 @@
   </div>
 
   <!-- Lift -->
-  <div
-    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-    data-testid="suspension-lift"
-  >
-    <h4
-      class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.lift.heading"
-    >
-      Lift
-    </h4>
-    <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.lift.explain">
+  <div [class]="partClass" data-testid="suspension-lift">
+    <h4 [class]="partHeadingClass" i18n="@@admin.vendors.suspension.lift.heading">Lift</h4>
+    <p [class]="captionClass" class="max-w-[42rem]" i18n="@@admin.vendors.suspension.lift.explain">
       For a breach that was cured, or a suspension that was wrong. Every seat gets its access back
       at once, and the owner seats and the billing email are told. No refund is made and nothing
       else changes.
     </p>
     @if (!liftOpen()) {
-    <button
-      type="button"
-      class="mt-3"
-      [class]="buttonClass"
-      [disabled]="pendingAction() !== null"
-      (click)="openLift()"
-      i18n="@@admin.vendors.suspension.lift.open"
-    >
-      Lift the suspension
-    </button>
+    <div>
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="button"
+        [id]="idPrefix() + '-lift-open'"
+        [disabled]="pendingAction() !== null"
+        (click)="openLift()"
+        i18n="@@admin.vendors.suspension.lift.open"
+      >
+        Lift the suspension
+      </button>
+    </div>
     } @else {
-    <form method="dialog" novalidate class="mt-3 space-y-3" (aecSubmit)="submitLift()">
-      <div>
+    <form
+      method="dialog"
+      novalidate
+      [class]="formClass"
+      [attr.aria-busy]="pendingAction() === 'lift' ? 'true' : null"
+      (aecSubmit)="submitLift()"
+      (keydown.escape)="onEscape($event, 'lift')"
+    >
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="fieldLabelClass"
           [attr.for]="idPrefix() + '-lift-reason'"
           i18n="@@admin.vendors.suspension.lift.field"
         >
@@ -324,6 +300,7 @@
         <textarea
           rows="2"
           [class]="inputClass"
+          class="min-h-20 resize-y"
           [attr.id]="idPrefix() + '-lift-reason'"
           [attr.maxlength]="reasonMax"
           [attr.aria-invalid]="liftReasonError() ? 'true' : null"
@@ -334,7 +311,7 @@
         ></textarea>
         @if (liftReasonError()) {
         <p
-          class="mt-1 text-sm font-medium text-(--text-primary)"
+          [class]="errorClass"
           [attr.id]="idPrefix() + '-lift-reason-error'"
           i18n="@@admin.vendors.suspension.lift.fieldError"
         >
@@ -343,10 +320,10 @@
         }
       </div>
       @if (failureFor('lift')) {
-      <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failureFor('lift') }}</p>
+      <p [class]="failedClass" role="alert">{{ failureFor('lift') }}</p>
       }
-      <div class="flex flex-wrap gap-2">
-        <button type="submit" [class]="buttonClass" [disabled]="pendingAction() !== null">
+      <div [class]="actionsClass">
+        <button aecButton compact type="submit" [disabled]="pendingAction() !== null">
           @if (pendingAction() === 'lift') {
           <span i18n="@@admin.vendors.suspension.lift.pending">Lifting…</span>
           } @else {
@@ -354,8 +331,9 @@
           }
         </button>
         <button
+          aecButton
+          variant="ghost"
           type="button"
-          [class]="buttonClass"
           [disabled]="pendingAction() !== null"
           (click)="cancelLift()"
           i18n="@@admin.vendors.suspension.lift.cancel"
@@ -368,47 +346,47 @@
   </div>
   } @else {
   <!-- No open suspension. -->
-  <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.none">
+  <div class="grid gap-4" data-testid="suspension-none">
+    <p [class]="captionClass" class="max-w-[42rem]" i18n="@@admin.vendors.suspension.none">
       This vendor is not suspended. To end a vendor, suspend it first: the vendor gets a notice and
       7 business days before Terminate is possible.
     </p>
     @if (!suspendOpen()) {
-    <button
-      type="button"
-      class="mt-3"
-      [class]="buttonClass"
-      (click)="openSuspend()"
-      i18n="@@admin.vendors.suspension.suspend.open"
-    >
-      Suspend
-    </button>
+    <div>
+      <button
+        aecButton
+        variant="secondary"
+        compact
+        type="button"
+        [id]="idPrefix() + '-suspend-open'"
+        (click)="openSuspend()"
+        i18n="@@admin.vendors.suspension.suspend.open"
+      >
+        Suspend
+      </button>
+    </div>
     } @else {
     <form
       method="dialog"
       novalidate
-      class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+      [class]="formClass"
+      [attr.aria-busy]="pendingAction() === 'suspend' ? 'true' : null"
       (aecSubmit)="submitSuspend()"
+      (keydown.escape)="onEscape($event, 'suspend')"
     >
-      <p
-        class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-        role="note"
-        i18n="@@admin.vendors.suspension.suspend.warning"
-      >
+      <p [class]="noticeClass" role="note" i18n="@@admin.vendors.suspension.suspend.warning">
         This locks every seat out at once and sends the notice to the owner seats and the billing
         email. The listing stays live and billing is untouched.
       </p>
-      <fieldset>
-        <legend
-          class="text-sm font-medium text-(--text-primary)"
-          i18n="@@admin.vendors.suspension.suspend.kind"
-        >
+      <fieldset class="m-0 border-0 p-0">
+        <legend [class]="fieldLabelClass" i18n="@@admin.vendors.suspension.suspend.kind">
           Kind
         </legend>
-        <div class="mt-2 flex flex-wrap gap-4">
-          <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+        <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
             <input
               type="radio"
+              [class]="choiceClass"
               [attr.name]="idPrefix() + '-suspend-kind'"
               [attr.id]="idPrefix() + '-suspend-kind-breach'"
               [checked]="kind() === 'breach'"
@@ -416,9 +394,10 @@
             />
             {{ kindLabel('breach') }}
           </label>
-          <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+          <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
             <input
               type="radio"
+              [class]="choiceClass"
               [attr.name]="idPrefix() + '-suspend-kind'"
               [attr.id]="idPrefix() + '-suspend-kind-false-claim'"
               [checked]="kind() === 'false_claim'"
@@ -428,9 +407,9 @@
           </label>
         </div>
       </fieldset>
-      <div>
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="fieldLabelClass"
           [attr.for]="idPrefix() + '-suspend-rule'"
           i18n="@@admin.vendors.suspension.suspend.rule"
         >
@@ -439,6 +418,7 @@
         <textarea
           rows="2"
           [class]="inputClass"
+          class="min-h-20 resize-y"
           [attr.id]="idPrefix() + '-suspend-rule'"
           [attr.maxlength]="ruleMax"
           [attr.aria-invalid]="suspendShowErrors() && !rule().trim() ? 'true' : null"
@@ -447,9 +427,9 @@
           (input)="onSuspendInput('rule', $event)"
         ></textarea>
       </div>
-      <div>
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="fieldLabelClass"
           [attr.for]="idPrefix() + '-suspend-evidence'"
           i18n="@@admin.vendors.suspension.suspend.evidence"
         >
@@ -458,6 +438,7 @@
         <textarea
           rows="3"
           [class]="inputClass"
+          class="min-h-24 resize-y"
           [attr.id]="idPrefix() + '-suspend-evidence'"
           [attr.maxlength]="evidenceMax"
           [attr.aria-invalid]="suspendShowErrors() && !evidence().trim() ? 'true' : null"
@@ -466,9 +447,9 @@
           (input)="onSuspendInput('evidence', $event)"
         ></textarea>
       </div>
-      <div>
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="fieldLabelClass"
           [attr.for]="idPrefix() + '-suspend-reason'"
           i18n="@@admin.vendors.suspension.suspend.reason"
         >
@@ -477,6 +458,7 @@
         <textarea
           rows="2"
           [class]="inputClass"
+          class="min-h-20 resize-y"
           [attr.id]="idPrefix() + '-suspend-reason'"
           [attr.maxlength]="reasonMax"
           [attr.aria-invalid]="suspendShowErrors() && !reason().trim() ? 'true' : null"
@@ -486,20 +468,20 @@
         ></textarea>
       </div>
       @if (suspendShowErrors() && (!rule().trim() || !evidence().trim() || !reason().trim())) {
-      <p
-        class="text-sm font-medium text-(--text-primary)"
-        role="alert"
-        i18n="@@admin.vendors.suspension.suspend.fieldError"
-      >
+      <p [class]="errorClass" role="alert" i18n="@@admin.vendors.suspension.suspend.fieldError">
         Fill in the rule, the evidence and the reason.
       </p>
       } @if (failureFor('suspend')) {
-      <p class="text-sm font-medium text-(--text-primary)" role="alert">
-        {{ failureFor('suspend') }}
-      </p>
+      <p [class]="failedClass" role="alert">{{ failureFor('suspend') }}</p>
       }
-      <div class="flex flex-wrap gap-2">
-        <button type="submit" [class]="confirmClass" [disabled]="pendingAction() !== null">
+      <div [class]="actionsClass">
+        <button
+          aecButton
+          variant="danger"
+          compact
+          type="submit"
+          [disabled]="pendingAction() !== null"
+        >
           @if (pendingAction() === 'suspend') {
           <span i18n="@@admin.vendors.suspension.suspend.pending">Suspending…</span>
           } @else {
@@ -507,8 +489,9 @@
           }
         </button>
         <button
+          aecButton
+          variant="ghost"
           type="button"
-          [class]="buttonClass"
           [disabled]="pendingAction() !== null"
           (click)="cancelSuspend()"
           i18n="@@admin.vendors.suspension.suspend.cancel"
@@ -523,20 +506,17 @@
 
   <!-- History: lifted and terminated, newest first. -->
   @if (resolvedRows().length > 0) {
-  <div data-testid="suspension-history">
-    <h4
-      class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.vendors.suspension.history.heading"
-    >
+  <div [class]="partClass" data-testid="suspension-history">
+    <h4 [class]="partHeadingClass" i18n="@@admin.vendors.suspension.history.heading">
       Earlier suspensions
     </h4>
-    <ul class="mt-2 space-y-3">
+    <ul class="grid">
       @for (row of resolvedRows(); track row.id) {
       <li
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+        class="grid gap-2 border-b border-(--border-default) py-4 first:border-t"
         [attr.data-history-row]="row.resolution"
       >
-        <p class="text-sm font-medium text-(--text-primary)">
+        <p class="text-t-14 font-semibold text-(--text-primary)">
           @if (row.resolution === 'terminated') {
           <span i18n="@@admin.vendors.suspension.history.terminated"
             >Terminated {{ row.resolved_at | date: 'medium' : 'UTC' }} UTC ({{ kindLabel(row.kind)
@@ -549,23 +529,20 @@
           >
           }
         </p>
-        <p class="mt-1 text-sm whitespace-pre-line text-(--text-secondary)">{{ row.rule }}</p>
+        <p [class]="captionClass" class="whitespace-pre-line">{{ row.rule }}</p>
         @if (row.resolution_reason) {
-        <p
-          class="mt-1 text-sm text-(--text-secondary)"
-          i18n="@@admin.vendors.suspension.history.reason"
-        >
+        <p [class]="captionClass" i18n="@@admin.vendors.suspension.history.reason">
           Reason (internal): {{ row.resolution_reason }}
         </p>
         } @if (row.statement; as statement) {
-        <div class="mt-3">
+        <div class="mt-2">
           <aec-suspension-statement [statement]="statement" />
         </div>
         } @if (row.refunds.length > 0) {
-        <ul class="mt-3 space-y-1 text-sm" data-testid="suspension-refunds">
+        <ul class="mt-2 grid gap-1 text-t-14" data-testid="suspension-refunds">
           @for (refund of row.refunds; track refund.id) {
           <li class="flex flex-wrap justify-between gap-3">
-            <span class="font-medium text-(--text-primary)"
+            <span class="font-semibold tabular-nums text-(--text-primary)"
               >{{ money(refund.refund_cents, refund.currency) }}</span
             >
             <span class="text-(--text-secondary)">{{ refundStatusLabel(refund.status) }}</span>
@@ -573,11 +550,13 @@
           }
         </ul>
         } @if (hasUnsettledRefund(row)) {
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-2 flex flex-wrap gap-3">
           @if (canRetryRefunds(row)) {
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="buttonClass"
             [disabled]="pendingAction() !== null"
             (click)="retryRefunds()"
           >
@@ -589,8 +568,10 @@
           </button>
           }
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="buttonClass"
             (click)="reload()"
             i18n="@@admin.vendors.suspension.history.refresh"
           >
@@ -598,17 +579,10 @@
           </button>
         </div>
         } @if (canRetryRefunds(row) && failureFor('retry')) {
-        <p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">
-          {{ failureFor('retry') }}
-        </p>
+        <p [class]="failedClass" role="alert">{{ failureFor('retry') }}</p>
         } @if (row.cost_log.length > 0) {
-        <div class="mt-3">
-          <p
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.vendors.suspension.history.costLog"
-          >
-            Cost log
-          </p>
+        <div class="mt-2 grid gap-2">
+          <p [class]="labelClass" i18n="@@admin.vendors.suspension.history.costLog">Cost log</p>
           <aec-suspension-cost-log
             [vendorId]="vendorId()"
             [entries]="row.cost_log"

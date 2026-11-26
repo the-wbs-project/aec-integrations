@@ -22,9 +22,25 @@ import type {
   CompanyPolicyVersion,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { CHOICE_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { plansSnapshotHref } from '../../vendor/components/vendor-agreement-href';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { seatLabel } from '../seat-label';
+import { VENDOR_INLINE_LINK_CLASS, VENDOR_PANEL_CLASS } from './vendor-console-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * One license as the Billing tab renders it: the wire row plus every label derived
@@ -158,6 +174,39 @@ export function acceptanceMethodLabel(method: string | null): string | null {
   }
 }
 
+/**
+ * A grant's status as the console names it (`ADMIN_STATUS_TONES`). The wire field is a
+ * string, so a status this build has not heard of is `unknown`, and prints as is.
+ */
+export function licenseGrantStatusKey(status: string): AdminStatusKey {
+  switch (status) {
+    case 'pending_acceptance':
+      return 'waitingForAcceptance';
+    case 'accepted':
+      return 'accepted';
+    case 'withdrawn':
+      return 'withdrawn';
+    case 'expired':
+      return 'expiredNeverAccepted';
+    default:
+      return 'unknown';
+  }
+}
+
+/** An early-unassign request's status as the console names it. Exhaustive. */
+export function licenseReleaseStatusKey(
+  status: AdminLicenseReleaseRequest['status'],
+): AdminStatusKey {
+  switch (status) {
+    case 'open':
+      return 'open';
+    case 'approved':
+      return 'approved';
+    case 'declined':
+      return 'declined';
+  }
+}
+
 /** Build the row model for one grant (AECI-1615). */
 export function toBillingGrantRow(grant: AdminLicenseGrant, locale: string): BillingGrantRow {
   return {
@@ -242,11 +291,21 @@ export function toBillingLicenseRow(
  * Read-only itself: the writes live in the projected grant control and the row actions.
  * Nothing here changes ranking or reviews, and assignment is the vendor's.
  * Light theme only.
+ *
+ * ── LOOK (AECI-2124, mock-up 14) ─────────────────────────────────────────────
+ * The tab is a stack of flat console panels. The account is one labelled row per fact,
+ * as the console's inline control draws it, and the legal name and billing email rows
+ * hold their projected controls. Every table is the console table in a labelled scroll
+ * region. Statuses are dense chips on the shared tones (`ADMIN_STATUS_TONES`): a live
+ * subscription is positive, an ended one quiet, "Cancels at term end" attention.
  */
 @Component({
   selector: 'aec-billing-licenses-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink],
+  imports: [AecButton, Chip, NgTemplateOutlet, RouterLink],
+  // The vendor page's panel stack (`VENDOR_PANEL_STACK_CLASS`): 24px under the tab row
+  // and between panels. On the host, so the plural messages keep their source depth.
+  host: { class: 'mt-6 grid gap-6' },
   templateUrl: './billing-licenses-table.html',
 })
 export class BillingLicensesTable {
@@ -263,6 +322,40 @@ export class BillingLicensesTable {
   readonly grantActions = input<TemplateRef<BillingGrantRowContext> | null>(null);
 
   readonly retry = output<void>();
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = VENDOR_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  /** An ended row's identity cell: the row head in secondary ink (AECI-1866). */
+  protected readonly endedRowHeadClass = `${CONSOLE_TABLE.rowHead} text-(--text-secondary)`;
+  /** The recorded Plans page link under an acceptance's version. */
+  protected readonly plansLinkClass = `${VENDOR_INLINE_LINK_CLASS} block w-fit text-t-13`;
+  /**
+   * One account fact: the label in a 14rem column from 768px, then the value, hairlines
+   * between, as `AdminInlineControl` draws its row.
+   */
+  protected readonly accountRowClass =
+    'grid gap-x-6 gap-y-1 border-b border-(--border-default) py-2 first:border-t md:min-h-15 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:items-center';
+  protected readonly accountValueClass = 'min-w-0 text-t-16 text-(--text-primary) wrap-anywhere';
+
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  protected grantStatusKey(status: string): AdminStatusKey {
+    return licenseGrantStatusKey(status);
+  }
+
+  protected releaseStatusKey(status: AdminLicenseReleaseRequest['status']): AdminStatusKey {
+    return licenseReleaseStatusKey(status);
+  }
 
   protected readonly account = computed(() => this.billing()?.billing_account ?? null);
 

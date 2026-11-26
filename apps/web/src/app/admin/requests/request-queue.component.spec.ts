@@ -113,12 +113,15 @@ async function setup(api: ApiMock) {
   return { fixture, api, store, el: fixture.nativeElement as HTMLElement };
 }
 
+/** AECI-2111: one `<tbody>` per request, its row and its always-rendered detail row. */
+const RECORD = 'tbody[data-testid="request-record"]';
+
 function cardFor(el: HTMLElement, targetName: string): HTMLElement {
-  const article = [...el.querySelectorAll('article')].find((a) =>
-    a.querySelector('h3')?.textContent?.includes(targetName),
+  const record = [...el.querySelectorAll(RECORD)].find((b) =>
+    b.querySelector('th[scope="row"]')?.textContent?.includes(targetName),
   );
-  if (!article) throw new Error(`No card for "${targetName}"`);
-  return article as HTMLElement;
+  if (!record) throw new Error(`No row for "${targetName}"`);
+  return record as HTMLElement;
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
@@ -154,9 +157,15 @@ describe('RequestQueue', () => {
     // No kind chip: every row here is a correction, so a chip saying so on all of
     // them labels nothing. Scoped to the CARD — the h2 legitimately says
     // "Correction requests".
-    expect(cardFor(el, 'Procore').textContent).not.toContain('Correction');
+    // No kind chip: every chip on the row is the status or the duplicate flag.
+    const chips = [...cardFor(el, 'Procore').querySelectorAll('aec-chip')].map((c) =>
+      c.textContent?.trim(),
+    );
+    expect(chips).not.toContain('Correction');
     // The target links to its product detail page (hydrated slug).
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/products/procore');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/products/procore',
+    );
   });
 
   it('offers no kind filter at all', async () => {
@@ -177,12 +186,14 @@ describe('RequestQueue', () => {
         }),
       ]),
     );
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/vendors/autodesk');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/vendors/autodesk',
+    );
   });
 
   it('renders a non-linked fallback when the target is missing', async () => {
     const { el } = await setup(makeApiMock([makeRequest({ id: 'r1', target: null })]));
-    expect(el.querySelector('article h3 a')).toBeNull();
+    expect(el.querySelector('th[scope="row"] a')).toBeNull();
     expect(cardFor(el, 'Unknown product').textContent).toContain('Unknown product');
   });
 
@@ -269,7 +280,7 @@ describe('RequestQueue', () => {
     await settle();
     fixture.detectChanges();
     expect(api.moderate).toHaveBeenCalledWith('r1', { action: 'resolve' });
-    expect(el.querySelectorAll('article')).toHaveLength(1);
+    expect(el.querySelectorAll(RECORD)).toHaveLength(1);
     expect(el.textContent).toContain('Bluebeam');
     // AECI-922: the nav badge ticks down without a round-trip, as the reviews
     // queue has always done.
@@ -292,7 +303,7 @@ describe('RequestQueue', () => {
       action: 'reject',
       reason: 'Not a real claim.',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
   });
 
   it('rejects without a reason: omits the reason field', async () => {
@@ -323,7 +334,7 @@ describe('RequestQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Resolve').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
     // The admin who raced us already decremented; the count resyncs on the next
     // full visit to /admin.
@@ -351,7 +362,7 @@ describe('RequestQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Resolve').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).not.toBeNull();
+    expect(el.querySelector(RECORD)).not.toBeNull();
     expect(cardFor(el, 'Procore').querySelector('[role="alert"]')?.textContent).toContain(
       'Something went wrong',
     );
@@ -360,7 +371,7 @@ describe('RequestQueue', () => {
   it('renders the empty state when nothing matches', async () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.textContent).toContain('No requests match');
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
   });
 
   it('shows a retryable state when the initial load fails, then recovers', async () => {
@@ -371,11 +382,23 @@ describe('RequestQueue', () => {
     buttonByText(el, 'Try again').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelectorAll('article')).toHaveLength(1);
+    expect(el.querySelectorAll(RECORD)).toHaveLength(1);
   });
 
   describe('accessibility (structural)', () => {
-    it('uses a single h2 then h3 cards (no skipped levels, shell owns the h1)', async () => {
+    it('names the listing on every decision button (AECI-2111)', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeRequest({ id: 'r1' })]));
+      const card = cardFor(el, 'Procore');
+      const described = (b: HTMLButtonElement) =>
+        el.querySelector(`[id="${b.getAttribute('aria-describedby')}"]`)?.textContent?.trim();
+      expect(described(buttonByText(card, 'Resolve'))).toBe('Procore');
+      expect(described(buttonByText(card, 'Reject'))).toBe('Procore');
+      buttonByText(card, 'Reject').click();
+      fixture.detectChanges();
+      expect(described(buttonByText(card, 'Confirm rejection'))).toBe('Procore');
+    });
+
+    it('uses one h2 per section and a console table row per request (AECI-2111)', async () => {
       const { el } = await setup(
         makeApiMock([
           makeRequest({ id: 'r1' }),
@@ -391,8 +414,18 @@ describe('RequestQueue', () => {
         'Product requests from vendors',
         'Early-unassign requests',
       ]);
-      expect(el.querySelectorAll('h3')).toHaveLength(2);
-      expect(el.querySelector('h4, h5, h6')).toBeNull();
+      // The table replaced the h3 cards: no heading below the section h2s.
+      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+      expect(el.querySelectorAll(RECORD)).toHaveLength(2);
+      const card = cardFor(el, 'Procore');
+      const toggle = card.querySelector<HTMLButtonElement>(
+        'button[aria-controls="request-r1-detail"]',
+      )!;
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(card.querySelector<HTMLElement>('#request-r1-detail')!.hidden).toBe(true);
+      expect(card.querySelector('#request-r1-detail td')?.getAttribute('colspan')).toBe(
+        String(el.querySelectorAll('#admin-requests-caption ~ thead th').length),
+      );
     });
 
     it('gives the filter control an accessible group name', async () => {

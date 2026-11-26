@@ -221,7 +221,7 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // `license.unassigned` row, never left to the FK's SET NULL; a live one needs
   // `--force`. The license stays on its billing account. See the header.
   'licenses.assigned_product_id': 'force-detach',
-  // AECI-2042 (0131): a veto's pair key. A veto on a deleted product ends with it.
+  // AECI-2042 (0132): a veto's pair key. A veto on a deleted product ends with it.
   'sync_service_pair_vetoes.connector_product_id': 'fk-action',
   'sync_service_pair_vetoes.product_a_id': 'fk-action',
   'sync_service_pair_vetoes.product_b_id': 'fk-action',
@@ -234,10 +234,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.integration_id': 'cascade-child',
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
-  // AECI-2039 (0130): the owner's answers on a Sync Service pair's flows. Deleted
+  // AECI-2039 (0131): the owner's answers on a Sync Service pair's flows. Deleted
   // explicitly with the attestations, before the claims.
   'claim_owner_answers.claim_id': 'cascade-child',
-  // AECI-2042 (0131): Sync Service pair reports cascade with their edge or claim, and
+  // AECI-2042 (0132): Sync Service pair reports cascade with their edge or claim, and
   // a veto's anchor is SET NULL, so the veto keeps blocking a re-create of the pair.
   // Neither is counted on a tombstone. A follow-up may count the reports.
   'sync_service_pair_contests.integration_id': 'fk-action',
@@ -377,7 +377,7 @@ export const REVIEW_UPDATES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHER
  *  does, none when migration 0100 has not reached it. */
 export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_threads';`;
 
-/** AECI-2039: does `claim_owner_answers` exist on the target tier (migration 0130)? */
+/** AECI-2039: does `claim_owner_answers` exist on the target tier (migration 0131)? */
 export const CLAIM_OWNER_ANSWERS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_owner_answers';`;
 
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
@@ -875,7 +875,7 @@ export interface ProductDeleteArgs {
    *  names the table. */
   claimThreadsTable?: boolean;
   /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
-   *  0130). Defaults to true, the schema at HEAD. The CLI passes its
+   *  0131). Defaults to true, the schema at HEAD. The CLI passes its
    *  {@link CLAIM_OWNER_ANSWERS_TABLE_SQL} probe, as for every table a later migration
    *  added, so a tier without it gets a plan that never names the table. */
   claimOwnerAnswersTable?: boolean;

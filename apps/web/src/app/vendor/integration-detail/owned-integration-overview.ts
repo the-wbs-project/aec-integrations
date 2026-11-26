@@ -75,17 +75,19 @@ const DIRECTIONS: readonly string[] = ['outbound', 'inbound', 'both'];
     @let r = row();
     <div class="space-y-6">
       <div>
-        <h4 class="id-h4" i18n="@@vendor.im.overview.details">Details</h4>
-        <dl class="mt-1 divide-y divide-(--border-default)">
+        <h4 class="aec-overline text-(--text-secondary)" i18n="@@vendor.im.overview.details">
+          Details
+        </h4>
+        <dl class="mt-2 divide-y divide-(--border-default)">
           @for (field of fields(); track field) {
             <div
-              class="grid items-start gap-x-6 gap-y-0.5 py-2 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
+              class="grid items-start gap-x-6 gap-y-1 py-1 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
               [attr.data-testid]="'owned-overview-row-' + field"
             >
-              <dt class="flex min-h-8 items-center text-(--text-secondary)">
+              <dt class="flex min-h-11 items-center text-(--text-secondary)">
                 {{ label(field) }}
               </dt>
-              <dd class="flex min-h-8 min-w-0 items-center break-words text-(--text-primary)">
+              <dd class="flex min-h-11 min-w-0 items-center break-words text-(--text-primary)">
                 {{ value(field) }}
               </dd>
             </div>
@@ -94,32 +96,34 @@ const DIRECTIONS: readonly string[] = ['outbound', 'inbound', 'both'];
       </div>
 
       <div>
-        <h4 class="id-h4" i18n="@@vendor.im.overview.ownership">Ownership</h4>
-        <dl class="mt-1 divide-y divide-(--border-default)">
+        <h4 class="aec-overline text-(--text-secondary)" i18n="@@vendor.im.overview.ownership">
+          Ownership
+        </h4>
+        <dl class="mt-2 divide-y divide-(--border-default)">
           <div
-            class="grid items-start gap-x-6 gap-y-0.5 py-2 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
+            class="grid items-start gap-x-6 gap-y-1 py-1 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
           >
             <dt
-              class="flex min-h-8 items-center text-(--text-secondary)"
+              class="flex min-h-11 items-center text-(--text-secondary)"
               i18n="@@vendor.im.field.owner"
             >
               Owner
             </dt>
-            <dd class="flex min-h-8 min-w-0 items-center text-(--text-primary)">
+            <dd class="flex min-h-11 min-w-0 items-center text-(--text-primary)">
               {{ ownerText() }}
             </dd>
           </div>
           @if (r.connector; as connector) {
             <div
-              class="grid items-start gap-x-6 gap-y-0.5 py-2 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
+              class="grid items-start gap-x-6 gap-y-1 py-1 text-sm sm:grid-cols-[11rem_minmax(0,1fr)]"
             >
               <dt
-                class="flex min-h-8 items-center text-(--text-secondary)"
+                class="flex min-h-11 items-center text-(--text-secondary)"
                 i18n="@@vendor.im.owned.deliveredBy"
               >
                 Delivered through
               </dt>
-              <dd class="flex min-h-8 min-w-0 items-center text-(--text-primary)">
+              <dd class="flex min-h-11 min-w-0 items-center text-(--text-primary)">
                 {{ connector.name }}
               </dd>
             </div>

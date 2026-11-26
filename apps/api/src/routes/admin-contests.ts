@@ -78,7 +78,7 @@ import { and, asc, count, desc, eq, isNotNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { integrationFieldChallenges, vendors, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -150,12 +150,7 @@ import {
 import { ownerStillHolds, toContestProtest } from '../lib/contest-protests';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { pairCacheTag } from './promote-pair';
-import {
-  CONTEST_WORKFLOW_TYPE,
-  endpointSlugs,
-  notificationFor,
-  runGuardedContestBatch,
-} from './vendor-contests';
+import { endpointSlugs, notificationFor, runGuardedContestBatch } from './vendor-contests';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import {
   anyThreadMoveRaced,
@@ -165,6 +160,7 @@ import {
 import { purgeTags } from './vendor-shared';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { dispatchMirrorSync, mirrorVendorEntries } from '../lib/ownership-sync';
+import { contestWorkflowStmts } from '../lib/workflow-restore';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -387,9 +383,14 @@ export function createModerateContestHandler(
       afterState: { status, decision_note: note },
       metadata,
     };
-    const workflowId = row.workflowId ?? crypto.randomUUID();
+    // AECI-1913: a pruned instance is re-created and relinked (`lib/workflow-restore.ts`).
+    const instance = contestWorkflowStmts(db, row, 'contest', now, {
+      currentState: status,
+      completedAt: now,
+      finalOutcome: FINAL_OUTCOME[status],
+    });
     const transition: WorkflowTransitionEntry = {
-      workflowId,
+      workflowId: instance.workflowId,
       fromState: 'open',
       toState: status,
       actorId: session.userId,
@@ -501,19 +502,7 @@ export function createModerateContestHandler(
       // AECI-1005: then the integration-state guard and any catalog write the accept
       // plans. Empty for a decline.
       ...(accept?.stmts ?? []),
-      row.workflowId
-        ? db
-            .update(workflowInstances)
-            .set({ currentState: status, completedAt: now, finalOutcome: FINAL_OUTCOME[status] })
-            .where(eq(workflowInstances.id, workflowId))
-        : db.insert(workflowInstances).values({
-            id: workflowId,
-            workflowType: CONTEST_WORKFLOW_TYPE,
-            entityId: id,
-            currentState: status,
-            completedAt: now,
-            finalOutcome: FINAL_OUTCOME[status],
-          }),
+      ...instance.stmts,
       workflowTransitionInsert(db, transition),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];

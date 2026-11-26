@@ -14,8 +14,16 @@ import type {
 } from '@aeci/shared';
 
 import { AdminNotes } from '../admin-notes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { AecButton } from '../../shared/button/button';
 import { AdditionsTable, type AdditionsRow } from './additions-table';
 import { AdminCatalogApi } from './admin-catalog-api';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
 
 /** Days on the Daily tab, matching the overview's 30-day traffic chart. */
 const SERIES_DAYS = 30;
@@ -120,11 +128,39 @@ const EMPTY_SERIES: SeriesData = { rows: [], notes: [] };
  */
 @Component({
   selector: 'aec-catalog-coverage',
-  imports: [AdditionsTable, AdminNotes, RouterLink, Tab, TabContent, TabList, TabPanel, Tabs],
+  imports: [
+    AdditionsTable,
+    AdminNotes,
+    AecButton,
+    RouterLink,
+    Tab,
+    TabContent,
+    TabList,
+    TabPanel,
+    Tabs,
+  ],
   templateUrl: './catalog-coverage.html',
 })
 export class CatalogCoverage {
   private readonly api = inject(AdminCatalogApi);
+
+  /** The console recipe (AECI-2125, mock-up 14). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  /** A total, as on the Overview's catalog totals: 24px at 600 in the display face. */
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
+  /** A small secondary line under a panel's heading or list. */
+  protected readonly smallClass = 'text-t-13 text-(--text-secondary)';
+  /** A sample product or integration link in a gap panel. */
+  protected readonly sampleLinkClass =
+    'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-3 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3';
+  /** The Daily and Monthly tabs: the console section row's look (16px, current in
+   *  Forest at 600 over a Forest underline). */
+  protected readonly tabListClass = 'flex list-none gap-6 border-b border-(--border-default) p-0';
+  protected readonly tabClass =
+    '-mb-px inline-flex min-h-11 cursor-pointer items-center border-b-2 border-transparent px-1 text-t-16 text-(--text-secondary) hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 aria-selected:border-(--accent-primary) aria-selected:font-semibold aria-selected:text-(--accent-primary)';
 
   protected readonly coverage = signal<AdminCatalogCoverageResponse | null>(null);
   protected readonly loading = signal(true);

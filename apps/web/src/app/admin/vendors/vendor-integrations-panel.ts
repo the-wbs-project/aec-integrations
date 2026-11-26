@@ -18,6 +18,27 @@ import { ADMIN_RETIRE_REASON_MAX, type AdminVendorIntegrationRow } from '@aeci/s
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /** Rows per fetch. The API caps a page at 100; a vendor owning more is told so. */
 export const INTEGRATIONS_PAGE_SIZE = 100;
@@ -61,12 +82,49 @@ type Mode = 'retire' | 'restore';
  */
 @Component({
   selector: 'aec-vendor-integrations-panel',
-  imports: [AecFormSubmit, DatePipe, NewTabIcon],
+  imports: [AecButton, AecFormSubmit, Chip, DatePipe, NewTabIcon],
   templateUrl: './vendor-integrations-panel.html',
 })
 export class VendorIntegrationsPanel {
   readonly vendorId = input.required<string>();
   readonly announce = output<string>();
+
+  // AECI-2112: the console table recipe (mock-up 14) and the shared form classes.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly linkClass = STANDALONE_LINK_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+
+  /** The status chip's tone. Exhaustive over `retired_by`: a new value fails to compile. */
+  protected statusTone(row: AdminVendorIntegrationRow): ConsoleChipTone {
+    const by = row.retired_by;
+    switch (by) {
+      case 'aeci':
+        return adminStatusTone('retiredByAeci');
+      case 'owner':
+        return adminStatusTone('retiredByOwner');
+      case null:
+        return adminStatusTone('live');
+      default: {
+        const unreachable: never = by;
+        return unreachable;
+      }
+    }
+  }
+
+  /** Escape closes the open form, as Cancel does, except while it sends. */
+  protected onEscape(row: AdminVendorIntegrationRow): void {
+    if (!this.pending()) this.closeForm(row);
+  }
 
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);
@@ -204,6 +262,11 @@ export class VendorIntegrationsPanel {
         this.formFor.set(null);
         this.announce.emit(adminRetireErrorMessage(err));
         void this.load();
+      } else {
+        // The disabled confirm drops focus: move it to the refusal (AECI-1994).
+        afterNextRender(() => this.document.getElementById(this.formId(row, 'error'))?.focus(), {
+          injector: this.injector,
+        });
       }
     } finally {
       this.pending.set(false);

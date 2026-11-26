@@ -368,3 +368,107 @@ describe('AdminLogoEditor', () => {
     });
   });
 });
+
+@Component({
+  imports: [AdminLogoEditor],
+  template: `<aec-admin-logo-editor
+    kind="product"
+    recordId="00000000-0000-4000-8000-000000000002"
+    [logoUrl]="null"
+    (closeRequested)="closes.set(closes() + 1)"
+    (savingChange)="saving.set($event)"
+  />`,
+})
+class EscapeHost {
+  closes = signal(0);
+  saving = signal(false);
+}
+
+describe('AdminLogoEditor Escape and focus (AECI-2112)', () => {
+  const PATCH = '/api/admin/products/00000000-0000-4000-8000-000000000002/logo';
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => {
+    http.verify();
+    TestBed.resetTestingModule();
+  });
+
+  function mount() {
+    const fixture = TestBed.createComponent(EscapeHost);
+    fixture.detectChanges();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+  function escapeEvent(): KeyboardEvent {
+    return new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  }
+  function fill(el: HTMLElement, fixture: ReturnType<typeof mount>['fixture']): void {
+    const url = el.querySelector('input[type=text]') as HTMLInputElement;
+    url.value = 'https://example.com/new.png';
+    url.dispatchEvent(new Event('input'));
+    const reason = el.querySelector('textarea') as HTMLTextAreaElement;
+    reason.value = 'The vendor sent a new brand mark.';
+    reason.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  }
+
+  it('asks the host to close on Escape when nothing is in flight', () => {
+    const { fixture, el } = mount();
+    el.querySelector('textarea')!.dispatchEvent(escapeEvent());
+    fixture.detectChanges();
+    expect(fixture.componentInstance.closes()).toBe(1);
+  });
+
+  it('closes only the objection step on Escape, and focus returns to its opener', async () => {
+    const { fixture, el } = mount();
+    el.querySelector<HTMLButtonElement>('[data-testid="logo-objection-open"]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const outer = escapeEvent();
+    const seen: Event[] = [];
+    document.body.addEventListener('keydown', (e) => seen.push(e), { once: true });
+    el.querySelector('[data-testid="logo-objection-confirm"]')!.dispatchEvent(outer);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="logo-objection-confirm"]')).toBeNull();
+    expect(fixture.componentInstance.closes()).toBe(0);
+    // The event stops at the editor, so a host dialog does not close too.
+    expect(seen).toEqual([]);
+    expect(document.activeElement?.getAttribute('data-testid')).toBe('logo-objection-open');
+  });
+
+  it('does nothing on Escape while a save is in flight, and tells the host it is saving', async () => {
+    const { fixture, el } = mount();
+    fill(el, fixture);
+    el.querySelector<HTMLButtonElement>('button[type=submit]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.saving()).toBe(true);
+    const event = escapeEvent();
+    el.querySelector('textarea')!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(fixture.componentInstance.closes()).toBe(0);
+    http.expectOne(PATCH).flush({});
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.saving()).toBe(false);
+  });
+
+  it('a refused save moves focus to its message', async () => {
+    const { fixture, el } = mount();
+    fill(el, fixture);
+    el.querySelector<HTMLButtonElement>('button[type=submit]')!.click();
+    fixture.detectChanges();
+    http.expectOne(PATCH).flush('no', { status: 500, statusText: 'Server Error' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement?.textContent).toContain("We couldn't save this logo.");
+  });
+});

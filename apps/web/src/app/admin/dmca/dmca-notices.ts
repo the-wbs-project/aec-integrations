@@ -25,8 +25,28 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { AdminDmcaApi } from './admin-dmca-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+  CONSOLE_TEXT_LINK_CLASS,
+} from '../console/console-detail';
 
 /** The form's values. Dates are `YYYY-MM-DD` (UTC), and `''` means empty. */
 export interface DmcaDraft {
@@ -233,6 +253,64 @@ export function clockLabel(clock: DmcaRestoreClock, opens: string, due: string):
   }
 }
 
+/**
+ * The console status each restore clock state reads as (AECI-2128). Exhaustive, so a new
+ * clock state is a compile error. The chip's words carry the state; the tone never does.
+ */
+export function clockStatusKey(state: DmcaRestoreClock['state']): AdminStatusKey {
+  switch (state) {
+    case 'awaiting_forward':
+      return 'waitingToForward';
+    case 'waiting':
+      return 'restoreWindowOpens';
+    case 'restore_window_open':
+      return 'restoreBy';
+    case 'overdue':
+      return 'overdue';
+    case 'court_action':
+      return 'courtActionReported';
+    case 'restored':
+      return 'restored';
+    case 'not_restored':
+      return 'notRestored';
+  }
+}
+
+/**
+ * The page's looks beyond the console recipe (AECI-2128, mock-up 14). The table, panel
+ * and label are the console's own; the fields are the shared field recipe.
+ */
+export const DMCA_CLASSES = {
+  caption: CONSOLE_CAPTION_CLASS,
+  panel: CONSOLE_PANEL_CLASS,
+  /** A count's value under its Label-role term. */
+  factValue: 'mt-1 text-t-16 font-semibold tabular-nums text-(--text-primary)',
+  /** The log form: a console panel, fields 24px apart. */
+  form: `${CONSOLE_PANEL_CLASS} grid gap-6`,
+  /** Two columns of fields from 640px. */
+  grid: 'grid gap-6 sm:grid-cols-2',
+  /** One field: label, hint, control. */
+  field: 'grid content-start gap-2',
+  input: FIELD_INPUT_CLASS,
+  /** An id field: the field recipe in the mono face. */
+  inputMono: `${FIELD_INPUT_CLASS} font-mono`,
+  hint: FIELD_HINT_CLASS,
+  choice: CHOICE_INPUT_CLASS,
+  /** The button row at the foot of the form. */
+  actions: 'flex flex-wrap items-center gap-3',
+  /** A link inside running text or a cell: the text's own ink, underlined. */
+  inlineLink: CONSOLE_TEXT_LINK_CLASS,
+  /** A loading or empty line. */
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
+  /** A load failure: the sentence, then its Try again button. */
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
+  /** The sentence of a load failure or a refused save. */
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
+  /** A refresh that failed over rows already shown: a sunken box, hairline edge. */
+  staleBox:
+    'flex flex-wrap items-center justify-between gap-3 rounded-control border border-(--border-default) bg-(--surface-sunken) px-4 py-3',
+} as const;
+
 const ACTION_LABELS: Record<DmcaAction, string> = {
   pending: $localize`:@@admin.dmca.action.pending:Pending`,
   removed: $localize`:@@admin.dmca.action.removed:Removed`,
@@ -260,7 +338,7 @@ const ACTION_LABELS: Record<DmcaAction, string> = {
  */
 @Component({
   selector: 'aec-admin-dmca-notices',
-  imports: [AecSelect, RouterLink],
+  imports: [AecButton, AecSelect, Chip, RouterLink],
   templateUrl: './dmca-notices.html',
 })
 export class AdminDmcaNotices {
@@ -269,6 +347,10 @@ export class AdminDmcaNotices {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
   private readonly datePipe = new DatePipe(inject(LOCALE_ID));
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly c = DMCA_CLASSES;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
 
   protected readonly data = signal<DmcaNoticesResponse | null>(null);
   protected readonly loading = signal(true);
@@ -431,6 +513,10 @@ export class AdminDmcaNotices {
     return clockLabel(clock, this.day(clock.opens_on), this.day(clock.due_on));
   }
 
+  protected clockTone(clock: DmcaRestoreClock): ConsoleChipTone {
+    return adminStatusTone(clockStatusKey(clock.state));
+  }
+
   protected actionLabel(action: DmcaAction): string {
     return ACTION_LABELS[action] ?? action;
   }
@@ -475,6 +561,18 @@ export class AdminDmcaNotices {
     this.editing.set(null);
     this.resetFormState();
     this.returnFocus(editing);
+  }
+
+  /**
+   * Escape closes the form, as Cancel does, except while a save is in flight. An Escape
+   * that an open select inside the form already handled (it closes its own list) is left
+   * alone.
+   */
+  protected onEscape(event: Event): void {
+    if (this.saving() || event.defaultPrevented) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('[aria-expanded="true"]')) return;
+    this.cancel();
   }
 
   /** Focus an element by id once the view has rendered. */
@@ -543,7 +641,11 @@ export class AdminDmcaNotices {
       await this.load();
       this.returnFocus(editing);
     } catch (error) {
-      if (mine()) this.formError.set(this.errorText(error));
+      if (mine()) {
+        this.formError.set(this.errorText(error));
+        // A refused save moves focus to its message (AECI-2128).
+        this.focusAfterRender('admin-dmca-form-error');
+      }
     } finally {
       if (mine()) this.saving.set(false);
     }

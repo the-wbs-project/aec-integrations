@@ -1,19 +1,15 @@
+<!--
+  /admin/activity, ADMIN_PANEL_SPEC.md §5.2. AECI-2125: the console filter row,
+  flat summary panels and the console table recipe (mock-up 14).
+-->
 <section aria-labelledby="admin-activity-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <div>
-      <h2
-        id="admin-activity-heading"
-        class="text-lg font-bold text-(--text-primary)"
-        i18n="@@admin.activity.heading"
-      >
-        Activity
-      </h2>
-      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.activity.subheading">
-        Every visit AECi recorded, newest first, including the traffic that never answers a consent
-        banner.
-      </p>
-    </div>
-  </div>
+  <h2 id="admin-activity-heading" class="text-(--text-primary)" i18n="@@admin.activity.heading">
+    Activity
+  </h2>
+  <p [class]="captionClass" class="mt-2 max-w-prose text-pretty" i18n="@@admin.activity.subheading">
+    Every visit AECi recorded, newest first, including the traffic that never answers a consent
+    banner.
+  </p>
 
   <!-- Polite announcements: filtering and paging replace the table in place. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
@@ -23,172 +19,155 @@
       The filter bar renders browser-side only: the default window is derived from
       the clock, and a clock-derived value baked into SSR HTML is what diverges.
     -->
-  <div
-    class="mt-6 space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-  >
-    <div class="flex flex-wrap items-end gap-x-6 gap-y-3">
-      <!-- Date range -->
-      <div class="flex flex-wrap items-center gap-2">
-        <label
-          for="admin-activity-from"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.activity.filter.from"
-          >From</label
-        >
-        <input
-          id="admin-activity-from"
-          type="date"
-          [value]="from()"
-          (change)="onFromInput($event)"
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
-        <label
-          for="admin-activity-to"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.activity.filter.to"
-          >To</label
-        >
-        <input
-          id="admin-activity-to"
-          type="date"
-          [value]="to()"
-          (change)="onToInput($event)"
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
-      </div>
+  <div [class]="f.toolbar">
+    <!-- Date range -->
+    <div [class]="f.group">
+      <label for="admin-activity-from" [class]="f.label" i18n="@@admin.activity.filter.from"
+        >From</label
+      >
+      <input
+        id="admin-activity-from"
+        type="date"
+        [value]="from()"
+        (change)="onFromInput($event)"
+        [class]="dateInputClass"
+      />
+    </div>
+    <div [class]="f.group">
+      <label for="admin-activity-to" [class]="f.label" i18n="@@admin.activity.filter.to">To</label>
+      <input
+        id="admin-activity-to"
+        type="date"
+        [value]="to()"
+        (change)="onToInput($event)"
+        [class]="dateInputClass"
+      />
+    </div>
 
-      <!-- Quick windows -->
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-activity-preset-label"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.activity.filter.preset.label"
-          >Last</span
+    <!-- Quick windows -->
+    <div [class]="f.group">
+      <span
+        id="admin-activity-preset-label"
+        [class]="f.label"
+        i18n="@@admin.activity.filter.preset.label"
+        >Last</span
+      >
+      <div role="group" aria-labelledby="admin-activity-preset-label" [class]="f.seg">
+        @for (days of presets; track days) {
+        <button
+          type="button"
+          (click)="applyPreset(days)"
+          [attr.aria-pressed]="isPreset(days)"
+          [class]="f.option"
         >
-        <div
-          role="group"
-          aria-labelledby="admin-activity-preset-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-1"
-        >
-          @for (days of presets; track days) {
-          <button
-            type="button"
-            (click)="applyPreset(days)"
-            [attr.aria-pressed]="isPreset(days)"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            <ng-container i18n="@@admin.activity.filter.preset.days"
-              >{days, plural, =1 {1 day} other {{{ days }} days}}</ng-container
-            >
-          </button>
+          @if (isPreset(days)) {
+          <aec-icon name="check" decorative [size]="4" />
           }
-        </div>
-      </div>
-
-      <!-- Traffic population -->
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-activity-traffic-label"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.activity.filter.traffic.label"
-          >Traffic</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-activity-traffic-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-1"
-        >
-          @for (opt of trafficOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setTraffic(opt.key)"
-            [attr.aria-pressed]="traffic() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+          <ng-container i18n="@@admin.activity.filter.preset.days"
+            >{days, plural, =1 {1 day} other {{{ days }} days}}</ng-container
           >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
+        </button>
+        }
       </div>
     </div>
 
-    <div class="flex flex-wrap items-end gap-x-6 gap-y-3">
-      <aec-select
-        [label]="sourceLabel"
-        [options]="sourceOptions()"
-        [value]="source()"
-        (changed)="setSource($event)"
-      />
-      <aec-select
-        [label]="countryLabel"
-        [options]="countryOptions()"
-        [value]="country()"
-        (changed)="setCountry($event)"
-      />
-      <aec-select
-        [label]="writerLabel"
-        [options]="writerOptions"
-        [value]="writer()"
-        (changed)="setWriter($event)"
-      />
-      <aec-select
-        [label]="classLabel"
-        [options]="classOptions"
-        [value]="trafficClass()"
-        (changed)="setClass($event)"
-      />
-
-      <div class="flex flex-wrap items-center gap-2">
-        <label
-          for="admin-activity-path"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.activity.filter.path"
-          >Page contains</label
+    <!-- Traffic population -->
+    <div [class]="f.group">
+      <span
+        id="admin-activity-traffic-label"
+        [class]="f.label"
+        i18n="@@admin.activity.filter.traffic.label"
+        >Traffic</span
+      >
+      <div role="group" aria-labelledby="admin-activity-traffic-label" [class]="f.seg">
+        @for (opt of trafficOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setTraffic(opt.key)"
+          [attr.aria-pressed]="traffic() === opt.key"
+          [class]="f.option"
         >
-        <input
-          id="admin-activity-path"
-          type="search"
-          [value]="pathContains()"
-          (input)="onPathInput($event)"
-          i18n-placeholder="@@admin.activity.filter.path.placeholder"
-          placeholder="/products"
-          class="min-w-[10rem] rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
+          @if (traffic() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
       </div>
-
-      @if (showInternalToggle()) {
-      <div class="flex items-center gap-2">
-        <input
-          id="admin-activity-internal"
-          type="checkbox"
-          [checked]="excludeInternal()"
-          (change)="toggleInternal($event)"
-          class="h-4 w-4 rounded-(--radius-sm) border-(--border-strong) accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
-        <label for="admin-activity-internal" class="text-sm text-(--text-primary)"
-          >{{ internalToggleLabel() }}</label
-        >
-      </div>
-      }
     </div>
+
+    <aec-select
+      [label]="sourceLabel"
+      [options]="sourceOptions()"
+      [value]="source()"
+      (changed)="setSource($event)"
+    />
+    <aec-select
+      [label]="countryLabel"
+      [options]="countryOptions()"
+      [value]="country()"
+      (changed)="setCountry($event)"
+    />
+    <aec-select
+      [label]="writerLabel"
+      [options]="writerOptions"
+      [value]="writer()"
+      (changed)="setWriter($event)"
+    />
+    <aec-select
+      [label]="classLabel"
+      [options]="classOptions"
+      [value]="trafficClass()"
+      (changed)="setClass($event)"
+    />
+
+    <div [class]="f.group">
+      <label for="admin-activity-path" [class]="f.label" i18n="@@admin.activity.filter.path"
+        >Page contains</label
+      >
+      <input
+        id="admin-activity-path"
+        type="search"
+        [value]="pathContains()"
+        (input)="onPathInput($event)"
+        i18n-placeholder="@@admin.activity.filter.path.placeholder"
+        placeholder="/products"
+        [class]="pathInputClass"
+      />
+    </div>
+
+    @if (showInternalToggle()) {
+    <div class="flex min-h-11 items-center gap-2">
+      <input
+        id="admin-activity-internal"
+        type="checkbox"
+        [checked]="excludeInternal()"
+        (change)="toggleInternal($event)"
+        [class]="checkboxClass"
+      />
+      <label for="admin-activity-internal" class="text-t-14 text-(--text-primary)"
+        >{{ internalToggleLabel() }}</label
+      >
+    </div>
+    }
   </div>
   } @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.activity.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.activity.loading">
     Loading the activity feed…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div [class]="panelClass" class="mt-6">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.activity.loadFailed"
     >
       We couldn't load the activity feed. Your session may have expired.
     </p>
     <button
-      type="button"
+      aecButton
+      variant="secondary"
+      class="mt-4"
       (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.activity.retry"
     >
       Try again
@@ -200,46 +179,33 @@
       only ever ADD a number beside the unfiltered one, never replace it.
     -->
   <dl class="mt-6 grid gap-4 sm:grid-cols-2">
-    <div class="rounded-(--radius-md) border border-(--border-default) p-4">
-      <dt
-        class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-        i18n="@@admin.activity.summary.views"
-      >
-        Views in this window
-      </dt>
-      <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ windowTotal().total }}</dd>
+    <div [class]="panelClass">
+      <dt [class]="labelClass" i18n="@@admin.activity.summary.views">Views in this window</dt>
+      <dd [class]="totalClass">{{ windowTotal().total }}</dd>
       @let viewsExcl = excludingInternalLabel(windowTotal()); @if (viewsExcl) {
-      <dd class="mt-1 text-xs text-(--text-secondary)">{{ viewsExcl }}</dd>
+      <dd [class]="summaryNoteClass">{{ viewsExcl }}</dd>
       }
       <!-- AECI-1461. A class filter cuts rows too, so the figure it was cut from
            sits beside it, the same rule as the internal-traffic line above. -->
       @let viewsAll = allClassesLabel(windowTotalAllClasses()); @if (viewsAll) {
-      <dd class="mt-1 text-xs text-(--text-secondary)">{{ viewsAll }}</dd>
+      <dd [class]="summaryNoteClass">{{ viewsAll }}</dd>
       }
     </div>
 
-    <div class="rounded-(--radius-md) border border-(--border-default) p-4">
-      <dt
-        class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-        i18n="@@admin.activity.summary.visitors"
-      >
-        Unique visitors
-      </dt>
-      <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ windowVisitors().total }}</dd>
+    <div [class]="panelClass">
+      <dt [class]="labelClass" i18n="@@admin.activity.summary.visitors">Unique visitors</dt>
+      <dd [class]="totalClass">{{ windowVisitors().total }}</dd>
       <!--
           §13 D7 requires the §9.8 definition to sit beside the number, not only in
           the spec. There is no session concept and there never will be one.
         -->
-      <dd
-        class="mt-1 text-xs text-(--text-secondary)"
-        i18n="@@admin.activity.summary.visitorDefinition"
-      >
+      <dd [class]="summaryNoteClass" i18n="@@admin.activity.summary.visitorDefinition">
         Distinct browser-and-network pairs in this window. There are no sessions.
       </dd>
       @let visitorsExcl = excludingInternalLabel(windowVisitors()); @if (visitorsExcl) {
-      <dd class="mt-1 text-xs text-(--text-secondary)">{{ visitorsExcl }}</dd>
+      <dd [class]="summaryNoteClass">{{ visitorsExcl }}</dd>
       } @let visitorsAll = allClassesLabel(windowVisitorsAllClasses()); @if (visitorsAll) {
-      <dd class="mt-1 text-xs text-(--text-secondary)">{{ visitorsAll }}</dd>
+      <dd [class]="summaryNoteClass">{{ visitorsAll }}</dd>
       }
     </div>
   </dl>
@@ -247,46 +213,28 @@
   <aec-admin-notes class="mt-4" [notes]="notes()" />
 
   @if (isEmpty()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.activity.empty">
-    No visits match these filters.
-  </p>
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.activity.empty">No visits match these filters.</p>
   } @else {
-  <div class="mt-6 overflow-x-auto">
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    i18n-aria-label="@@admin.activity.table.aria"
+    aria-label="Recorded visits"
+  >
     <table
-      class="w-full border-collapse text-start text-sm md:min-w-[64rem]"
+      [class]="t.table"
+      class="min-w-[64rem]"
       i18n-aria-label="@@admin.activity.table.aria"
       aria-label="Recorded visits"
     >
-      <thead class="border-b border-(--border-default)">
+      <thead>
         <tr>
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.event"
-          >
-            Event
-          </th>
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.visitor"
-          >
-            Visitor
-          </th>
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.location"
-          >
-            Location
-          </th>
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.page"
-          >
-            Page
-          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.event">Event</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.visitor">Visitor</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.location">Location</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.page">Page</th>
           <!--
                     "Claimed source", not "Source". The value comes from a header the
                     client sets, nothing verifies it, and production holds a confirmed
@@ -294,73 +242,42 @@
                     qualifies every cell below it at once; the
                     referrer_source_is_unverified note carries the full explanation.
                   -->
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.sourceClaimed"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.sourceClaimed">
             Claimed source
           </th>
           <!--
                     The trusted counterpart to "Claimed source": which of our writers
                     stamped the row, and how browser-shaped its headers were (§13 D18).
                   -->
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.request"
-          >
-            Request
-          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.request">Request</th>
           <!--
                     The stored D19 judgement about the request (AECI-1461). A
                     heuristic, never an identity: the classification_is_heuristic
                     note above says so in words.
                   -->
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.class"
-          >
-            Class
-          </th>
-          <th
-            scope="col"
-            class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.time"
-          >
-            Time
-          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.class">Class</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.activity.col.time">Time</th>
         </tr>
       </thead>
 
       @for (group of dayGroups(); track group.day) {
-      <tbody class="divide-y divide-(--border-default)">
-        <tr class="bg-(--surface-sunken)">
-          <th
-            scope="rowgroup"
-            colspan="8"
-            class="px-3 py-2 text-start text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          >
-            {{ dayLabel(group.day) }}
-          </th>
+      <tbody>
+        <tr>
+          <th scope="rowgroup" colspan="8" [class]="dayHeadClass">{{ dayLabel(group.day) }}</th>
         </tr>
 
         @for (row of group.rows; track row.id) {
-        <tr>
-          <td class="px-3 py-3 align-top">
+        <tr [class]="t.row">
+          <td [class]="t.cell">
             <span class="text-(--text-primary)" i18n="@@admin.activity.event.pageview"
               >Pageview</span
             >
             @let chip = botChip(row); @if (chip) {
-            <span
-              class="ms-2 inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2 py-0.5 text-xs font-medium text-(--text-secondary)"
-              >{{ chip }}</span
-            >
+            <aec-chip density="dense" class="ms-2" [tone]="botChipTone(row)">{{ chip }}</aec-chip>
             }
           </td>
 
-          <td class="px-3 py-3 align-top font-mono text-xs text-(--text-secondary)">
+          <td [class]="t.cell" class="font-mono text-t-13 text-(--text-secondary)">
             @let visitor = visitorLabel(row); @if (visitor) { {{ visitor }} } @else {
             <!-- Spelled out, not a dash: the column header supplies the
                            context, so "Unknown" reads the same to everyone. -->
@@ -373,28 +290,26 @@
                         browse from" together is the honest state, not a conflict.
                       -->
             @let asn = asnLabel(row); @if (asn) {
-            <span class="mt-0.5 block font-sans text-xs" [class]="asnTone(row)">{{ asn }}</span>
+            <span [class]="asnTone(row)">{{ asn }}</span>
             }
           </td>
 
-          <td class="px-3 py-3 align-top text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">
             @let location = locationLabel(row); @if (location) { {{ location }} } @else {
             <span i18n="@@admin.activity.location.unknown">Unknown location</span>
             }
           </td>
 
-          <td class="px-3 py-3 align-top">
+          <td [class]="t.cell">
             @let link = routerLinkFor(row); @if (link && row.entity) {
-            <a [routerLink]="link" class="font-medium text-(--accent-primary)"
-              >{{ row.entity.name }}</a
-            >
-            <span class="block font-mono text-xs text-(--text-tertiary)">{{ row.path }}</span>
+            <a [routerLink]="link" [class]="entityLinkClass">{{ row.entity.name }}</a>
+            <span [class]="monoSubClass">{{ row.path }}</span>
             } @else {
-            <span class="font-mono text-xs text-(--text-primary)">{{ row.path }}</span>
+            <span class="font-mono text-t-13 text-(--text-primary)">{{ row.path }}</span>
             }
           </td>
 
-          <td class="px-3 py-3 align-top">
+          <td [class]="t.cell">
             @if (row.referrer_source) {
             <span class="text-(--text-primary)">{{ row.referrer_source }}</span>
             } @else {
@@ -406,37 +321,31 @@
               >Unknown</span
             >
             } @if (row.referrer) {
-            <span class="block font-mono text-xs text-(--text-tertiary)">{{ row.referrer }}</span>
+            <span [class]="monoSubClass">{{ row.referrer }}</span>
             }
           </td>
 
-          <td class="px-3 py-3 align-top">
+          <td [class]="t.cell">
             <span
               class="whitespace-nowrap"
               [class]="row.writer_provenance === null ? 'text-(--text-secondary)' : 'text-(--text-primary)'"
               >{{ writerCell(row) }}</span
             >
             @let verdict = verdictLabel(row); @if (verdict) {
-            <span class="mt-0.5 block text-xs" [class]="verdictTone(row)">{{ verdict }}</span>
+            <span [class]="verdictTone(row)">{{ verdict }}</span>
             }
           </td>
 
-          <td class="px-3 py-3 align-top">
+          <td [class]="t.cell">
             @if (row.classification; as cls) {
             <span class="text-(--text-primary)">{{ classLabelFor(cls.class) }}</span>
             @if (cls.reason_codes.length > 0) {
             <!-- Machine codes, verbatim and never localized (API_CONTRACTS §6.10). -->
-            <span class="mt-0.5 block font-mono text-xs break-words text-(--text-tertiary)"
-              >{{ cls.reason_codes.join(', ') }}</span
-            >
+            <span [class]="monoSubClass">{{ cls.reason_codes.join(', ') }}</span>
             }
-            <span class="mt-0.5 block text-xs text-(--text-tertiary)"
-              >{{ classifierLabel(cls.classifier_version) }}</span
-            >
+            <span [class]="t.sub">{{ classifierLabel(cls.classifier_version) }}</span>
             @if (!cls.evidence_complete) {
-            <span
-              class="mt-0.5 block text-xs text-(--accent-secondary-deep)"
-              i18n="@@admin.activity.class.evidenceIncomplete"
+            <span [class]="evidenceIncompleteClass" i18n="@@admin.activity.class.evidenceIncomplete"
               >Evidence incomplete</span
             >
             } } @else {
@@ -451,7 +360,7 @@
             }
           </td>
 
-          <td class="px-3 py-3 align-top whitespace-nowrap text-(--text-secondary)">
+          <td [class]="t.nowrap" class="text-(--text-secondary)">
             <time [attr.datetime]="row.created_at" [attr.title]="exactUtc(row.created_at)"
               >{{ age(row.created_at) }}</time
             >
@@ -468,6 +377,7 @@
     [page]="page()"
     [perPage]="perPage"
     [total]="total()"
+    [busy]="loading()"
     (pageChange)="goToPage($event)"
   />
   } }

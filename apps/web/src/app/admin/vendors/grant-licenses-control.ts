@@ -32,7 +32,23 @@ import { LegalInForceClient } from '../../legal/legal-in-force-client';
 import { AdminLicensesApi } from './admin-licenses-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecConsentBox } from '../../shared/form-field/consent-box';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** The operator's local today as `YYYY-MM-DD`, the form a date input holds. Local, not
  *  UTC, so an evening grant in the Americas does not prefill tomorrow. */
@@ -78,18 +94,28 @@ function todayLocal(): string {
  * through {@link announce}.
  *
  * ── FOCUS (AECI-1989) ───────────────────────────────────────────────────────
- * Opening the form focuses the quantity. Cancel and a grant return focus to the open
- * button. A refusal focuses its message, because the confirm button was disabled while
+ * Opening the form focuses the quantity. Cancel, Escape and a grant return focus to the
+ * open button. Escape does nothing while the grant runs (AECI-2124). A refusal focuses its message, because the confirm button was disabled while
  * the request ran and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-grant-licenses-control',
-  imports: [AecFormSubmit, AecConsentBox],
+  imports: [AecButton, AecFormSubmit, AecConsentBox, AecIcon],
   templateUrl: './grant-licenses-control.html',
 })
 export class GrantLicensesControl {
   /** A field's inline error: the shared recipe (AECI-1984). */
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
   private readonly api = inject(AdminLicensesApi);
 
   readonly vendorId = input.required<string>();
@@ -279,6 +305,12 @@ export class GrantLicensesControl {
     this.formOpen.set(false);
     this.grantId.set('');
     this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  /** Escape is Cancel, except while the grant runs: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.closeForm();
   }
 
   private focusAfterRender(target: () => HTMLElement | undefined): void {

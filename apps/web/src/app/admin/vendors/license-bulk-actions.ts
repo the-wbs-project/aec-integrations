@@ -17,7 +17,16 @@ import { ADMIN_REASON_MAX, type UpdateLicenseBody } from '@aeci/shared';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
 import { licenseErrorMessage, licenseMinEndDay, licenseRowActions } from './license-row-actions';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { VENDOR_ACTIONS_CLASS, VENDOR_FIELD_CLASS } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 type Mode = 'extend' | 'revoke';
 
@@ -51,13 +60,14 @@ export interface LicenseBulkFailure {
  * {@link changed}. Light theme only.
  *
  * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
- * Opening a form focuses its first field, and Cancel returns focus to its button. A run
+ * Opening a form focuses its first field, and Cancel or Escape returns focus to its
+ * button. Escape does nothing while a run is in flight (AECI-2124). A run
  * with a failure or a rate-limit stop focuses the list of what was not changed, because
  * the confirm button was disabled while the run went and a disabled button drops focus.
  */
 @Component({
   selector: 'aec-license-bulk-actions',
-  imports: [AecFormSubmit],
+  imports: [AecButton, AecFormSubmit],
   templateUrl: './license-bulk-actions.html',
 })
 export class LicenseBulkActions {
@@ -79,6 +89,16 @@ export class LicenseBulkActions {
   readonly pendingChange = output<boolean>();
 
   protected readonly reasonMax = ADMIN_REASON_MAX;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  /** The open form under the bar: a hairline above, capped at 36rem, no box. */
+  protected readonly formWrapClass =
+    'mt-4 grid max-w-[36rem] gap-4 border-t border-(--border-default) pt-4 text-start';
 
   protected readonly extendable = computed(() =>
     this.rows().filter((r) => licenseRowActions(r.license).extend),
@@ -132,6 +152,12 @@ export class LicenseBulkActions {
     this.internalNote.set('');
     this.mode.set(mode);
     afterNextRender(() => this.firstField()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** Escape is Cancel, except while a run is in flight: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.close();
   }
 
   protected close(): void {

@@ -7,7 +7,7 @@
  * Neither report is a field: "does this exist" is about the whole row, and a data flow
  * is a claim, not a column. Adding a value would change the CHECK, which recreates the
  * table on D1, and the table is a cascade child of both edge tables. So the reports
- * live in `sync_service_pair_contests` (a plain CREATE TABLE in 0131), with the same
+ * live in `sync_service_pair_contests` (a plain CREATE TABLE in 0132), with the same
  * states, routing and protest columns as the field contests. The routes, the batch rule
  * and the race sentinels follow §11b.
  *

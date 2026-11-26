@@ -206,46 +206,52 @@ describe('VendorBillingLicenses', () => {
     });
   });
 
-  describe('status chips (AECI-1866)', () => {
+  // AECI-1812: the status is an `aec-chip`. The tone is on the inner `.aec-chip`.
+  describe('status chips (AECI-1866, AECI-1812)', () => {
     const chip = (fixture: ComponentFixture<VendorBillingLicenses>) =>
-      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="license-status"]')!;
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="license-status"] .aec-chip',
+      )!;
+    const tone = (c: Element) => c.getAttribute('data-tone');
     const soon = (days: number) =>
       new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
     it('gives a live subscription the Forest chip', () => {
       const c = chip(render([POOL]));
 
-      expect(c.classList).toContain('aec-status-chip--live');
-      expect(c.textContent).toBe('Live');
+      expect(tone(c)).toBe('wash');
+      expect(c.textContent?.trim()).toBe('Live');
     });
 
     it('gives a subscription that will not renew the warning chip, and says so in words', () => {
       const fixture = render([{ ...POOL, cancel_at_term_end: true }]);
       const [row] = rows(fixture);
 
-      expect(chip(fixture).classList).toContain('aec-status-chip--warning');
-      expect(chip(fixture).textContent).toBe('Live');
+      expect(tone(chip(fixture))).toBe('strong');
+      // The clock keeps the warning apart from an ended row by more than colour.
+      expect(chip(fixture).querySelector('svg')).not.toBeNull();
+      expect(chip(fixture).textContent?.trim()).toBe('Live');
       expect(row![4]).toContain('Cancels at term end');
     });
 
     it('says "Ends soon" in the warning chip inside the renewal window', () => {
       const c = chip(render([{ ...POOL, ends_at: soon(10) }]));
 
-      expect(c.classList).toContain('aec-status-chip--warning');
-      expect(c.textContent).toBe('Ends soon');
+      expect(tone(c)).toBe('strong');
+      expect(c.textContent?.trim()).toBe('Ends soon');
     });
 
     it('never calls a card subscription "Ends soon": Stripe renews it', () => {
       const c = chip(render([{ ...POOL, source: 'stripe', ends_at: soon(10) }]));
 
-      expect(c.classList).toContain('aec-status-chip--live');
-      expect(c.textContent).toBe('Live');
+      expect(tone(c)).toBe('wash');
+      expect(c.textContent?.trim()).toBe('Live');
     });
 
     it('gives an ended subscription the neutral chip', () => {
       const c = chip(render([ENDED]));
 
-      expect(c.classList).toContain('aec-status-chip--ended');
+      expect(tone(c)).toBe('quiet');
     });
 
     it('draws the window edge at 45 days', () => {

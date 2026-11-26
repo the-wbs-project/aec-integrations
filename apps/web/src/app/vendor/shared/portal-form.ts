@@ -57,9 +57,17 @@ export const PORTAL_FORM_CLASS =
   '[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-24 ' +
   'max-sm:[&_:is(input,select,textarea,button,a,[tabindex]):not(.aec-portal-save-bar_*)]:scroll-mb-48';
 
-/** A fieldset in a portal form. The next fieldset stands 32px clear, over a hairline. */
+/**
+ * A fieldset in a portal form. The next fieldset stands 32px clear, over a hairline.
+ *
+ * The legend floats (mock-up 13's `.fs legend`). A browser draws a fieldset's
+ * rendered legend INTO the fieldset's top border, so with the hairline on the
+ * fieldset a plain legend sat on the line, cutting it. A floated legend is not the
+ * rendered legend: it flows inside the padding, under the hairline, and the first
+ * thing after it clears the float.
+ */
 export const PORTAL_FIELDSET_CLASS =
-  'm-0 min-w-0 border-0 p-0 [&+&]:mt-8 [&+&]:border-t [&+&]:pt-8';
+  'm-0 min-w-0 border-0 p-0 [&+&]:mt-8 [&+&]:border-t [&+&]:pt-8 [&>legend]:float-start [&>legend]:w-full [&>legend+*]:clear-both';
 
 /** A fieldset's legend: the overline role, 16px above its fields. */
 export const PORTAL_LEGEND_CLASS = 'aec-overline mb-4 p-0 text-(--text-secondary)';
@@ -80,6 +88,18 @@ export const PORTAL_FIELD_CLASS = 'min-w-0 space-y-2';
  */
 export const PORTAL_SAVE_BAR_CLASS =
   'aec-portal-save-bar sticky bottom-0 z-10 -mx-6 -mb-6 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) px-6 py-4 sm:rounded-b-card md:-mx-8 md:-mb-8 md:px-8';
+
+/**
+ * The save bar of a form nested inside a row, a section or another card (the
+ * integration detail page's forms, the integrations list's create and edit forms, the
+ * connector mapping form). The same sticky bar, but it does not pull out over a card's
+ * padding, because the form is not the card. It keeps the `aec-portal-save-bar` marker,
+ * so {@link PORTAL_FORM_CLASS} and `aecKeepClearOfSaveBar` (`keep-clear-of-save-bar.ts`)
+ * still leave the bar's own controls alone. One constant since AECI-1812: there were
+ * three byte-identical copies.
+ */
+export const PORTAL_NESTED_SAVE_BAR_CLASS =
+  'aec-portal-save-bar sticky bottom-0 z-10 mt-8 flex flex-wrap items-center justify-end gap-x-6 gap-y-3 border-t bg-(--surface-base) py-4';
 
 /** The save bar's status line, at the start. It takes the room the button leaves. */
 export const PORTAL_SAVE_STATUS_CLASS = 'me-auto min-w-0 flex-[1_1_20rem] text-t-14 leading-[1.5]';

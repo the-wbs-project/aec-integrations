@@ -16,7 +16,11 @@ import {
   type VendorThreadListStatus,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { formatDay } from '../integration-detail/integration-detail-model';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -49,16 +53,14 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-vendor-threads-page',
-  imports: [RouterLink],
+  imports: [AecButton, AecCard, AecIcon, RouterLink],
   host: { class: 'block' },
   template: `
     @if (!enabled()) {
       <!-- AECI-1553: the threads release switch is off. The page is not found and reads nothing. -->
       <section aria-labelledby="vendor-threads-heading" data-vendor-threads-off>
         <h2 id="vendor-threads-heading" class="m-0">
-          <span
-            class="block font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.threads.off.heading"
+          <span class="block text-(--text-primary)" i18n="@@vendor.threads.off.heading"
             >Page not found</span
           >
         </h2>
@@ -73,10 +75,8 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
       <section aria-labelledby="vendor-threads-heading" data-vendor-threads>
         <div class="max-w-[52ch] space-y-2">
           <h2 id="vendor-threads-heading" class="m-0">
-            <!-- The size lives on the span: styles.css sizes h2 outside any cascade layer. -->
-            <span
-              class="block font-display text-xl font-semibold text-(--text-primary)"
-              i18n="@@vendor.threads.heading"
+            <!-- The global h2 rule sizes it, as on the integration page (AECI-1811). -->
+            <span class="block text-(--text-primary)" i18n="@@vendor.threads.heading"
               >Conversations</span
             >
           </h2>
@@ -86,8 +86,11 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
           </p>
         </div>
 
+        <!-- The portal's own filter toggles, kept (ruled 2026-11-24), on the segmented
+             pressed-toggle track the integrations list uses. -->
         <div
-          class="mt-6 flex flex-wrap gap-2"
+          class="mt-6"
+          [class]="segmentedClass"
           role="group"
           [attr.aria-label]="filterLabel"
           data-threads-filter
@@ -95,11 +98,14 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
           @for (s of statuses; track s) {
             <button
               type="button"
-              [class]="chipClass"
+              [class]="segmentClass(status() === s)"
               [attr.aria-pressed]="status() === s"
               [attr.data-status]="s"
               (click)="applyStatus(s)"
             >
+              @if (status() === s) {
+                <aec-icon name="check" decorative [size]="4" />
+              }
               {{ statusLabel(s) }}
             </button>
           }
@@ -111,8 +117,10 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
               Could not load your conversations.
             </p>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryClass"
               (click)="reload()"
               i18n="@@vendor.threads.retry"
             >
@@ -133,8 +141,10 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
                 >Could not refresh the list. It shows what was loaded last.</span
               >
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="secondaryClass"
                 (click)="reload()"
                 i18n="@@vendor.threads.retry"
               >
@@ -149,15 +159,16 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
             </p>
           } @else {
             <ol
-              class="mt-6 divide-y divide-(--border-default) rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
+              aecCard
+              class="mt-6 list-none divide-y divide-(--border-default) p-0"
               [attr.aria-busy]="refreshing() ? 'true' : null"
             >
               @for (item of items(); track item.id) {
-                <li class="px-5 py-4" [attr.data-thread-row]="item.id">
+                <li class="px-6 py-4" [attr.data-thread-row]="item.id">
                   <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-1">
                     <a
                       [routerLink]="item.id"
-                      class="min-w-0 break-words text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="min-w-0 break-words rounded-mark text-t-14 font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       data-thread-link
                       >{{ rowTitle(item) }}</a
                     >
@@ -168,7 +179,7 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
                     >
                   </div>
                   <p class="mt-1 text-xs text-(--text-secondary)">
-                    <span class="font-medium text-(--text-primary)" data-thread-state>{{
+                    <span class="font-semibold text-(--text-primary)" data-thread-state>{{
                       stateLabel(item)
                     }}</span>
                     <span aria-hidden="true"> · </span>
@@ -190,8 +201,10 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
             @if (pageCount() > 1) {
               <nav class="mt-6 flex items-center gap-3" [attr.aria-label]="pagingLabel">
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
-                  [class]="secondaryClass"
                   [disabled]="page() <= 1"
                   (click)="goToPage(page() - 1)"
                   i18n="@@vendor.threads.page.prev"
@@ -202,8 +215,10 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
                   pageLabel()
                 }}</span>
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
-                  [class]="secondaryClass"
                   [disabled]="page() >= pageCount()"
                   (click)="goToPage(page() + 1)"
                   i18n="@@vendor.threads.page.next"
@@ -367,12 +382,7 @@ export class VendorThreadsPage {
     return $localize`:@@vendor.threads.live.shown:${filter}:FILTER:, page ${this.page()}:PAGE: of ${this.pageCount()}:COUNT:.`;
   }
 
-  /** The Changes page's filter chip. The pressed colours are the unlayered
-   *  `.aec-period[aria-pressed='true']` rule in `styles.css`. */
-  protected readonly chipClass =
-    'aec-period inline-flex min-h-8 cursor-pointer items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-2.5 py-1 text-xs font-semibold text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */
-  protected readonly secondaryClass =
-    'inline-flex min-h-10 items-center justify-center gap-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
+  /** The filter: the segmented pressed-toggle track of the integrations list (AECI-1811). */
+  protected readonly segmentedClass = SEGMENTED_CLASS;
+  protected readonly segmentClass = segmentClass;
 }

@@ -21,16 +21,17 @@ import {
   noteAudience,
 } from './integration-detail-model';
 import { IntegrationDetailState, noteRequiredMessage } from './integration-detail-state';
+import { AecButton } from '../../shared/button/button';
 import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  HELP,
-  ID_STYLES,
-  LABEL,
-} from './integration-detail-styles';
+  CHOICE_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 let nextId = 0;
 
@@ -61,17 +62,19 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
  */
 @Component({
   selector: 'aec-integration-answer-form',
-  imports: [VendorTip],
+  imports: [KeepClearOfSaveBar, AecButton, VendorTip],
   styles: [ID_STYLES],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
-      class="id-well space-y-3 p-4 text-sm"
+      [class]="panel"
+      class="space-y-4 text-sm"
       [attr.aria-labelledby]="id + '-title'"
       (submit)="save($event)"
       data-testid="answer-form"
     >
-      <p [id]="id + '-title'" class="id-h4">
+      <p [id]="id + '-title'" class="text-t-14 font-semibold text-(--text-primary)">
         @if (mode() === 'no') {
           <span i18n="@@vendor.im.answer.whyWrong">Why is this wrong?</span>
         } @else {
@@ -83,7 +86,7 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
       @if (mode() === 'no') {
         <fieldset>
           <legend [class]="label" i18n="@@vendor.im.answer.whatsWrong">What's wrong?</legend>
-          <div class="mt-1.5 flex flex-wrap gap-x-5 gap-y-1.5">
+          <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
             @for (k of kinds; track k.value; let first = $first) {
               <label
                 class="inline-flex min-h-6 cursor-pointer items-center gap-2 text-(--text-primary)"
@@ -95,7 +98,7 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
                   [value]="k.value"
                   [checked]="kind() === k.value"
                   (change)="kind.set(k.value)"
-                  class="h-4 w-4 accent-(--accent-primary)"
+                  [class]="choice"
                   [attr.data-first]="first ? 'true' : null"
                 />
                 {{ k.label }}
@@ -110,7 +113,8 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
             >
             <select
               [id]="id + '-dir'"
-              class="id-input mt-1 max-w-xs"
+              [class]="input"
+              class="mt-2 max-w-xs"
               (change)="right.set(asDirection($event))"
             >
               @for (d of otherDirections(); track d) {
@@ -125,21 +129,18 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
         <label [for]="id + '-note'" [class]="label">
           @if (mode() === 'no') {
             <span i18n="@@vendor.im.answer.reason">Reason</span>
-            <span class="font-normal text-(--text-secondary)" i18n="@@vendor.im.answer.required">
-              (required)</span
-            >
+            <span [class]="optional" i18n="@@vendor.im.answer.required"> (required)</span>
           } @else {
             <span i18n="@@vendor.im.answer.note">Note</span>
-            <span class="font-normal text-(--text-secondary)" i18n="@@vendor.im.answer.optional">
-              (optional)</span
-            >
+            <span [class]="optional" i18n="@@vendor.im.answer.optional"> (optional)</span>
           }
         </label>
         <textarea
           #noteField
           [id]="id + '-note'"
           rows="3"
-          class="id-input mt-1"
+          [class]="input"
+          class="mt-2"
           [attr.maxlength]="max"
           [attr.aria-describedby]="id + '-help' + (error() ? ' ' + id + '-error' : '')"
           [attr.aria-invalid]="error() ? 'true' : null"
@@ -166,19 +167,34 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
           <p [class]="alert" i18n="@@vendor.im.answer.partial">
             Your No was saved. The corrected row was not added.
           </p>
-          <button type="button" [class]="secondary" [disabled]="busy()" (click)="retryCorrected()">
+          <button
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            [disabled]="busy()"
+            (click)="retryCorrected()"
+          >
             <span i18n="@@vendor.im.answer.retryCorrected">Add the corrected row</span>
           </button>
         </div>
       }
 
-      <div class="flex flex-wrap gap-3">
-        <button type="submit" [class]="primary" [disabled]="busy()" data-testid="answer-save">
+      <div [class]="saveBar">
+        <button
+          aecButton
+          type="submit"
+          [class]="saveButton"
+          [disabled]="busy()"
+          data-testid="answer-save"
+        >
           <span i18n="@@vendor.im.answer.save">Save</span>
         </button>
         <button
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="secondary"
+          [class]="saveButton"
           [disabled]="busy()"
           (click)="closed.emit()"
           i18n="@@vendor.im.answer.cancel"
@@ -249,11 +265,15 @@ export class IntegrationAnswerForm implements OnInit {
     return $localize`:@@vendor.im.answer.versions.tip:Soon you will be able to say which versions of ${product}:product: support this.`;
   });
 
-  protected readonly label = LABEL;
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
+  protected readonly input = INPUT;
+  protected readonly optional = FIELD_OPTIONAL_CLASS;
+  protected readonly choice = CHOICE_INPUT_CLASS;
+  protected readonly panel = FORM_PANEL;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
 
   constructor() {
     // Focus the first control once, after `ngOnInit` has seeded the form: the

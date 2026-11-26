@@ -1,8 +1,20 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type { AdminVendorRequest, ListVendorRequestsQuery } from '@aeci/shared';
@@ -12,6 +24,23 @@ import { AdminRequestsApi } from './admin-requests-api';
 import { LicenseReleaseQueue } from './license-release-queue';
 import { ProductRequestQueue } from './product-request-queue';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FORM_CLASS,
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import { CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`
  *  at 100; we load the max and surface a note if the server reports more. */
@@ -69,7 +98,11 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
 @Component({
   selector: 'aec-request-queue',
   imports: [
+    AdminDisclosureButton,
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     DatePipe,
     LicenseReleaseQueue,
     NewTabIcon,
@@ -81,6 +114,27 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
 export class RequestQueue {
   private readonly api = inject(AdminRequestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  // AECI-2111: the console recipe and the queues' shared detail-row classes.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** Disclosure, listing, submitter, submitted, status. */
+  protected readonly columnCount = 5;
+  protected readonly tone = adminStatusTone;
+
+  /** The rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
 
   /** The loaded requests (server order: newest-first). */
   private readonly requests = signal<readonly AdminVendorRequest[]>([]);
@@ -180,6 +234,46 @@ export class RequestQueue {
     }
   }
 
+  /** The chip tone for a request status. Exhaustive, so a new status is a compile error. */
+  protected statusTone(status: AdminVendorRequest['status']) {
+    let key: AdminStatusKey;
+    switch (status) {
+      case 'open':
+        key = 'open';
+        break;
+      case 'in_review':
+        key = 'inReview';
+        break;
+      case 'resolved':
+        key = 'resolved';
+        break;
+      case 'rejected':
+        key = 'rejected';
+        break;
+    }
+    return adminStatusTone(key);
+  }
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminVendorRequest): string {
+    const target = r.target?.name ?? this.targetFallbackLabel(r.target_type);
+    const submitter = r.submitter_name?.trim() || r.submitter_email;
+    return $localize`:@@admin.requests.row.label:Correction on ${target}:target: by ${submitter}:submitter:`;
+  }
+
   /** Non-linked fallback label when the target row is missing (deleted/un-promoted). */
   protected targetFallbackLabel(type: AdminVendorRequest['target_type']): string {
     return type === 'product'
@@ -208,6 +302,15 @@ export class RequestQueue {
     this.failedAction.set(null);
     this.rejectReason.set('');
     this.rejectingId.set(id);
+    // Reject disables itself, so move focus into the form it opened.
+    this.focusAfterRender(`reject-reason-${id}`);
+  }
+
+  /** Cancel or Escape in the reject form: close it and return focus to Reject. */
+  protected cancelReject(id: string): void {
+    if (this.pendingActionId() === id) return;
+    this.closeReject();
+    this.focusAfterRender(`request-${id}-reject`);
   }
 
   protected closeReject(): void {
@@ -264,14 +367,43 @@ export class RequestQueue {
         );
       } else {
         this.failedAction.set(id);
+        // A failed decision moves focus to its message.
+        this.focusAfterRender(`request-${id}-failed`);
       }
     } finally {
       this.pendingActionId.set(null);
     }
   }
 
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`, AECI-2102): the row that took its place, the new last
+   *  row, the heading, or nowhere when the row was not on screen. */
   private removeRow(id: string): void {
+    const index = this.visibleRequests().findIndex((r) => r.id === id);
     this.requests.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    this.openIds.update((ids) => {
+      if (!ids.has(id)) return ids;
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    // One unpaged list of up to 100, so the page never changes.
+    const target = queueFocusAfterRemoval(index, 1, 1, this.visibleRequests());
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-requests-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="request-${target.row.id}-detail"]` : undefined,
+    );
+  }
+
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
+    afterNextRender(
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
+      { injector: this.injector },
+    );
   }
 }

@@ -41,7 +41,7 @@
  *    listing is hidden.
  *
  * 5. **Liveness includes the endpoint veto (AECI-2042).** Both tables carry
- *    `vetoed_at` (migration `0131`). A row an endpoint vendor vetoed is not live, on
+ *    `vetoed_at` (migration `0132`). A row an endpoint vendor vetoed is not live, on
  *    every count, id set and public read, through the same two functions. It is not
  *    part of the retire test either. Rule 3 still holds: `vetoed_at` is the only veto
  *    column a membership predicate reads.
@@ -120,7 +120,7 @@ export function ddlHasRetiredColumn(ddl: string | null | undefined): boolean {
   return ddlDeclaresColumn(ddl, INTEGRATION_RETIRED_COLUMN);
 }
 
-/** Does this `CREATE TABLE` text declare `vetoed_at` (migration `0131`, AECI-2042)?
+/** Does this `CREATE TABLE` text declare `vetoed_at` (migration `0132`, AECI-2042)?
  *  The same rule as {@link ddlHasRetiredColumn}, for the deployed-database tools. */
 export function ddlHasVetoedColumn(ddl: string | null | undefined): boolean {
   return ddlDeclaresColumn(ddl, INTEGRATION_VETOED_COLUMN);
@@ -153,7 +153,7 @@ export function integrationsDdlOrThrow(sql: unknown): string {
  * lag: the retire clause needs `integrations.retired_at` (migration `0044`), the
  * endpoint clause needs `products.hidden_at` (migration `0113`). Each absent column
  * degrades its own clause to always-true. Since AECI-2042 the veto clause needs
- * `vetoed_at` (migration `0131`) and degrades the same way: a database without the
+ * `vetoed_at` (migration `0132`) and degrades the same way: a database without the
  * column cannot hold a vetoed row. Every flag is required, so a tool cannot forget to
  * probe one.
  */

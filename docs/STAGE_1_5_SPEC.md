@@ -2770,7 +2770,7 @@ fails as a marker too: Agave has a catalogue and Workato has none.
 **The contract.**
 
 - **Column.** `products.connector_kind`, nullable text, no table-level CHECK, added by a bare
-  `ADD COLUMN` (migration `0129`, `DATABASE_SCHEMA.md` §4.2). A CHECK would recreate `products`, and
+  `ADD COLUMN` (migration `0130`, `DATABASE_SCHEMA.md` §4.2). A CHECK would recreate `products`, and
   the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` validates the value.
 - **Role stays single.** `product_role` keeps its three values. The kind refines `connector`
   and `hybrid` only. An `application` never carries one.

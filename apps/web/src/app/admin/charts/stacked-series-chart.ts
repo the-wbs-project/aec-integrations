@@ -2,7 +2,7 @@ import { Component, computed, input, signal } from '@angular/core';
 
 import { buildTimeAxis } from './axis';
 import { ChartDataTable } from './chart-data-table';
-import { ChartLegend, type ChartLegendItem } from './chart-legend';
+import { ChartLegend, slotNeedsRelief, type ChartLegendItem } from './chart-legend';
 import { areaPath, barPath, indexAtFraction, stackSeries } from './geometry';
 import { formatThousands } from './format';
 import { slotClass, type ChartSeries } from './chart-types';
@@ -41,18 +41,18 @@ const BAR_RADIUS = 4;
   imports: [ChartDataTable, ChartLegend],
   template: `
     <figure class="m-0">
-      @if (legendItems().length > 1) {
+      @if (showLegend()) {
         <aec-chart-legend class="mb-3" [items]="legendItems()" />
       }
 
       @if (isEmpty()) {
-        <p class="py-10 text-center text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+        <p class="py-10 text-center text-t-14 text-(--text-secondary)">{{ emptyLabel() }}</p>
       } @else {
         <div class="flex gap-2">
           <div class="relative w-10 shrink-0" aria-hidden="true">
             @for (tick of axis().ticks; track tick.value) {
               <span
-                class="absolute right-0 -translate-y-1/2 text-[0.6875rem] tabular-nums
+                class="absolute right-0 -translate-y-1/2 text-t-12 tabular-nums
                   text-(--text-secondary)"
                 [style.top.%]="tick.pct"
                 >{{ tickLabel(tick.value) }}</span
@@ -110,15 +110,15 @@ const BAR_RADIUS = 4;
             @if (hoverIndex(); as idx) {
               <div
                 class="pointer-events-none absolute top-0 z-10 min-w-32 -translate-x-1/2
-                  rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)
-                  px-3 py-2 text-xs shadow-sm"
+                  rounded-control border border-(--border-default) bg-(--surface-base)
+                  px-3 py-2 text-t-12 shadow-sm"
                 [style.left.%]="hoverPct()"
                 aria-hidden="true"
               >
                 <p class="font-semibold text-(--text-primary)">{{ categories()[idx - 1] }}</p>
                 @for (row of hoverRows(); track row.key) {
-                  <p class="flex items-center gap-1.5 text-(--text-secondary)">
-                    <span class="size-2 shrink-0 rounded-full {{ row.swatch }}"></span>
+                  <p class="flex items-center gap-2 text-(--text-secondary)">
+                    <span class="size-2 shrink-0 rounded-pill {{ row.swatch }}"></span>
                     <span>{{ row.label }}</span>
                     <span class="ms-auto font-semibold tabular-nums text-(--text-primary)">{{
                       row.value
@@ -131,7 +131,7 @@ const BAR_RADIUS = 4;
             <div class="relative mt-1 h-4" aria-hidden="true">
               @for (label of axis().labelled; track label.index) {
                 <span
-                  class="absolute -translate-x-1/2 text-[0.6875rem] whitespace-nowrap
+                  class="absolute -translate-x-1/2 text-t-12 whitespace-nowrap
                     text-(--text-secondary)"
                   [style.left.%]="label.pct"
                   >{{ categories()[label.index] }}</span
@@ -256,9 +256,27 @@ export class StackedSeriesChart {
     });
   });
 
+  /**
+   * A series on a relief slot (3 to 5, below 3:1) carries its window total as
+   * visible text, so its colour never carries a value alone (AECI-2125,
+   * `slotNeedsRelief`). Its per-day values stay in the tooltip and the table.
+   */
   protected readonly legendItems = computed<ChartLegendItem[]>(() =>
-    this.series().map((s) => ({ key: s.key, label: s.label, slot: s.slot })),
+    this.series().map((s) => ({
+      key: s.key,
+      label: s.label,
+      slot: s.slot,
+      ...(slotNeedsRelief(s.slot)
+        ? { value: formatThousands(s.values.reduce((sum, v) => sum + v, 0)) }
+        : {}),
+    })),
   );
+
+  /** One series needs no legend, unless it needs relief (see `legendItems`). */
+  protected readonly showLegend = computed(() => {
+    const items = this.legendItems();
+    return items.length > 1 || items.some((i) => i.value !== undefined);
+  });
 
   protected readonly hoverBand = computed(() => {
     const idx = this.hoverIndex();

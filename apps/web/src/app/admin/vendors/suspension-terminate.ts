@@ -9,15 +9,13 @@ import {
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 
 import type { VendorSuspension, VendorTerminationPreview } from '@aeci/shared';
 
 import { AdminVendorSuspensionApi } from './admin-vendor-suspension-api';
 import {
-  SUSPENSION_BUTTON,
-  SUSPENSION_CONFIRM_BUTTON,
-  SUSPENSION_INPUT,
   formatCents,
   isStaleError,
   manualGrossCents,
@@ -25,6 +23,16 @@ import {
   suspensionErrorMessage,
   terminateBlockedReason,
 } from './vendor-suspension-model';
+import { VENDOR_ACTIONS_CLASS, VENDOR_FIELD_CLASS } from './vendor-console-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * Terminate, on an open suspension (AECI-1623). Ends every subscription and refunds the
@@ -42,10 +50,16 @@ import {
  * exceeds the refund. The server computes the real statement at commit.
  *
  * It confirms inline, as `ReturnRecordsControl` does. No `BrnDialog` opens from an effect.
+ *
+ * ── LOOK AND FOCUS (AECI-2124) ──────────────────────────────────────────────
+ * A part of the Suspension panel: the preview is a statement between hairlines, the
+ * warning the console's Bone notice, the confirm danger (it ends the vendor's plan and
+ * moves money). Cancel and Escape close the step and return focus to Terminate. Escape
+ * does nothing while the request runs. A refusal focuses its message.
  */
 @Component({
   selector: 'aec-suspension-terminate',
-  imports: [DatePipe],
+  imports: [AecButton, DatePipe],
   templateUrl: './suspension-terminate.html',
 })
 export class SuspensionTerminate {
@@ -67,9 +81,15 @@ export class SuspensionTerminate {
   readonly refresh = output<void>();
   readonly announce = output<string>();
 
-  protected readonly buttonClass = SUSPENSION_BUTTON;
-  protected readonly confirmClass = SUSPENSION_CONFIRM_BUTTON;
-  protected readonly inputClass = SUSPENSION_INPUT;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
   protected readonly noReference = $localize`:@@admin.vendors.suspension.terminate.noReference:no reference`;
 
   protected readonly confirming = signal(false);
@@ -158,6 +178,13 @@ export class SuspensionTerminate {
 
   protected cancel(): void {
     this.confirming.set(false);
+    this.focus(`[id="${this.idPrefix()}-terminate-open"]`);
+  }
+
+  /** Escape is Cancel, except while the request runs: its answer needs the page. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.cancel();
   }
 
   private focus(selector: string): void {
@@ -188,6 +215,10 @@ export class SuspensionTerminate {
     } catch (err) {
       this.confirming.set(false);
       this.failedMessage.set(suspensionErrorMessage(err));
+      // The step that held focus is gone: the refusal takes it.
+      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
+        injector: this.injector,
+      });
       if (isStaleError(err)) this.stale.emit();
     } finally {
       this.pending.set(false);

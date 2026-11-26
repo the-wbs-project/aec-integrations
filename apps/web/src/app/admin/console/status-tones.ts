@@ -29,6 +29,14 @@ export const ADMIN_STATUS_TONES = {
   priority: 'neutral',
   note: 'neutral',
   matchedByHand: 'neutral',
+  /** The Activity feed's bot chip: the bot's name, a fact about the row (AECI-2125). */
+  bot: 'neutral',
+  /**
+   * A pure connector vendor that owns integrations (`admin/vendors/vendor-detail.html`).
+   * A fact, not a warning: an owner manages its rows on any plan (ruling 14, AECI-1663).
+   * Its sibling with no integrations, `pureConnectorVendor`, stays attention.
+   */
+  pureConnectorOwner: 'neutral',
 
   // waiting: waits on someone.
   pending: 'waiting',
@@ -53,6 +61,8 @@ export const ADMIN_STATUS_TONES = {
   queued: 'waiting',
   /** A research job (`RESEARCH_STATUSES` in_progress). */
   inProgress: 'waiting',
+  /** An upcoming legal version not yet recorded on `/admin/legal` (`legal/legal-versions.ts`). */
+  notPublished: 'waiting',
 
   // positive: live, or done as intended.
   approved: 'positive',
@@ -73,6 +83,14 @@ export const ADMIN_STATUS_TONES = {
   done: 'positive',
   /** A review reply or a vendor thread reply that is live. */
   published: 'positive',
+  /** A product request we added to the catalog (`PRODUCT_REQUEST_STATUSES` added). */
+  added: 'positive',
+  /** An open row thread between two companies: live, and nothing waits on AECi. */
+  threadOpen: 'positive',
+  /** A feedback submitter who also joined the mailing list (`/admin/audience` inbox). */
+  joinedMailingList: 'positive',
+  /** A connector listing's mapping that counts toward public reach ("Confirmed", AECI-2125). */
+  confirmed: 'positive',
 
   // quiet: closed, withdrawn or not measured. Nothing to do.
   rejected: 'quiet',
@@ -104,6 +122,8 @@ export const ADMIN_STATUS_TONES = {
   revoked: 'quiet',
   /** A closed vendor thread. */
   closed: 'quiet',
+  /** A product request for a product the catalog already lists (`already_listed`). */
+  alreadyListed: 'quiet',
 
   // attention: look before you act. Not a fault.
   toxicityHigh: 'attention',
@@ -117,6 +137,9 @@ export const ADMIN_STATUS_TONES = {
   cancelsAtTermEnd: 'attention',
   restoreBy: 'attention',
   caveat: 'attention',
+  /** The Activity feed's "Unclassified" bot chip: never classified, so counted as
+   *  human. A caveat on the row, not a fault (AECI-2125). */
+  botUnclassified: 'attention',
   classifierChanged: 'attention',
   /** Email ledger: a send held back, by the suppression list or a paused switch. */
   suppressed: 'attention',
@@ -139,6 +162,14 @@ export const ADMIN_STATUS_TONES = {
   refundManual: 'attention',
   /** A research job that stopped (`RESEARCH_STATUSES` blocked). */
   blocked: 'attention',
+  /** The re-index worklist's priority 1, the tier to do first (AECI-2125). Tiers 2 to 4 are `priority`. */
+  topPriority: 'attention',
+  /**
+   * A re-index submission IndexNow refused with a 4xx, a 429 included. Not a fault:
+   * the drain keeps it out of `failed` (`apps/api/src/lib/indexnow-drain.ts`). The
+   * shared `refused` key stays critical. Ruled 2026-11-24 (AECI-2125).
+   */
+  indexNowRefused: 'attention',
 
   // critical: a fault or a block. The only red.
   failed: 'critical',

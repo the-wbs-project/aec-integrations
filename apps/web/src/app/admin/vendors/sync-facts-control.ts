@@ -9,7 +9,7 @@ import {
 } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 
 import { AdminVendorsApi } from './admin-vendors-api';
 
@@ -50,7 +50,8 @@ interface FactField {
           <input
             [type]="field.key === 'source_url' ? 'url' : 'text'"
             autocomplete="off"
-            class="w-full min-w-48 rounded-control border border-(--border-default) bg-(--surface-base) px-2 py-1 text-xs text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="inputClass"
+            class="min-w-48"
             [id]="inputId(field.key)"
             [attr.maxlength]="field.max"
             [value]="draft()[field.key] ?? ''"
@@ -83,6 +84,8 @@ interface FactField {
 export class SyncFactsControl {
   /** The Label role (AECI-2083 admin recipe). */
   protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** The shared field recipe (`shared/form-field/form-field-classes.ts`). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 
   private readonly api = inject(AdminVendorsApi);
 

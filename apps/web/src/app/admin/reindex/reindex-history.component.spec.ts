@@ -166,6 +166,10 @@ describe('ReindexHistory', () => {
     expect(causes[0]!.textContent).toContain('Autodesk Build');
     expect(causes[1]!.textContent).toContain('MicroStation');
     expect(el.textContent).toContain('1 submission matches.');
+    // AECI-2125: the outcome is a dense console chip, its words carrying the state.
+    const chip = row.querySelector('[data-tone]');
+    expect(chip?.textContent?.trim()).toBe('Accepted');
+    expect(chip?.getAttribute('data-tone')).toBe('positive');
   });
 
   it('labels the audit action with the shared audit vocabulary', async () => {
@@ -234,6 +238,24 @@ describe('ReindexHistory', () => {
     expect(second!.textContent).toContain('Refused');
     expect(second!.textContent).toContain('429');
     expect(second!.textContent).toContain('Not recorded');
+  });
+
+  it('draws Refused on the attention tone and Failed on the critical tone (ruled 2026-11-24)', async () => {
+    const { el } = await setup(
+      makeApi(
+        page({
+          data: [
+            makeRow({ id: 1, outcome: 'refused', http_status: 429, causes: [] }),
+            makeRow({ id: 2, outcome: 'failed', http_status: 500, causes: [] }),
+          ],
+        }),
+      ),
+    );
+    const [refused, failed] = [...el.querySelectorAll('tbody tr [data-tone]')];
+    expect(refused!.textContent?.trim()).toBe('Refused');
+    expect(refused!.getAttribute('data-tone')).toBe('attention');
+    expect(failed!.textContent?.trim()).toBe('Failed');
+    expect(failed!.getAttribute('data-tone')).toBe('critical');
   });
 
   it('sends channel and outcome filters and resets to page 1', async () => {

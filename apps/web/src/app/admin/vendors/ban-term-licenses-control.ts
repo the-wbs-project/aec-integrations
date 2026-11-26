@@ -23,8 +23,22 @@ import {
 } from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * The API's rule for a ban-term `ends_at` (`createBanTermLicensesHandler`): the value
@@ -168,20 +182,29 @@ export function uncoveredBanTermCandidates(
  * control once every product is licensed again.
  *
  * ── FOCUS (AECI-1989) ───────────────────────────────────────────────────────
- * Opening the form focuses the first Include checkbox. Cancel and a grant return focus
- * to the open button. A refusal focuses its message, because the confirm button was
+ * Opening the form focuses the first Include checkbox. Cancel, Escape and a grant return
+ * focus to the open button. Escape does nothing while the grant runs (AECI-2124). A refusal focuses its message, because the confirm button was
  * disabled while the request ran and a disabled button drops focus. When the host's
  * Billing reload then hides the whole control, focus would fall to the page body, so
  * it moves to the element {@link focusOnHideId} names, if focus was lost.
  */
 @Component({
   selector: 'aec-ban-term-licenses-control',
-  imports: [AecFormSubmit],
+  imports: [AecButton, AecFormSubmit],
   templateUrl: './ban-term-licenses-control.html',
 })
 export class BanTermLicensesControl {
   /** A field's inline error: the shared recipe (AECI-1984). */
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
   private readonly api = inject(AdminLicensesApi);
 
   readonly vendorId = input.required<string>();
@@ -309,6 +332,12 @@ export class BanTermLicensesControl {
     this.formOpen.set(false);
     this.grantId.set('');
     this.focusAfterRender(() => this.openButton()?.nativeElement);
+  }
+
+  /** Escape is Cancel, except while the grant runs: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.closeForm();
   }
 
   private focusAfterRender(target: () => HTMLElement | undefined): void {

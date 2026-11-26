@@ -1,19 +1,13 @@
 @if (showLoadingLine()) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.audit.loading">
-  Loading the audit trail…
-</p>
+<p [class]="statusLineClass" class="mt-4" i18n="@@admin.audit.loading">Loading the audit trail…</p>
 } @else if (failed()) {
-<div
-  role="alert"
-  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.audit.error">
-    We couldn't load the audit trail.
-  </p>
+<div role="alert" [class]="loadFailedClass" class="mt-4">
+  <p [class]="failedTextClass" i18n="@@admin.audit.error">We couldn't load the audit trail.</p>
   <button
+    aecButton
+    variant="secondary"
     type="button"
     (click)="retry.emit()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.audit.retry"
   >
     Try again
@@ -35,7 +29,7 @@
     #resultLine
     [id]="resultId"
     tabindex="-1"
-    class="text-sm text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    class="rounded-mark text-t-14 text-(--text-secondary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
   >
     @if (t !== null) {
     <span i18n="@@admin.audit.result.total"
@@ -54,11 +48,9 @@
     }
   </p>
   } @if (isEmpty()) { @if (emptyText(); as text) {
-  <p class="text-sm text-(--text-secondary)" [class.mt-2]="isCursor()">{{ text }}</p>
+  <p [class]="tc.empty" [class.mt-2]="isCursor()">{{ text }}</p>
   } @else {
-  <p class="text-sm text-(--text-secondary)" i18n="@@admin.audit.empty">
-    Nothing recorded for this scope.
-  </p>
+  <p [class]="tc.empty" i18n="@@admin.audit.empty">Nothing recorded for this scope.</p>
   } @if (isCursor() && canFirst()) {
   <aec-admin-cursor-paginator
     class="mt-4"
@@ -76,7 +68,7 @@
   />
   } } @else { @if (isCursor()) {
   <aec-admin-cursor-paginator
-    class="mt-3"
+    class="mt-4"
     [hasPrev]="hasPrev()"
     [hasNext]="hasNext()"
     [canFirst]="canFirst()"
@@ -90,19 +82,30 @@
     (pageSizeChange)="pageSizeChange.emit($event)"
   />
   }
-  <div class="overflow-x-auto" [class.mt-3]="isCursor()">
-    <table class="w-full min-w-[52rem] border-collapse text-sm">
+  <!-- AECI-2128: the console table recipe. A row with recorded field changes opens
+       them with the shared leading disclosure, into a detail row under it. -->
+  <div
+    [class]="tc.region"
+    [class.mt-4]="isCursor()"
+    role="region"
+    tabindex="0"
+    [attr.aria-labelledby]="captionId"
+  >
+    <table [class]="tc.table" class="min-w-[52rem]">
       @if (order() === 'asc') {
-      <caption class="sr-only" i18n="@@admin.audit.captionOldest">
+      <caption [id]="captionId" [class]="tc.caption" i18n="@@admin.audit.captionOldest">
         Recorded changes, oldest first
       </caption>
       } @else {
-      <caption class="sr-only" i18n="@@admin.audit.caption">
+      <caption [id]="captionId" [class]="tc.caption" i18n="@@admin.audit.caption">
         Recorded changes, newest first
       </caption>
       }
       <thead>
-        <tr class="border-b border-(--border-strong) text-start">
+        <tr>
+          <th scope="col" [class]="tc.head">
+            <span class="sr-only" i18n="@@admin.audit.col.changes">Changes</span>
+          </th>
           @if (sortable()) {
           <th
             scope="col"
@@ -112,56 +115,52 @@
             [activeSort]="'created'"
             [direction]="sortDirection()"
             (sortChange)="onSort($event)"
-            class="py-2 pe-4 text-start"
+            [class]="tc.head"
           ></th>
           } @else {
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.audit.col.when"
-          >
-            When
-          </th>
+          <th scope="col" [class]="tc.head" i18n="@@admin.audit.col.when">When</th>
           }
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.audit.col.what"
-          >
-            What happened
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.audit.col.who"
-          >
-            Who
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.audit.col.entity"
-          >
-            Entity
-          </th>
-          <th
-            scope="col"
-            class="py-2 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.audit.col.changes"
-          >
-            Changes
-          </th>
+          <th scope="col" [class]="tc.head" i18n="@@admin.audit.col.what">What happened</th>
+          <th scope="col" [class]="tc.head" i18n="@@admin.audit.col.who">Who</th>
+          <th scope="col" [class]="tc.head" i18n="@@admin.audit.col.entity">Entity</th>
         </tr>
       </thead>
+      @for (v of views(); track v.row.id) {
       <tbody>
-        @for (v of views(); track v.row.id) {
-        <tr class="border-b border-(--border-default) align-top">
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+        <tr [class]="isDiffOpen(v.row.id) ? tc.rowOpen : tc.row">
+          <!-- The toggle keeps its visible words (ruled on PR #1495): the shared
+               disclosure with its visible-label slot, described by the row's header
+               so each toggle can be told apart (AECI-1729). -->
+          <td [class]="toggleCellClass">
+            @if (v.diff.length > 0) {
+            <aec-admin-disclosure-button
+              withLabel
+              [label]="null"
+              [expanded]="isDiffOpen(v.row.id)"
+              [controls]="'audit-diff-' + v.row.id"
+              [describedBy]="'audit-row-' + v.row.id"
+              (toggled)="toggleDiff(v.row.id)"
+            >
+              @if (isDiffOpen(v.row.id)) {
+              <span i18n="@@admin.audit.diff.hide">Hide changes</span>
+              } @else {
+              <span i18n="@@admin.audit.diff.show">Show changes</span>
+              }
+            </aec-admin-disclosure-button>
+            } @else {
+            <span
+              class="inline-flex w-11 justify-center text-(--text-secondary)"
+              i18n-aria-label="@@admin.audit.diff.none"
+              aria-label="No field changes recorded"
+              >–</span
+            >
+            }
+          </td>
+
+          <td [class]="tc.cell">
             <aec-relative-time [value]="v.row.created_at" />
             @if (v.absolute) {
-            <span class="block text-xs whitespace-nowrap text-(--text-secondary)"
-              >{{ v.absolute }}</span
-            >
+            <span [class]="tc.sub" class="whitespace-nowrap">{{ v.absolute }}</span>
             }
           </td>
 
@@ -171,35 +170,33 @@
           The raw token stays underneath, because an operator correlating this
           against a log line still needs the exact value.
         -->
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+          <th scope="row" [id]="'audit-row-' + v.row.id" [class]="tc.rowHead">
             {{ v.description }}
-            <span class="block font-mono text-xs font-normal text-(--text-tertiary)">
-              {{ v.row.action }}
-            </span>
+            <span [class]="tc.sub" class="font-mono">{{ v.row.action }}</span>
           </th>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="tc.cell">
             @if (linkActors() && v.row.actor; as actor) {
             <a
               routerLink="/admin/audit"
               [queryParams]="{ actor_id: actor.id }"
-              class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="inlineLinkClass"
               i18n-title="@@admin.auditLog.actorLinkTitle"
               title="Show every entry by this account"
             >
               {{ v.actor }}
-              <span class="block font-mono text-xs break-all">{{ actor.id }}</span>
+              <span class="block font-mono text-t-13 break-all">{{ actor.id }}</span>
             </a>
             } @else { {{ v.actor }} }
-            <span class="block text-xs text-(--text-tertiary)">{{ v.row.actor_type }}</span>
+            <span [class]="tc.sub">{{ v.row.actor_type }}</span>
           </td>
 
-          <td class="py-2.5 pe-4 font-mono text-xs text-(--text-secondary)">
+          <td [class]="tc.cell" class="font-mono text-t-13">
             @if (v.row.entity_type) { @if (linkEntities() && v.row.entity_id) {
             <a
               routerLink="/admin/audit"
               [queryParams]="{ entity_type: v.row.entity_type, entity_id: v.row.entity_id }"
-              class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="inlineLinkClass"
               i18n-title="@@admin.auditLog.entityLinkTitle"
               title="Show every entry for this entity"
             >
@@ -210,34 +207,9 @@
             <span class="block break-all">{{ v.row.entity_id }}</span>
             } } } @else {
             <span
-              class="text-(--text-tertiary)"
+              class="text-(--text-secondary)"
               i18n-aria-label="@@admin.audit.entity.none"
               aria-label="No entity recorded"
-              >–</span
-            >
-            }
-          </td>
-
-          <td class="py-2.5">
-            @if (v.diff.length > 0) {
-            <button
-              type="button"
-              (click)="toggleDiff(v.row.id)"
-              [attr.aria-expanded]="isDiffOpen(v.row.id)"
-              [attr.aria-controls]="'audit-diff-' + v.row.id"
-              class="inline-flex shrink-0 items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
-              @if (isDiffOpen(v.row.id)) {
-              <span i18n="@@admin.audit.diff.hide">Hide changes</span>
-              } @else {
-              <span i18n="@@admin.audit.diff.show">Show changes</span>
-              }
-            </button>
-            } @else {
-            <span
-              class="text-(--text-tertiary)"
-              i18n-aria-label="@@admin.audit.diff.none"
-              aria-label="No field changes recorded"
               >–</span
             >
             }
@@ -247,72 +219,52 @@
         <!--
         The expanded diff is a full-width row rather than a panel outside the
         table, so it stays adjacent to the row it belongs to in both the visual
-        and the accessibility tree.
+        and the accessibility tree. The row is always rendered, hidden until
+        opened, so `aria-controls` always resolves; the diff table inside it is
+        built only when opened, so a 100-row page does not render 100 tables.
       -->
-        @if (isDiffOpen(v.row.id)) {
-        <tr class="border-b border-(--border-default)">
-          <td [id]="'audit-diff-' + v.row.id" colspan="5" class="bg-(--surface-sunken) px-3 py-3">
-            <table class="w-full border-collapse text-start text-xs">
-              <caption class="sr-only" i18n="@@admin.audit.diff.caption">
-                Fields changed by this action
-              </caption>
-              <thead>
-                <tr class="text-(--text-secondary)">
-                  <th
-                    scope="col"
-                    class="pb-1 pe-3 text-start font-bold"
-                    i18n="@@admin.audit.diff.field"
-                  >
-                    Field
-                  </th>
-                  <th
-                    scope="col"
-                    class="pb-1 pe-3 text-start font-bold"
-                    i18n="@@admin.audit.diff.before"
-                  >
-                    Before
-                  </th>
-                  <th
-                    scope="col"
-                    class="pb-1 pe-3 text-start font-bold"
-                    i18n="@@admin.audit.diff.after"
-                  >
-                    After
-                  </th>
-                  <th
-                    scope="col"
-                    class="pb-1 text-start font-bold"
-                    i18n="@@admin.audit.diff.changeHeader"
-                  >
-                    Change
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (d of v.diff; track d.key) {
-                <tr class="align-top">
-                  <th
-                    scope="row"
-                    class="py-1 pe-3 text-start font-mono font-medium text-(--text-primary)"
-                  >
-                    {{ d.key }}
-                  </th>
-                  <td class="py-1 pe-3 font-mono break-all text-(--text-secondary)">
-                    {{ d.before ?? '–' }}
-                  </td>
-                  <td class="py-1 pe-3 font-mono break-all text-(--text-primary)">
-                    {{ d.after ?? '–' }}
-                  </td>
-                  <!-- The change is stated in words, never by colour alone. -->
-                  <td class="py-1 text-(--text-secondary)">{{ changeLabel(d.change) }}</td>
-                </tr>
-                }
-              </tbody>
-            </table>
+        @if (v.diff.length > 0) {
+        <tr [id]="'audit-diff-' + v.row.id" [class]="tc.detailRow" [hidden]="!isDiffOpen(v.row.id)">
+          <td colspan="5" [class]="tc.detailCell">
+            @if (isDiffOpen(v.row.id)) {
+            <div [class]="tc.detailInner">
+              <table [class]="tc.table" class="text-t-13">
+                <caption [class]="tc.caption" i18n="@@admin.audit.diff.caption">
+                  Fields changed by this action
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col" [class]="tc.head" i18n="@@admin.audit.diff.field">Field</th>
+                    <th scope="col" [class]="tc.head" i18n="@@admin.audit.diff.before">Before</th>
+                    <th scope="col" [class]="tc.head" i18n="@@admin.audit.diff.after">After</th>
+                    <th scope="col" [class]="tc.head" i18n="@@admin.audit.diff.changeHeader">
+                      Change
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (d of v.diff; track d.key) {
+                  <tr>
+                    <th scope="row" [class]="tc.rowHead" class="font-mono">{{ d.key }}</th>
+                    <td [class]="tc.cell" class="font-mono break-all text-(--text-secondary)">
+                      {{ d.before ?? '–' }}
+                    </td>
+                    <td [class]="tc.cell" class="font-mono break-all">{{ d.after ?? '–' }}</td>
+                    <!-- The change is stated in words, never by colour alone. -->
+                    <td [class]="tc.cell" class="text-(--text-secondary)">
+                      {{ changeLabel(d.change) }}
+                    </td>
+                  </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            }
           </td>
         </tr>
-        } }
+        }
       </tbody>
+      }
     </table>
   </div>
 

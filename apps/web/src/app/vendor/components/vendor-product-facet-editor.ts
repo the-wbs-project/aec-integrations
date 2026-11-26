@@ -30,9 +30,21 @@ import {
   type VendorProduct,
 } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  PORTAL_FORM_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
 
 import { productCan } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
@@ -153,6 +165,10 @@ interface PendingRemoval {
 @Component({
   selector: 'aec-vendor-product-facet-editor',
   imports: [
+    AecButton,
+    AecCard,
+    Chip,
+    AecIcon,
     VendorBulletListEditor,
     VendorLockedNote,
     BrnDialog,
@@ -162,23 +178,20 @@ interface PendingRemoval {
     BrnDialogDescription,
   ],
   template: `
-    <form method="dialog" class="space-y-5" novalidate (submit)="onFormSubmit($event)">
+    <div class="space-y-4">
       <div class="space-y-2">
+        <!-- AECI-1810: the global heading sizes. A size utility on either was dead anyway. -->
         @if (headingLevel() === 2) {
-          <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
-            {{ config().legend }}
-          </h2>
+          <h2 [id]="headingId()">{{ config().legend }}</h2>
         } @else {
-          <h3 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
-            {{ config().legend }}
-          </h3>
+          <h3 [id]="headingId()">{{ config().legend }}</h3>
         }
-        <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+        <p class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)">
           {{ config().hint }}
         </p>
         @if (config().narrative) {
           <p
-            class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="max-w-[52ch] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.product.facet.narrativeHint"
           >
             Under each term you tick, add the points that say how that team actually uses your
@@ -189,16 +202,16 @@ interface PendingRemoval {
       </div>
 
       @if (updatedElsewhere()) {
-        <div
-          class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-        >
+        <div [class]="noteClass + ' flex flex-wrap items-center gap-3'">
           <p class="text-sm text-(--text-primary)" i18n="@@vendor.product.facet.updatedElsewhere">
             This product changed somewhere else while you were editing. Your unsaved changes are
             still here.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryButtonClass"
             (click)="reloadSection()"
             i18n="@@vendor.product.facet.reloadSection"
           >
@@ -216,22 +229,14 @@ interface PendingRemoval {
         -->
         <p
           [id]="lockedId()"
-          class="flex items-start gap-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
+          [class]="
+            noteClass + ' flex items-start gap-2 text-sm leading-relaxed text-(--text-primary)'
+          "
           data-testid="locked-reason"
         >
-          <svg
-            aria-hidden="true"
-            class="mt-0.5 h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect x="5" y="11" width="14" height="10" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-          </svg>
+          <span class="flex shrink-0 text-(--text-secondary)"
+            ><aec-icon name="lock" decorative [size]="4"
+          /></span>
           <span>{{ lockedReason() }}</span>
         </p>
       }
@@ -241,38 +246,69 @@ interface PendingRemoval {
           AECI-1382 (section 11d.5): AEC Integrations corrected this facet and locked
           it. A separate cause from the plan note above; when both apply, both show.
         -->
-        <aec-vendor-locked-note [lock]="lock" [noteId]="aeciLockId()" />
+        <div class="flex items-start gap-2 text-(--text-primary)">
+          <aec-icon name="lock" decorative [size]="4" />
+          <aec-vendor-locked-note class="min-w-0 flex-1" [lock]="lock" [noteId]="aeciLockId()" />
+        </div>
       }
 
-      @if (taxonomy() === null) {
-        <p class="text-sm text-(--text-secondary)" i18n="@@vendor.product.facet.loading">
-          Loading options…
-        </p>
-      } @else {
-        <div
-          class="overflow-hidden rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)"
-        >
-          <fieldset class="border-0 p-0" [attr.aria-describedby]="termsDescribedBy()">
+      <!--
+        AECI-1810: the portal form card (vendor/shared/portal-form.ts). The terms are
+        one list divided by hairlines that runs to the card's edges, and the save bar
+        sticks to the card's foot. The ticked terms repeat above the list as dense
+        chips, under the count, so a long list shows what is chosen at a glance.
+      -->
+      <form
+        aecCard
+        phoneFlush
+        method="dialog"
+        novalidate
+        [class]="formClass + ' p-6 md:p-8'"
+        (submit)="onFormSubmit($event)"
+      >
+        <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p [id]="counterId()" class="text-t-14 text-(--text-secondary)">{{ counter() }}</p>
+          @if (taxonomy() !== null && selectedRows().length > 0) {
+            <ul
+              class="m-0 flex list-none flex-wrap gap-2 p-0"
+              [attr.aria-labelledby]="counterId()"
+              data-testid="facet-chosen"
+            >
+              @for (row of selectedRows(); track row.slug) {
+                <li>
+                  <aec-chip density="dense">{{ row.name }}</aec-chip>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
+        @if (taxonomy() === null) {
+          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.product.facet.loading">
+            Loading options…
+          </p>
+        } @else {
+          <fieldset class="m-0 min-w-0 border-0 p-0" [attr.aria-describedby]="termsDescribedBy()">
             <legend class="sr-only">{{ config().legend }}</legend>
-            <ul>
+            <ul class="-mx-6 border-t border-(--border-default) md:-mx-8">
               @for (row of rows(); track row.slug) {
                 <li class="border-b border-(--border-default) last:border-b-0">
                   <label [class]="rowLabelClass(row)">
                     <input
                       type="checkbox"
-                      class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      [class]="checkboxClass"
                       [checked]="row.checked"
                       [disabled]="!rowTogglable(row)"
                       (change)="onToggle(row, $event)"
                     />
                     <span class="min-w-0 flex-1 sm:flex sm:items-start sm:gap-4">
                       <span
-                        class="block text-sm font-medium text-(--text-primary) sm:w-56 sm:shrink-0"
+                        class="block text-sm font-semibold text-(--text-primary) sm:w-56 sm:shrink-0"
                         >{{ row.name }}</span
                       >
                       @if (row.description; as d) {
                         <span
-                          class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary) sm:mt-0 sm:min-w-0 sm:flex-1"
+                          class="mt-1 block text-xs leading-relaxed text-(--text-secondary) sm:mt-0 sm:min-w-0 sm:flex-1"
                           >{{ d }}</span
                         >
                       }
@@ -282,11 +318,11 @@ interface PendingRemoval {
                   <!-- OUTSIDE the label: inputs nested in a label would toggle the
                        checkbox on every click and fold the draft into its name. -->
                   @if (row.bullets !== null && (row.checked || hasPoints(row))) {
-                    <div class="space-y-2 px-4 pb-4 ps-11 md:px-5 md:ps-12">
+                    <div class="space-y-2 px-6 pb-4 ps-13 md:px-8 md:ps-15">
                       @if (!row.checked) {
                         <div class="flex flex-wrap items-center gap-3">
                           <p
-                            class="text-xs font-medium text-(--text-primary)"
+                            class="text-xs font-semibold text-(--text-primary)"
                             i18n="@@vendor.product.facet.untaggedPoints"
                           >
                             These points show on your product page, but the product is not tagged
@@ -294,8 +330,10 @@ interface PendingRemoval {
                           </p>
                           @if (narrativeEditable()) {
                             <button
+                              aecButton
+                              variant="secondary"
+                              compact
                               type="button"
-                              [class]="secondaryButtonClass"
                               (click)="requestRemoval(row)"
                               i18n="@@vendor.product.facet.removeUntaggedPoints"
                             >
@@ -322,60 +360,62 @@ interface PendingRemoval {
               }
             </ul>
           </fieldset>
-        </div>
-      }
+        }
 
-      <div class="flex flex-wrap items-center gap-4">
-        @if (canEdit()) {
-          <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-            @if (saving()) {
-              <span i18n="@@vendor.product.facet.saving">Saving…</span>
-            } @else {
-              <span i18n="@@vendor.product.facet.save">Save changes</span>
+        <!--
+          AECI-1810: the sticky save bar. The status line is plain text: the result
+          is announced through the portal's one live region (VendorPortalAnnouncer).
+          A blocking message or a refused save stays role="alert".
+        -->
+        @if (canEdit() || validationMessage() || saveLocked() || saved() || saveError()) {
+          <div [class]="saveBarClass">
+            <div [class]="saveStatusClass + ' flex flex-wrap items-center gap-3'">
+              @if (validationMessage(); as msg) {
+                <p class="font-semibold text-(--text-primary)" role="alert">{{ msg }}</p>
+              } @else if (saveLocked()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.product.facet.saveLocked"
+                >
+                  AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+                  section to see the locked value.
+                </p>
+                <button
+                  aecButton
+                  variant="secondary"
+                  compact
+                  type="button"
+                  (click)="reloadSection()"
+                  i18n="@@vendor.product.facet.saveLockedReload"
+                >
+                  Reload this section
+                </button>
+              } @else if (saved()) {
+                <p class="font-semibold text-(--accent-primary)">{{ savedMessage }}</p>
+              } @else if (saveError()) {
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.product.facet.saveError"
+                >
+                  Something went wrong saving your changes. Please try again.
+                </p>
+              }
+            </div>
+            @if (canEdit()) {
+              <button aecButton type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+                @if (saving()) {
+                  <span i18n="@@vendor.product.facet.saving">Saving…</span>
+                } @else {
+                  <span i18n="@@vendor.product.facet.save">Save changes</span>
+                }
+              </button>
             }
-          </button>
+          </div>
         }
-        @if (validationMessage(); as msg) {
-          <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ msg }}</p>
-        } @else if (saveLocked()) {
-          <p
-            class="text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@vendor.product.facet.saveLocked"
-          >
-            AEC Integrations has locked a field you changed, so nothing was saved. Reload this
-            section to see the locked value.
-          </p>
-          <button
-            type="button"
-            [class]="secondaryButtonClass"
-            (click)="reloadSection()"
-            i18n="@@vendor.product.facet.saveLockedReload"
-          >
-            Reload this section
-          </button>
-        } @else if (saved()) {
-          <p
-            class="text-sm font-medium text-(--accent-primary)"
-            role="status"
-            i18n="@@vendor.product.facet.saved"
-          >
-            Product updated. Your listing shows the change now. Search on AEC Integrations updates
-            within a day. Google and other search engines update on their own schedule.
-          </p>
-        } @else if (saveError()) {
-          <p
-            class="text-sm font-medium text-(--text-primary)"
-            role="alert"
-            i18n="@@vendor.product.facet.saveError"
-          >
-            Something went wrong saving your changes. Please try again.
-          </p>
-        } @else {
-          <p class="text-sm text-(--text-secondary)">{{ counter() }}</p>
-        }
-      </div>
-    </form>
+      </form>
+    </div>
 
     <brn-dialog
       [role]="'alertdialog'"
@@ -386,13 +426,13 @@ interface PendingRemoval {
       <ng-template brnDialogContent>
         @if (pendingRemoval(); as removal) {
           <div
-            class="flex max-h-[85vh] w-[min(95vw,36rem)] flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+            class="flex max-h-[85vh] w-[min(95vw,36rem)] flex-col rounded-card border border-(--border-default) bg-(--surface-base) text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
           >
             <div class="shrink-0 p-6 pb-4">
               <h2
                 brnDialogTitle
                 tabindex="-1"
-                class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               >
                 {{ removalHeading(removal.name) }}
               </h2>
@@ -407,7 +447,7 @@ interface PendingRemoval {
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto px-6">
               <ul
-                class="list-disc space-y-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) py-3 ps-8 pe-4"
+                class="list-disc space-y-1 rounded-panel border border-(--border-default) bg-(--surface-sunken) py-3 ps-8 pe-4"
               >
                 @for (point of removal.points; track $index) {
                   <li class="text-sm text-(--text-primary)">{{ point }}</li>
@@ -416,16 +456,17 @@ interface PendingRemoval {
             </div>
             <div class="flex shrink-0 flex-wrap justify-end gap-3 p-6">
               <button
+                aecButton
+                variant="secondary"
                 brnDialogClose
                 type="button"
-                [class]="secondaryButtonClass"
                 i18n="@@vendor.product.facet.removeCancel"
               >
                 Keep them
               </button>
               <button
+                aecButton
                 type="button"
-                [class]="saveButtonClass"
                 (click)="confirmRemoval()"
                 i18n="@@vendor.product.facet.removeConfirm"
               >
@@ -443,6 +484,7 @@ export class VendorProductFacetEditor {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly announcer = inject(VendorPortalAnnouncer);
 
   readonly product = input.required<VendorProduct>();
   readonly facet = input.required<ProductFacetKind>();
@@ -528,15 +570,28 @@ export class VendorProductFacetEditor {
   /** AECI-1382: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
   protected readonly saveLocked = signal(false);
 
-  protected readonly subLabelClass =
-    'text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly secondaryButtonClass =
-    'cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly saveButtonClass =
-    'inline-flex cursor-pointer items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  /** The save result, shown in the bar as plain text and announced through the
+   *  portal's one live region (AECI-1810). Same message id and text as before. */
+  protected readonly savedMessage = $localize`:@@vendor.product.facet.saved:Product updated. Your listing shows the change now. Search on AEC Integrations updates within a day. Google and other search engines update on their own schedule.`;
+
+  // AECI-1810: the portal form layout (vendor/shared/portal-form.ts) and the shared
+  // field recipe (shared/form-field/form-field-classes.ts).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  /** "How teams use it" over each term's points: the Label role. */
+  protected readonly subLabelClass = FIELD_LABEL_CLASS;
+  /** A note above the form card: the sunken surface, the panel radius. */
+  protected readonly noteClass =
+    'rounded-panel border border-(--border-default) bg-(--surface-sunken) p-4';
+  protected readonly checkboxClass =
+    'mt-1 size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
   protected readonly idBase = computed(() => `vendor-product-${this.product().id}-${this.facet()}`);
   protected readonly headingId = computed(() => `${this.idBase()}-heading`);
+  /** The count line, which also names the list of chosen-term chips. */
+  protected readonly counterId = computed(() => `${this.idBase()}-count`);
 
   private readonly vocabulary = computed<readonly TaxonomyTermWithCount[]>(() => {
     const t = this.taxonomy();
@@ -574,6 +629,9 @@ export class VendorProductFacetEditor {
       .map((slug) => row(slug, storedNames.get(slug) ?? slug, null));
     return [...known, ...extra];
   });
+
+  /** The ticked rows, in list order, for the chips above the list (AECI-1810). */
+  protected readonly selectedRows = computed(() => this.rows().filter((row) => row.checked));
 
   protected readonly counter = computed(
     () =>
@@ -696,7 +754,7 @@ export class VendorProductFacetEditor {
   }
 
   protected rowLabelClass(row: FacetRow): string {
-    const base = 'flex items-start gap-3 px-4 py-3 transition-colors md:px-5';
+    const base = 'flex items-start gap-3 px-6 py-3 transition-colors md:px-8';
     return this.rowTogglable(row) ? `${base} cursor-pointer hover:bg-(--surface-sunken)` : base;
   }
 
@@ -798,6 +856,9 @@ export class VendorProductFacetEditor {
         )
         .commit();
       this.saved.set(true);
+      // AECI-1810: the bar's status line is plain text, so the result is announced
+      // through the portal's one live region. A refusal is a role="alert" line.
+      this.announcer.announce(this.savedMessage);
     } catch (err) {
       if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
       else this.saveError.set(true);

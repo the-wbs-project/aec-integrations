@@ -346,3 +346,114 @@ describe('AdminFieldHides (AECI-1238)', () => {
     expect(el.querySelector('[data-testid="field-hide-row"]')).toBeNull();
   });
 });
+
+describe('AdminFieldHides focus (AECI-2112)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-000000000081';
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('Escape closes the hide form and returns focus to "Hide a value"', async () => {
+    const { fixture, el } = await setup();
+    button(el, 'Hide a value').click();
+    await render(fixture);
+    escape(el.querySelector(`#${P}-record`)!);
+    await render(fixture);
+    expect(el.querySelector(`#${P}-form`)).toBeNull();
+    expect(document.activeElement?.id).toBe(`${P}-open`);
+  });
+
+  it('Escape closes a restore form and returns focus to its Restore button', async () => {
+    api.listFieldHides.mockResolvedValue({ hides: [makeHide()] });
+    const { fixture, el } = await setup();
+    button(el, 'Restore').click();
+    await render(fixture);
+    escape(el.querySelector(`#admin-field-hide-${HIDE_ID}-text`)!);
+    await render(fixture);
+    expect(el.querySelector(`#admin-field-hide-${HIDE_ID}-form`)).toBeNull();
+    expect(document.activeElement?.id).toBe(`admin-field-hide-restore-${HIDE_ID}`);
+  });
+
+  it('Escape does nothing while a restore is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    api.restoreFieldHide.mockReturnValue(new Promise((r) => (resolve = r)));
+    api.listFieldHides.mockResolvedValue({ hides: [makeHide()] });
+    const { fixture, el } = await setup();
+    button(el, 'Restore').click();
+    await render(fixture);
+    type(el, `admin-field-hide-${HIDE_ID}-text`, 'The value checks out.');
+    await render(fixture);
+    button(el, 'Restore the value').click();
+    await render(fixture);
+    escape(el.querySelector(`#admin-field-hide-${HIDE_ID}-text`)!);
+    await render(fixture);
+    expect(el.querySelector(`#admin-field-hide-${HIDE_ID}-form`)).not.toBeNull();
+    resolve({ hide: makeHide() });
+    await render(fixture);
+  });
+
+  it('after a restore, focus goes to the next row; after a reply, back to its opener', async () => {
+    api.listFieldHides.mockResolvedValue({
+      hides: [makeHide(), makeHide({ id: OTHER_ID })],
+    });
+    const { fixture, el } = await setup();
+    (el.querySelector(`#admin-field-hide-restore-${HIDE_ID}`) as HTMLButtonElement).click();
+    await render(fixture);
+    type(el, `admin-field-hide-${HIDE_ID}-text`, 'The value checks out.');
+    await render(fixture);
+    button(el, 'Restore the value').click();
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-hide-reply-${OTHER_ID}`);
+
+    api.recordFieldHideStatusReply.mockResolvedValue({ hide: makeHide({ id: OTHER_ID }) });
+    (el.querySelector(`#admin-field-hide-reply-${OTHER_ID}`) as HTMLButtonElement).click();
+    await render(fixture);
+    type(el, `admin-field-hide-${OTHER_ID}-text`, 'Told them we are checking.');
+    await render(fixture);
+    button(el, 'Record the reply').click();
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-hide-reply-${OTHER_ID}`);
+  });
+
+  it('after the last restore, focus goes to the section intro', async () => {
+    api.listFieldHides.mockResolvedValue({ hides: [makeHide()] });
+    const { fixture, el } = await setup();
+    button(el, 'Restore').click();
+    await render(fixture);
+    type(el, `admin-field-hide-${HIDE_ID}-text`, 'The value checks out.');
+    await render(fixture);
+    button(el, 'Restore the value').click();
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`${P}-heading`);
+  });
+
+  it('a refused restore moves focus to its message', async () => {
+    api.restoreFieldHide.mockRejectedValue(new HttpErrorResponse({ status: 500 }));
+    api.listFieldHides.mockResolvedValue({ hides: [makeHide()] });
+    const { fixture, el } = await setup();
+    button(el, 'Restore').click();
+    await render(fixture);
+    type(el, `admin-field-hide-${HIDE_ID}-text`, 'The value checks out.');
+    await render(fixture);
+    button(el, 'Restore the value').click();
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-hide-${HIDE_ID}-error`);
+  });
+
+  it('a refused hide moves focus to its message', async () => {
+    api.setFieldHide.mockRejectedValue(new HttpErrorResponse({ status: 500 }));
+    const { fixture, el } = await setup();
+    button(el, 'Hide a value').click();
+    await render(fixture);
+    select(el, `${P}-record`, `vendor:${VENDOR_ID}`);
+    await render(fixture);
+    select(el, `${P}-field`, 'website');
+    type(el, `${P}-source`, 'https://example.com/registry');
+    type(el, `${P}-reason`, 'Checking a request.');
+    await render(fixture);
+    button(el, 'Review').click();
+    await render(fixture);
+    button(el, 'Hide the value').click();
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`${P}-form-error`);
+  });
+});

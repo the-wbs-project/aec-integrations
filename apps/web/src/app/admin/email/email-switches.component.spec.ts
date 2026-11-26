@@ -119,6 +119,33 @@ afterEach(() => {
   document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
 });
 
+describe('EmailSwitches on the console recipe (AECI-2128)', () => {
+  it('shows each switch state as a console chip: Sending positive, Paused attention', async () => {
+    const { el } = await setup();
+    const [sending, paused] = [...el.querySelectorAll('tbody tr')];
+    const chip = (row: Element) => row.querySelector('.aec-chip')!;
+    expect(chip(sending!).textContent?.trim()).toBe('Sending');
+    expect(chip(sending!).getAttribute('data-tone')).toBe('positive');
+    expect(chip(paused!).textContent?.trim()).toBe('Paused');
+    expect(chip(paused!).getAttribute('data-tone')).toBe('attention');
+  });
+
+  it('the row control is a compact secondary aecButton, the dialog confirm primary', async () => {
+    const { el, rerender } = await setup();
+    const pause = button(el, 'Pause landing-feedback')!;
+    expect(pause.classList).toContain('aec-btn-secondary');
+    pause.click();
+    await rerender();
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].find(
+      (b) => b.textContent?.includes('Pause sending'),
+    )!;
+    // Primary, not danger: Resume puts the switch back exactly (AECI-2128 severity rule).
+    expect(confirm.classList).toContain('aec-btn');
+    expect(confirm.classList).toContain('bg-(--accent-primary)');
+    expect(confirm.classList).not.toContain('bg-(--status-error)');
+  });
+});
+
 describe('EmailSwitches', () => {
   it('gives a control to pausable templates only', async () => {
     const { el } = await setup();

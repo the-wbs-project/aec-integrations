@@ -26,10 +26,8 @@ import {
 
 import type { RemovalElectionField, RemovalElectionResponse } from '@aeci/shared';
 
-import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
-} from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -69,7 +67,15 @@ export function removalFieldLabel(field: RemovalElectionField): string {
 @Component({
   selector: 'aec-vendor-removal-election',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [BrnDialog, BrnDialogClose, BrnDialogContent, BrnDialogDescription, BrnDialogTitle],
+  imports: [
+    AecButton,
+    AecIcon,
+    BrnDialog,
+    BrnDialogClose,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
+  ],
   template: `
     @if (loadFailed()) {
       <div class="mt-5 border-t border-(--border-default) pt-4" data-testid="removal-load-failed">
@@ -81,8 +87,11 @@ export function removalFieldLabel(field: RemovalElectionField): string {
           We could not check whether you can remove this product's text.
         </p>
         <button
+          aecButton
+          variant="secondary"
+          compact
           type="button"
-          [class]="retryClass"
+          class="mt-3"
           (click)="load()"
           i18n="@@vendor.removalElection.retry"
         >
@@ -111,8 +120,10 @@ export function removalFieldLabel(field: RemovalElectionField): string {
           {{ windowLine() }}
         </p>
         <button
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="triggerClass"
+          class="mt-3"
           aria-haspopup="dialog"
           data-testid="removal-open"
           (click)="openDialog()"
@@ -131,38 +142,30 @@ export function removalFieldLabel(field: RemovalElectionField): string {
     >
       <ng-template brnDialogContent>
         <div
-          class="max-h-[85vh] w-[min(92vw,34rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) md:p-8"
+          class="max-h-[85vh] w-[min(92vw,34rem)] overflow-y-auto rounded-card border border-(--border-default) bg-(--surface-base) p-6 text-(--text-primary) shadow-card md:p-8"
           data-testid="removal-dialog"
         >
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
               tabindex="-1"
-              class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               i18n="@@vendor.removalElection.dialog.heading"
             >
               Remove the text you wrote?
             </h2>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
               [disabled]="busy()"
-              class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="-me-3 -mt-2"
               i18n-aria-label="@@vendor.removalElection.dialog.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative />
             </button>
           </div>
           <p
@@ -180,7 +183,7 @@ export function removalFieldLabel(field: RemovalElectionField): string {
             What will be removed
           </h3>
           <ul
-            class="mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-primary)"
+            class="mt-2 list-disc space-y-2 ps-5 text-sm leading-relaxed text-(--text-primary)"
             data-testid="removal-fields"
           >
             @for (name of fieldNames(); track name) {
@@ -197,23 +200,26 @@ export function removalFieldLabel(field: RemovalElectionField): string {
           </p>
 
           @if (error(); as message) {
-            <p class="mt-4 text-sm font-medium text-(--text-primary)" role="alert">{{ message }}</p>
+            <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">
+              {{ message }}
+            </p>
           }
 
           <div class="mt-6 flex flex-wrap justify-end gap-3">
             <button
+              aecButton
+              variant="secondary"
               brnDialogClose
               type="button"
               [disabled]="busy()"
-              [class]="cancelClass"
               i18n="@@vendor.removalElection.dialog.cancel"
             >
               Keep my text
             </button>
             <button
+              aecButton
               type="button"
               [disabled]="busy()"
-              [class]="confirmClass"
               data-testid="removal-confirm"
               (click)="confirm()"
             >
@@ -277,13 +283,6 @@ export class VendorRemovalElection {
     const date = this.format(at);
     return $localize`:@@vendor.removalElection.elected:You removed your text on ${date}:DATE:.`;
   });
-
-  protected readonly retryClass =
-    'mt-3 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly triggerClass =
-    'mt-3 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly cancelClass = `${BUTTON_SECONDARY_CLASS} disabled:cursor-not-allowed disabled:opacity-50`;
-  protected readonly confirmClass = BUTTON_PRIMARY_CLASS;
 
   constructor() {
     // Moving between products reuses this component through the host's route, so the id

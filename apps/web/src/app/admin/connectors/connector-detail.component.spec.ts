@@ -485,6 +485,13 @@ describe('ConnectorDetail', () => {
       expect(el.querySelectorAll('aec-mapping-edit-control')).toHaveLength(1);
     });
 
+    it('shows the mapping status as a console chip in its ruled tone (AECI-2125)', async () => {
+      const { el } = await setup(withMapping('review'));
+      const chip = el.querySelector('tbody li [data-tone]');
+      expect(chip?.textContent?.trim()).toBe('Matched');
+      expect(chip?.getAttribute('data-tone')).toBe('positive');
+    });
+
     it('renders NO edit control on a review-managed catalogue: the sync would clobber it', async () => {
       const { el } = await setup(withMapping('review'));
       expect(el.querySelector('aec-mapping-edit-control')).toBeNull();
@@ -509,10 +516,35 @@ describe('ConnectorDetail', () => {
       const { el } = await setup(makeApiMock());
       for (const table of el.querySelectorAll('table')) {
         expect(table.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+        // AECI-2125: each table sits in a focusable region named by its caption.
+        const region = table.closest('[role="region"]');
+        expect(region?.getAttribute('tabindex')).toBe('0');
+        expect(region?.getAttribute('aria-labelledby')).toBe(table.querySelector('caption')?.id);
         for (const th of table.querySelectorAll('thead th')) {
           expect(th.getAttribute('scope')).toBe('col');
         }
       }
+    });
+
+    it('draws the two listing toggles as independent 44px buttons, not a choice of one (AECI-2125)', async () => {
+      const { el, fixture } = await setup(makeApiMock());
+      const toggles = [...el.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')].filter(
+        (b) => /Machine proposals only|Include removed/.test(b.textContent ?? ''),
+      );
+      expect(toggles).toHaveLength(2);
+      for (const toggle of toggles) {
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+        expect(toggle.className).toContain('min-h-11');
+        // Not inside a segmented frame or a group that would read as one-of-several.
+        expect(toggle.closest('[role="group"]')).toBeNull();
+        expect(toggle.parentElement?.className).not.toContain('rounded-control');
+      }
+      toggles[0]!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(toggles[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(toggles[0]!.querySelector('aec-icon')).not.toBeNull();
+      expect(toggles[1]!.getAttribute('aria-pressed')).toBe('false');
     });
   });
 });

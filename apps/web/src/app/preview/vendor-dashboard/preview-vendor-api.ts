@@ -420,7 +420,7 @@ function previewBilling(): VendorBillingResponse {
   return {
     ...base,
     // AECI-1866: every status-chip tone shows. The pool subscription will not renew
-    // (Clay "Live" with its "Cancels at term end" badge), and a second ended row makes
+    // ("Live" with a clock and its "Cancels at term end" badge), and a second ended row makes
     // the closed group read "Ended subscriptions (2)".
     licenses: [
       assigned!,
@@ -440,7 +440,28 @@ function previewBilling(): VendorBillingResponse {
     stripe_checkout_available: true,
     // AECI-1615: one grant waiting, so the "Subscriptions waiting for you" card renders.
     pending_grants: [clone(VENDOR_PENDING_GRANT_FIXTURE)],
+    // AECI-1812: `?billing=card` shows a company that already pays by card, so the
+    // "Your Stripe plan" state and its "Add subscriptions" dialog can be seen and
+    // axe-scanned. Read in the browser only: the Billing read never runs on the server.
+    ...(previewCardPlan()
+      ? {
+          stripe: {
+            interval: 'year' as const,
+            quantity: 2,
+            current_period_end: '2027-10-01T00:00:00.000Z',
+            cancel_at_period_end: false,
+            synced: true,
+          },
+          stripe_customer: true,
+        }
+      : {}),
   };
+}
+
+/** `?billing=card` on the preview URL (AECI-1812). */
+function previewCardPlan(): boolean {
+  const search = globalThis.location?.search ?? '';
+  return new URLSearchParams(search).get('billing') === 'card';
 }
 
 function apiError(

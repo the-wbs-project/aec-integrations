@@ -1,7 +1,10 @@
+import { DOCUMENT } from '@angular/common';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   ElementRef,
@@ -24,13 +27,31 @@ import { firstValueFrom } from 'rxjs';
 import { LogoInput } from '../../../shared/logo-input/logo-input';
 import { overrideReasonBody } from '../admin-vendors-api';
 import { AecFormSubmit } from '../../../shared/form-field/form-submit';
+import { AecButton } from '../../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS } from '../../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_PANEL_FORM_CLASS,
+} from '../vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../../console/console-detail';
 
 @Component({
   selector: 'aec-admin-logo-editor',
-  imports: [AecFormSubmit, LogoInput],
+  imports: [AecButton, AecFormSubmit, LogoInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(keydown.escape)': 'onEscape($event)' },
   template: `
-    <form method="dialog" class="max-w-xl space-y-4" novalidate (aecSubmit)="save()">
+    <!-- AECI-2112: the console's form recipe (mock-up 14). The objection removal keeps
+         its two steps: a secondary opener, then the Bone warning and the danger confirm. -->
+    <form method="dialog" [class]="formClass" novalidate (aecSubmit)="save()">
       <aec-logo-input
         [inputId]="'admin-logo-' + kind() + '-' + recordId()"
         [value]="draft()"
@@ -40,19 +61,15 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
         (pendingChange)="uploading.set($event)"
         (announce)="announce.emit($event)"
       />
-      <div>
+      <div [class]="fieldClass">
         <label
           [attr.for]="fieldId('reason')"
-          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          [class]="labelClass"
           i18n="@@admin.logo.reason.vendorLabel"
         >
           Reason shown to the vendor (required)
         </label>
-        <p
-          [id]="fieldId('reason-help')"
-          class="mt-1 text-xs text-(--text-secondary)"
-          i18n="@@admin.logo.reason.vendorHelp"
-        >
+        <p [id]="fieldId('reason-help')" [class]="hintClass" i18n="@@admin.logo.reason.vendorHelp">
           The vendor reads this in its portal messages. It is recorded in the audit trail with your
           name.
         </p>
@@ -71,13 +88,14 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
           [attr.aria-invalid]="reasonError() ? 'true' : null"
           [value]="reason()"
           (input)="onReasonInput($event)"
-          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
+          class="min-h-20 resize-y"
         ></textarea>
         @if (reasonError()) {
           <p
             [id]="fieldId('reason-error')"
             role="alert"
-            class="mt-2 text-sm font-medium text-(--text-primary)"
+            [class]="errorClass"
             i18n="@@admin.logo.reason.vendorRequired"
           >
             Enter a reason for the vendor. The vendor reads it in its portal messages.
@@ -86,19 +104,11 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
       </div>
       <!-- AECI-1628: on a record a vendor holds, the new logo is shown publicly as AEC
            Integrations' correction with this link as its source. -->
-      <div>
-        <label
-          [attr.for]="fieldId('source')"
-          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.logo.source.label"
-        >
+      <div [class]="fieldClass">
+        <label [attr.for]="fieldId('source')" [class]="labelClass" i18n="@@admin.logo.source.label">
           Source link (required for a new logo when a vendor holds this record)
         </label>
-        <p
-          [id]="fieldId('source-help')"
-          class="mt-1 text-xs text-(--text-secondary)"
-          i18n="@@admin.logo.source.help"
-        >
+        <p [id]="fieldId('source-help')" [class]="hintClass" i18n="@@admin.logo.source.help">
           Where you found the logo. On a record a vendor holds, the listing shows the change as
           corrected by AEC Integrations, with this link as its source. Optional when you remove a
           logo.
@@ -120,13 +130,13 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
           [attr.aria-invalid]="sourceError() ? 'true' : null"
           [value]="sourceUrl()"
           (input)="onSourceInput($event)"
-          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
         />
         @if (sourceError() === 'missing') {
           <p
             [id]="fieldId('source-error')"
             role="alert"
-            class="mt-2 text-sm font-medium text-(--text-primary)"
+            [class]="errorClass"
             i18n="@@admin.logo.source.required"
           >
             A vendor holds this record. Add the link where you found the logo.
@@ -135,19 +145,15 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
           <p
             [id]="fieldId('source-error')"
             role="alert"
-            class="mt-2 text-sm font-medium text-(--text-primary)"
+            [class]="errorClass"
             i18n="@@admin.logo.source.invalid"
           >
             Use an https:// link with no username or password.
           </p>
         }
       </div>
-      <div>
-        <label
-          [attr.for]="fieldId('note')"
-          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.logo.note.label"
-        >
+      <div [class]="fieldClass">
+        <label [attr.for]="fieldId('note')" [class]="labelClass" i18n="@@admin.logo.note.label">
           Internal note (optional, never shown to the vendor)
         </label>
         <textarea
@@ -157,36 +163,43 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
           [disabled]="saving()"
           [value]="internalNote()"
           (input)="onNoteInput($event)"
-          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
+          class="min-h-20 resize-y"
         ></textarea>
       </div>
-      <button
-        type="submit"
-        [disabled]="saveDisabled()"
-        class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        @if (saving()) {
-          <span i18n="@@admin.logo.saving">Saving…</span>
-        } @else {
-          <span i18n="@@admin.logo.save">Save logo</span>
-        }
-      </button>
+      <div>
+        <button aecButton compact type="submit" [disabled]="saveDisabled()">
+          @if (saving()) {
+            <span i18n="@@admin.logo.saving">Saving…</span>
+          } @else {
+            <span i18n="@@admin.logo.save">Save logo</span>
+          }
+        </button>
+      </div>
       @if (saved()) {
-        <p class="text-sm text-(--text-secondary)" i18n="@@admin.logo.saved">
+        <p [class]="captionClass" i18n="@@admin.logo.saved">
           Logo saved. Future catalog updates will keep this choice.
         </p>
       }
       @if (failed()) {
-        <p role="alert" class="text-sm text-(--text-primary)" i18n="@@admin.logo.failed">
+        <p
+          [id]="fieldId('failed')"
+          tabindex="-1"
+          role="alert"
+          [class]="failedClass"
+          i18n="@@admin.logo.failed"
+        >
           We couldn't save this logo. Please try again.
         </p>
       }
-      <div class="border-t border-(--border-default) pt-4" data-testid="logo-objection">
+      <div class="grid gap-4 border-t border-(--border-default) pt-4" data-testid="logo-objection">
         @if (objectionDone(); as done) {
-          <p class="text-sm text-(--text-secondary)">{{ done }}</p>
+          <p [class]="captionClass">{{ done }}</p>
         } @else if (confirmingObjection()) {
           <p
-            class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+            [id]="fieldId('objection-warning')"
+            tabindex="-1"
+            [class]="noticeClass"
             role="note"
             i18n="@@admin.logo.objection.warning"
           >
@@ -196,18 +209,22 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
           </p>
           @if (objectionFailed()) {
             <p
+              [id]="fieldId('objection-failed')"
+              tabindex="-1"
               role="alert"
-              class="mt-2 text-sm font-medium text-(--text-primary)"
+              [class]="failedClass"
               i18n="@@admin.logo.objection.failed"
             >
               We couldn't remove this logo. Please try again.
             </p>
           }
-          <div class="mt-3 flex flex-wrap gap-2">
+          <div [class]="actionsClass">
             <button
+              aecButton
+              variant="danger"
+              compact
               type="button"
               [disabled]="saving()"
-              [class]="objectionButtonClass"
               data-testid="logo-objection-confirm"
               (click)="confirmObjection()"
               i18n="@@admin.logo.objection.confirm"
@@ -215,26 +232,32 @@ import { AecFormSubmit } from '../../../shared/form-field/form-submit';
               Remove the logo
             </button>
             <button
+              aecButton
+              variant="ghost"
               type="button"
               [disabled]="saving()"
-              [class]="objectionButtonClass"
-              (click)="confirmingObjection.set(false)"
+              (click)="cancelObjection()"
               i18n="@@admin.logo.objection.cancel"
             >
               Cancel
             </button>
           </div>
         } @else {
-          <button
-            type="button"
-            [disabled]="saving() || uploading()"
-            [class]="objectionButtonClass"
-            data-testid="logo-objection-open"
-            (click)="startObjection()"
-            i18n="@@admin.logo.objection.open"
-          >
-            Remove on objection
-          </button>
+          <div>
+            <button
+              aecButton
+              variant="secondary"
+              compact
+              type="button"
+              [id]="fieldId('objection-open')"
+              [disabled]="saving() || uploading()"
+              data-testid="logo-objection-open"
+              (click)="startObjection()"
+              i18n="@@admin.logo.objection.open"
+            >
+              Remove on objection
+            </button>
+          </div>
         }
       </div>
     </form>
@@ -246,6 +269,14 @@ export class AdminLogoEditor {
   readonly logoUrl = input<string | null>(null);
   readonly logoSaved = output<string | null>();
   readonly announce = output<string>();
+  /**
+   * Escape outside the objection step, while nothing is saving: the host closes the
+   * editor (the product row does; the vendor dialog closes on its own Escape).
+   */
+  readonly closeRequested = output<void>();
+  /** A save or an objection removal started or ended, so the host can hold its own
+   *  close paths while one is in flight (AECI-2112). */
+  readonly savingChange = output<boolean>();
   protected readonly draft = signal('');
   protected readonly saving = signal(false);
   protected readonly uploading = signal(false);
@@ -264,8 +295,19 @@ export class AdminLogoEditor {
   protected readonly confirmingObjection = signal(false);
   protected readonly objectionFailed = signal(false);
   protected readonly objectionDone = signal('');
-  protected readonly objectionButtonClass =
-    'rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  // AECI-2112: the console's form recipe and the shared field classes.
+  protected readonly formClass = VENDOR_PANEL_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly sourceInput = viewChild<ElementRef<HTMLInputElement>>('sourceInput');
   private readonly baseline = signal('');
@@ -280,6 +322,16 @@ export class AdminLogoEditor {
   );
 
   constructor() {
+    // Skip the first, idle value: hosts start from "not saving".
+    let first = true;
+    effect(() => {
+      const saving = this.saving();
+      if (first) {
+        first = false;
+        return;
+      }
+      this.savingChange.emit(saving);
+    });
     effect(() => {
       const id = this.recordId();
       const value = this.logoUrl() ?? '';
@@ -378,15 +430,53 @@ export class AdminLogoEditor {
     } catch (err) {
       if (recordId !== this.recordId()) return;
       if (this.isSourceRefusal(err)) this.flagSource('missing');
-      else this.failed.set(true);
+      else {
+        this.failed.set(true);
+        // The disabled save drops focus: move it to the refusal (AECI-1994).
+        this.focusAfterRender(this.fieldId('failed'));
+      }
     } finally {
       this.saving.set(false);
     }
   }
 
+  /** Opening the confirm focuses its warning, so it is heard before the buttons. */
   protected startObjection(): void {
     this.objectionFailed.set(false);
     this.confirmingObjection.set(true);
+    this.focusAfterRender(this.fieldId('objection-warning'));
+  }
+
+  /**
+   * Escape, from anywhere in the editor (AECI-2112).
+   * - While a save or a removal is in flight: nothing closes. The request still
+   *   commits and its `logoSaved` and announcement must reach the host, so the event
+   *   stops here and a host dialog never sees it either.
+   * - On the objection step: closes that step only, as its Cancel does.
+   * - Otherwise: asks the host to close the editor.
+   */
+  protected onEscape(event: Event): void {
+    if (this.saving()) {
+      event.stopPropagation();
+      event.preventDefault();
+      return;
+    }
+    if (this.confirmingObjection()) {
+      event.stopPropagation();
+      this.cancelObjection();
+      return;
+    }
+    this.closeRequested.emit();
+  }
+
+  /** Cancel closes the confirm and gives focus back to "Remove on objection". */
+  protected cancelObjection(): void {
+    this.confirmingObjection.set(false);
+    this.focusAfterRender(this.fieldId('objection-open'));
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
   /** `PATCH …/logo` with `objection: true`. It is its own write, so an unsaved draft in
@@ -432,7 +522,11 @@ export class AdminLogoEditor {
       this.logoSaved.emit(null);
       this.announce.emit(message);
     } catch {
-      if (recordId === this.recordId()) this.objectionFailed.set(true);
+      if (recordId === this.recordId()) {
+        this.objectionFailed.set(true);
+        // The disabled confirm drops focus: move it to the refusal (AECI-1994).
+        this.focusAfterRender(this.fieldId('objection-failed'));
+      }
     } finally {
       this.saving.set(false);
     }

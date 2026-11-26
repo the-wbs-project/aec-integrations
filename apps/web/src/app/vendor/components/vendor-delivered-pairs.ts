@@ -13,7 +13,11 @@ import {
 import type { VendorDeliveredPair } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_ERROR_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -142,7 +146,7 @@ const REASON_MAX = 2000;
                         '-hint' +
                         (reasonError() ? ' ' + reasonId(pair) + '-error' : '')
                       "
-                      class="block w-full rounded-control border border-(--border-strong) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--accent-primary)"
+                      [class]="inputClass"
                     ></textarea>
                     @if (reasonError(); as message) {
                       <p [id]="reasonId(pair) + '-error'" [class]="errorClass">{{ message }}</p>
@@ -352,6 +356,8 @@ export class VendorDeliveredPairs {
 
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** The shared field recipe (`shared/form-field/form-field-classes.ts`). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 }
 
 /** One sentence per refusal the request can collect. */

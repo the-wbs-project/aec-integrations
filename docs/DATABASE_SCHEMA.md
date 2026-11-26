@@ -332,7 +332,7 @@ create table products (
 
   -- Classification
   product_role text not null default 'application' check (product_role in ('application', 'connector', 'hybrid')),
-  connector_kind text, -- AECI-2036 (0129): 'integration_platform' | 'sync_service' | NULL ("Connector"). Admin-set, connector/hybrid only. NO CHECK; Zod validates. Promote never writes it
+  connector_kind text, -- AECI-2036 (0130): 'integration_platform' | 'sync_service' | NULL ("Connector"). Admin-set, connector/hybrid only. NO CHECK; Zod validates. Promote never writes it
 
   -- Brandfetch / logo
   logo_url text, -- HTTPS image URL or /api/logos/<sha256>
@@ -412,7 +412,7 @@ Not indexed: it is read with the row, never filtered on.
 
 **Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
 
-**The connector kind (AECI-2036, migration `0129_heavy_ender_wiggin.sql`).** `connector_kind` tells a Sync Service from an Integration platform, the two public kinds under the one `connector` role (`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Values are `integration_platform` and `sync_service`. NULL is unclassified and reads as "Connector". The migration is one bare `ALTER TABLE … ADD COLUMN`, as `usefulness_source` was in 0042. The Drizzle `enum` emits no SQL CHECK, and the column must never gain one: a CHECK recreates `products`, and the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` (`packages/shared/src/api/connector-kind-schema.ts`) is the only validation. One writer: `PATCH /api/admin/products/:id/connector-kind`, which refuses an `application` product (`API_CONTRACTS.md`). Promote has no field for it, so it never writes or clears it, and the review app does not carry it. Readers go through `connectorKindFor` (`packages/shared/src/api/connector-kind.ts`), so an `application` row or a value outside the vocabulary reads as NULL. Promote reads it (never writes it) for one decision since AECI-2041: a pair whose connector is a Sync Service may be written on an owned endpoint (`REVIEW_APP_PROMOTE_API.md` §4a). The read is `isSyncService`, and a sentinel at the end of the promote batch re-checks it at commit. Not indexed: nothing filters on it yet. Not on the Algolia record yet (AECI-1662).
+**The connector kind (AECI-2036, migration `0130_heavy_ender_wiggin.sql`).** `connector_kind` tells a Sync Service from an Integration platform, the two public kinds under the one `connector` role (`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Values are `integration_platform` and `sync_service`. NULL is unclassified and reads as "Connector". The migration is one bare `ALTER TABLE … ADD COLUMN`, as `usefulness_source` was in 0042. The Drizzle `enum` emits no SQL CHECK, and the column must never gain one: a CHECK recreates `products`, and the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` (`packages/shared/src/api/connector-kind-schema.ts`) is the only validation. One writer: `PATCH /api/admin/products/:id/connector-kind`, which refuses an `application` product (`API_CONTRACTS.md`). Promote has no field for it, so it never writes or clears it, and the review app does not carry it. Readers go through `connectorKindFor` (`packages/shared/src/api/connector-kind.ts`), so an `application` row or a value outside the vocabulary reads as NULL. Promote reads it (never writes it) for one decision since AECI-2041: a pair whose connector is a Sync Service may be written on an owned endpoint (`REVIEW_APP_PROMOTE_API.md` §4a). The read is `isSyncService`, and a sentinel at the end of the promote batch re-checks it at commit. Not indexed: nothing filters on it yet. Not on the Algolia record yet (AECI-1662).
 
 **The Sync Service facts (AECI-2046).** `sync_frequency`, `sync_support` and `sync_setup` are three nullable text columns: how often a Sync Service syncs, who supports it, and how setup works (`STAGE_1_5_SPEC.md` §13.13, ruling 15 on AECI-2035). AECi curates them. The migration is three bare `ALTER TABLE … ADD COLUMN`s, with no CHECK, for the reason `connector_kind` has none. `AdminSetSyncFactsSchema` (`packages/shared/src/api/sync-service.ts`) is the only validation: trimmed, a blank stored as NULL, at most 120, 160 and 280 characters. One writer: `PATCH /api/admin/products/:id/sync-facts`, which refuses a product that is not a Sync Service (`API_CONTRACTS.md`). No vendor route writes them. Promote has no field for them, so it never writes or clears them. A later kind change leaves them stored, and `toProductDetail` reads them out only while `isSyncService` holds. Two more nullable text columns go with them: `sync_facts_source_url`, the https link the facts come from (required by the write while any fact is set), and `sync_facts_recorded_at`, stamped when the write changes them. The Terms promise that text we write on a listing a vendor maintains is marked as ours "with its source and date", and the block prints both. Both clear with the last fact. Not indexed and not on the Algolia record.
 
@@ -504,7 +504,7 @@ create table integrations (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at text,
   retired_by text check (retired_by in ('owner', 'aeci')),
-  -- AECI-2042 (0131): an endpoint vendor's veto in force, denormalised from
+  -- AECI-2042 (0132): an endpoint vendor's veto in force, denormalised from
   -- sync_service_pair_vetoes (earliest open filed_at, else NULL). Part of liveness.
   -- Plain ADD COLUMN, no CHECK.
   vetoed_at text,
@@ -992,7 +992,7 @@ create index attestations_claim_idx on attestations(claim_id, updated_at);
 - **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
 - **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
 
-### 5a.2a `claim_owner_answers` (AECI-2039, migration 0130)
+### 5a.2a `claim_owner_answers` (AECI-2039, migration 0131)
 
 The owner's answer on a data flow of a Sync Service pair (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A plain `CREATE TABLE`: no existing table changed, so no recreate.
 
@@ -1017,7 +1017,7 @@ create index claim_owner_answers_claim_idx on claim_owner_answers(claim_id, upda
 - **Writers.** `routes/vendor-owner-flows.ts` only. Promote never writes it.
   Since AECI-2042 a data flow report accept (`routes/vendor-pair-contests.ts`) writes it through the same logic, in the decision's batch.
 
-### 5a.2b `sync_service_pair_vetoes` and `sync_service_pair_contests` (AECI-2042, migration 0131)
+### 5a.2b `sync_service_pair_vetoes` and `sync_service_pair_contests` (AECI-2042, migration 0132)
 
 An endpoint vendor's rights on a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e). Two plain `CREATE TABLE`s; the only change to existing tables is `vetoed_at` on `integrations` and `connector_evidenced_pairs`, two plain `ADD COLUMN`s. No CHECK on an existing table changes.
 
@@ -1700,6 +1700,8 @@ create table vendor_requests (
 create index vendor_requests_status_idx     on vendor_requests(status);
 create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
 create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
+-- AECI-1913 (migration 0129): the Linear webhook's fallback when the workflow instance was pruned.
+create index vendor_requests_linear_issue_idx on vendor_requests(linear_issue_id) where linear_issue_id is not null;
 ```
 
 **`admin_notes` is an ANNOTATION, not a decision (AECI-739).** Four things about
@@ -1892,7 +1894,7 @@ Multi-step process tracking with approval gates.
 
 ```sql
 create table workflow_instances (
-  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
+  id text primary key not null, -- application-generated; restores may use a deterministic text id
   workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
   entity_id text not null, -- foreign key varies by workflow_type; not enforced at DB level
 
@@ -1939,6 +1941,15 @@ create table workflow_transitions (
 
 create index workflow_transitions_workflow_idx on workflow_transitions(workflow_id, created_at);
 ```
+
+**Retention for §8.2 and §8.3 (AECI-1913, ruling 51).** Both tables are part of the audit record
+and are deleted by the legal retention prune four years after the action (`STAGE_1_SPEC.md`
+§26.6). A transition goes once its `created_at` is past the cutoff. An instance goes once its
+latest action is past the cutoff, completed or not. Its latest action is the latest of
+`initiated_at`, `completed_at` and its newest transition. The instance delete cascades its
+transitions and sets `integration_field_challenges.workflow_id` and `.protest_workflow_id` to
+NULL (§8.7). A vendor hold keeps the company's instances by the workflow ties in §8.4
+"Whose row it is, for a hold". The instance of a request still `open` or `in_review` is kept while it names no actor (`initiated_by` is NULL, as on every request instance), because the reconciliation sweep retries a stuck request only through it. Its transitions still go. No other instance is kept. Writers re-create a missing instance in the batch that records its transition. The Linear webhook finds the request by its own `linear_issue_id`, and contest writers relink a new instance to the contest: a vendor or AECi decision, a retire or promote move that closes it, the reroute to AECi, the seat hand-back, and a protest reply or decision. These webhook and contest restores use a deterministic id (`restored-<kind>-<entity id>`), so a concurrent second restore collides on the primary key and its batch fails whole. Other workflow writers use their existing find-or-create logic. The Linear fallback reads the partial index `vendor_requests_linear_issue_idx` (migration `0129`).
 
 ### 8.4 `audit_log`
 
@@ -1990,7 +2001,8 @@ create index audit_log_vendor_idx on audit_log(vendor_id, created_at) where vend
 create index audit_log_product_idx on audit_log(product_id, created_at) where product_id is not null;
 ```
 
-> **Notation.** These three tables are **D1/SQLite**: ids are application-generated UUID `text`,
+> **Notation.** These three tables are **D1/SQLite**: ids are application-generated `text`
+> (usually UUIDs; restored workflow instances can use deterministic ids),
 > timestamps are ISO-8601 `text`, and JSON columns are `text` read through Drizzle's
 > `{ mode: 'json' }` — there is no `uuid`, `jsonb`, `timestamptz` or `gen_random_uuid()` in this
 > database, and SQLite indexes carry no `desc` in these definitions. Converted 2026-08-14 (AECI-587)
@@ -2095,6 +2107,17 @@ company V keeps an expired row only when the row is V's. `auditRowOfVendor` in
 | a `review` row of V's product | moderation of reviews of V's products |
 | a `vendor_request` row whose request targets V, or V's product | claims on V, including rejections, which name no vendor |
 | `actor_id` is a profile with `vendor_id = V` | what V's current seats did |
+
+**The workflow tables use the same ties (AECI-1913).** `workflowRowOfVendor` in the same file
+reads a `workflow_instances` row as V's when any of these holds. Its transitions follow it.
+
+| Tie | Reaches |
+|---|---|
+| `vendor_claim` or `correction_request` on a `vendor_requests` row that targets V or V's product | claims and corrections on V |
+| `correction_request` on an `integration_field_challenges` row V submitted or owns, or on V's integration or evidenced pair | field contests and protests about V |
+| `review_moderation` on a review of V's product | moderation of reviews of V's products |
+| `reviewer_ban` on a profile with `vendor_id = V` | bans of V's current seats |
+| `initiated_by`, or the `actor_id` of any of its transitions, is a profile with `vendor_id = V` | what V's current seats did |
 
 The ties read the tables as they are at the run. A row whose only link was an entity already
 deleted, or one a former seat wrote before `0063` with no vendor key, may not be reached: the
@@ -5500,7 +5523,7 @@ create table connector_evidenced_pairs (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at timestamptz,
   retired_by text check (retired_by in ('owner', 'aeci')),
-  vetoed_at timestamptz,  -- AECI-2042 (0131), as on integrations
+  vetoed_at timestamptz,  -- AECI-2042 (0132), as on integrations
   constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
   constraint connector_evidenced_pairs_distinct_connector
     check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)

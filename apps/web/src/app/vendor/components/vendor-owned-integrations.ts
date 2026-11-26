@@ -15,6 +15,8 @@ import { RouterLink } from '@angular/router';
 
 import { isSyncService, type OwnedIntegration } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -108,6 +110,8 @@ export function ownedRowsInScope(
 @Component({
   selector: 'aec-vendor-owned-integrations',
   imports: [
+    AecButton,
+    AecCard,
     RouterLink,
     VendorDocsLink,
     VendorIntegrationEditForm,
@@ -137,7 +141,7 @@ export function ownedRowsInScope(
             </h2>
             @if (onSyncService()) {
               <p
-                class="max-w-prose text-sm text-(--text-secondary)"
+                class="max-w-[30rem] text-sm text-(--text-secondary)"
                 i18n="@@vendor.ownedIntegrations.intro.syncService"
               >
                 Your company is recorded as the owner of these integrations. They are listed here,
@@ -146,7 +150,7 @@ export function ownedRowsInScope(
               </p>
             } @else {
               <p
-                class="max-w-prose text-sm text-(--text-secondary)"
+                class="max-w-[30rem] text-sm text-(--text-secondary)"
                 i18n="@@vendor.ownedIntegrations.intro"
               >
                 Your company is recorded as the owner of these integrations. They are listed here,
@@ -158,18 +162,12 @@ export function ownedRowsInScope(
           </div>
         }
 
-        <ul class="m-0 list-none space-y-4 p-0">
+        <!-- AECI-1811: one card, the rows divided by hairlines. -->
+        <ul aecCard class="m-0 list-none divide-y divide-(--border-default) p-0">
           @for (row of rows(); track row.id) {
-            <li
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-              [attr.data-owned-row]="row.id"
-            >
-              <div class="px-4 py-3">
-                <h3 class="m-0">
-                  <span class="block font-display text-lg font-semibold text-(--text-primary)">{{
-                    title(row)
-                  }}</span>
-                </h3>
+            <li class="p-6" [attr.data-owned-row]="row.id">
+              <div>
+                <h3 class="m-0">{{ title(row) }}</h3>
                 <p class="mt-1 text-sm text-(--text-secondary)" data-testid="owned-route">
                   {{ route(row) }}
                 </p>
@@ -185,7 +183,7 @@ export function ownedRowsInScope(
                   >
                 </p>
               </div>
-              <div class="border-t border-(--border-default) px-4 py-3">
+              <div class="mt-4">
                 <p
                   #status
                   tabindex="-1"
@@ -197,15 +195,17 @@ export function ownedRowsInScope(
                 </p>
                 @switch (stateOf(row)) {
                   @case ('claimed') {
-                    <div class="mt-3">
+                    <div class="mt-4">
                       <button
                         #editTrigger
+                        aecButton
+                        variant="secondary"
+                        compact
                         type="button"
                         [attr.data-edit-for]="row.id"
                         [attr.aria-expanded]="editingId() === row.id"
                         [attr.aria-controls]="formPrefix(row) + '-form'"
                         (click)="toggleEdit(row)"
-                        [class]="triggerClass"
                         data-testid="edit-owned-integration"
                         i18n="@@vendor.ownedIntegrations.edit"
                       >
@@ -231,7 +231,7 @@ export function ownedRowsInScope(
                          caller makes one of the two products, only the other side is. -->
                     @if (holdsEndpoint(row)) {
                       <p
-                        class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+                        class="mt-2 max-w-prose text-xs text-(--text-secondary)"
                         data-testid="claim-hint"
                         i18n="@@vendor.ownedIntegrations.claimHintOtherSide"
                       >
@@ -241,7 +241,7 @@ export function ownedRowsInScope(
                       </p>
                     } @else {
                       <p
-                        class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+                        class="mt-2 max-w-prose text-xs text-(--text-secondary)"
                         data-testid="claim-hint"
                         i18n="@@vendor.ownedIntegrations.claimHint"
                       >
@@ -253,10 +253,10 @@ export function ownedRowsInScope(
                     <!-- AECI-1225: while the vendor's own "not ours" stands, the claim
                          is not offered beside it. -->
                     @if (!notOursStands(row)) {
-                      <div class="mt-3">
+                      <div class="mt-4">
                         <button
+                          aecButton
                           type="button"
-                          [class]="primaryButtonClass"
                           [disabled]="claimingId() !== null"
                           (click)="onClaim(row)"
                           data-testid="claim-owned-integration"
@@ -273,7 +273,7 @@ export function ownedRowsInScope(
                     }
                     <!-- AECI-1225: the checklist's "say not ours". -->
                     <aec-vendor-not-ours
-                      class="mt-3"
+                      class="mt-4"
                       [integrationId]="row.id"
                       [anchor]="row.anchor"
                       [productA]="row.product_a.name"
@@ -288,7 +288,7 @@ export function ownedRowsInScope(
                 <!-- AECI-1091: retire and restore. Renders nothing on an unclaimed row. -->
                 <aec-vendor-owned-retire [row]="row" [statusLine]="status" />
                 @if (notice()?.id === row.id) {
-                  <p role="alert" class="mt-3 text-sm font-medium text-(--text-primary)">
+                  <p role="alert" class="mt-4 text-sm font-semibold text-(--text-primary)">
                     {{ notice()!.message }}
                   </p>
                 }
@@ -454,11 +454,5 @@ export class VendorOwnedIntegrations {
   }
 
   protected readonly detailLinkClass =
-    'inline-flex min-h-6 items-center rounded-mark text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-flex min-h-6 items-center rounded-mark text-sm font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 }

@@ -36,7 +36,26 @@ import { VendorLockedNote } from './vendor-locked-note';
 import { editFieldLabel } from './vendor-contest-labels';
 import { editSaveErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  PORTAL_FIELDSET_CLASS,
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_LEGEND_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
@@ -111,27 +130,28 @@ export type EditFormOutcome = 'saved' | 'cancelled';
  */
 @Component({
   selector: 'aec-vendor-integration-edit-form',
-  imports: [VendorHiddenNote, VendorLockedNote],
-  styles: [':host { display: block; }'],
+  imports: [AecButton, AecIcon, KeepClearOfSaveBar, VendorHiddenNote, VendorLockedNote],
+  styles: [':host { display: block; margin-top: 1.5rem; }'],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       [id]="fieldId('form')"
-      class="mt-4 space-y-6"
+      [class]="formClass"
       novalidate
       (submit)="onSave($event)"
       [attr.aria-labelledby]="fieldId('title')"
     >
-      <div class="max-w-prose space-y-1">
+      <div class="mb-8 max-w-prose space-y-1">
         <p
           [id]="fieldId('title')"
-          class="text-sm font-semibold text-(--text-primary)"
+          class="font-display text-t-20 font-semibold text-(--text-primary)"
           i18n="@@vendor.integrationEdit.title"
         >
           Edit this integration
         </p>
         <p
-          class="max-w-prose text-xs text-(--text-secondary)"
+          class="max-w-prose text-sm text-(--text-secondary)"
           i18n="@@vendor.integrationEdit.intro"
         >
           Changes go live on the public integration page as soon as you save. There is no review
@@ -139,7 +159,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
         </p>
         @if (connectorDelivered()) {
           <p
-            class="max-w-prose text-xs text-(--text-secondary)"
+            class="max-w-prose text-sm text-(--text-secondary)"
             data-testid="edit-frozen-type"
             i18n="@@vendor.integrationEdit.connectorTypeFrozen.v2"
           >
@@ -150,120 +170,123 @@ export type EditFormOutcome = 'saved' | 'cancelled';
       </div>
 
       @for (group of groups(); track group.key) {
-        <fieldset class="space-y-4">
+        <fieldset [class]="fieldsetClass">
           <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
-          @for (field of group.fields; track field) {
-            <div class="max-w-2xl space-y-2">
-              <label [for]="fieldId(field)" [class]="labelClass">
-                {{ fieldLabel(field) }}
-                @if (!required(field)) {
-                  <span class="font-normal tracking-normal normal-case">{{ optionalLabel }}</span>
-                }
-              </label>
-              @if (lockOf(field); as lock) {
-                <!-- AECI-1237: a field AEC Integrations locked is shown, not edited. -->
-                <input
-                  [id]="fieldId(field)"
-                  type="text"
-                  readonly
-                  [value]="displayValue(field)"
-                  [attr.aria-describedby]="fieldId(field) + '-locked'"
-                  [class]="lockedInputClass"
-                />
-                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(field) + '-locked'" />
-              } @else {
-                @switch (control(field)) {
-                  @case ('textarea') {
-                    <textarea
-                      [id]="fieldId(field)"
-                      rows="4"
-                      [attr.maxlength]="maxLength(field)"
-                      [value]="draft()[field]"
-                      (input)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="describedBy(field)"
-                      [class]="inputClass"
-                    ></textarea>
+          <div [class]="gridClass">
+            @for (field of group.fields; track field) {
+              <div [class]="field === 'description' ? fieldClass + ' ' + spanClass : fieldClass">
+                <label [for]="fieldId(field)" [class]="labelClass">
+                  {{ fieldLabel(field) }}
+                  @if (!required(field)) {
+                    <span [class]="optionalClass">{{ optionalLabel }}</span>
                   }
-                  @case ('url') {
-                    <input
-                      [id]="fieldId(field)"
-                      type="url"
-                      inputmode="url"
-                      autocomplete="url"
-                      [attr.maxlength]="maxLength(field)"
-                      [value]="draft()[field]"
-                      (input)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="describedBy(field)"
-                      [class]="inputClass"
-                    />
-                  }
-                  @case ('text') {
-                    <input
-                      [id]="fieldId(field)"
-                      type="text"
-                      [attr.maxlength]="maxLength(field)"
-                      [value]="draft()[field]"
-                      (input)="onInput(field, inputValue($event))"
-                      [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="describedBy(field)"
-                      [class]="inputClass"
-                    />
-                  }
-                  @default {
-                    <div class="relative max-w-sm">
-                      <select
+                </label>
+                @if (lockOf(field); as lock) {
+                  <!-- AECI-1237: a field AEC Integrations locked is shown, not edited. -->
+                  <input
+                    [id]="fieldId(field)"
+                    type="text"
+                    readonly
+                    [value]="displayValue(field)"
+                    [attr.aria-describedby]="fieldId(field) + '-locked'"
+                    [class]="lockedInputClass"
+                  />
+                  <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(field) + '-locked'" />
+                } @else {
+                  @switch (control(field)) {
+                    @case ('textarea') {
+                      <textarea
                         [id]="fieldId(field)"
-                        (change)="onInput(field, selectValue($event))"
+                        rows="4"
+                        [attr.maxlength]="maxLength(field)"
+                        [value]="draft()[field]"
+                        (input)="onInput(field, inputValue($event))"
                         [attr.aria-invalid]="showError(field) ? 'true' : null"
                         [attr.aria-describedby]="describedBy(field)"
-                        [class]="selectClass"
-                      >
-                        @if (draft()[field] === '') {
-                          <option value="" disabled selected>{{ choosePlaceholder }}</option>
-                        }
-                        @for (option of optionsFor(field); track option.value) {
-                          <option
-                            [value]="option.value"
-                            [selected]="option.value === draft()[field]"
-                          >
-                            {{ option.label }}
-                          </option>
-                        }
-                      </select>
-                      <svg
-                        class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="m6 9 6 6 6-6" />
-                      </svg>
-                    </div>
+                        [class]="inputClass"
+                      ></textarea>
+                    }
+                    @case ('url') {
+                      <input
+                        [id]="fieldId(field)"
+                        type="url"
+                        inputmode="url"
+                        autocomplete="url"
+                        [attr.maxlength]="maxLength(field)"
+                        [value]="draft()[field]"
+                        (input)="onInput(field, inputValue($event))"
+                        [attr.aria-invalid]="showError(field) ? 'true' : null"
+                        [attr.aria-describedby]="describedBy(field)"
+                        [class]="inputClass"
+                      />
+                    }
+                    @case ('text') {
+                      <input
+                        [id]="fieldId(field)"
+                        type="text"
+                        [attr.maxlength]="maxLength(field)"
+                        [value]="draft()[field]"
+                        (input)="onInput(field, inputValue($event))"
+                        [attr.aria-invalid]="showError(field) ? 'true' : null"
+                        [attr.aria-describedby]="describedBy(field)"
+                        [class]="inputClass"
+                      />
+                    }
+                    @default {
+                      <div class="relative">
+                        <select
+                          [id]="fieldId(field)"
+                          (change)="onInput(field, selectValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="describedBy(field)"
+                          [class]="selectClass"
+                        >
+                          @if (draft()[field] === '') {
+                            <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                          }
+                          @for (option of optionsFor(field); track option.value) {
+                            <option
+                              [value]="option.value"
+                              [selected]="option.value === draft()[field]"
+                            >
+                              {{ option.label }}
+                            </option>
+                          }
+                        </select>
+                        <span [class]="selectChevronClass">
+                          <aec-icon name="chevron-down" decorative [size]="4" />
+                        </span>
+                      </div>
+                    }
+                  }
+                  <!-- AECI-1238 (§11d.7): hidden from the public page, still editable. -->
+                  @if (hideOf(field); as hide) {
+                    <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(field) + '-hidden'" />
                   }
                 }
-                <!-- AECI-1238 (§11d.7): hidden from the public page, still editable. -->
-                @if (hideOf(field); as hide) {
-                  <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(field) + '-hidden'" />
+                @if (showError(field)) {
+                  <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
+                    {{ errorFor(field) }}
+                  </p>
                 }
-              }
-              @if (showError(field)) {
-                <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
-                  {{ errorFor(field) }}
-                </p>
-              }
-            </div>
-          }
+              </div>
+            }
+          </div>
         </fieldset>
       }
 
-      <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
-        <button type="submit" [class]="primaryButtonClass" [disabled]="saving()">
+      <!-- The save bar, sticky at the foot of the form. This form sits inside a row of
+           the owned list, not at the foot of its own card, so the bar keeps to the
+           row's width rather than pulling out over a card's padding. -->
+      <div [class]="saveBarClass">
+        <div [class]="saveStatusClass">
+          @if (saveNotice(); as message) {
+            <p role="alert" class="font-semibold text-(--text-primary)">
+              {{ message }}
+            </p>
+          }
+        </div>
+        <button aecButton type="submit" [class]="saveButtonClass" [disabled]="saving()">
           @if (saving()) {
             <span i18n="@@vendor.integrationEdit.saving">Saving…</span>
           } @else {
@@ -271,8 +294,10 @@ export type EditFormOutcome = 'saved' | 'cancelled';
           }
         </button>
         <button
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="secondaryButtonClass"
+          [class]="saveButtonClass"
           [disabled]="saving()"
           (click)="closed.emit('cancelled')"
           i18n="@@vendor.integrationEdit.cancel"
@@ -280,12 +305,6 @@ export type EditFormOutcome = 'saved' | 'cancelled';
           Cancel
         </button>
       </div>
-
-      @if (saveNotice(); as message) {
-        <p role="alert" class="text-sm font-medium text-(--text-primary)">
-          {{ message }}
-        </p>
-      }
     </form>
   `,
 })
@@ -519,19 +538,35 @@ export class VendorIntegrationEditForm implements OnInit {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
   }
 
-  protected readonly selectClass =
-    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly legendClass = 'mb-3 text-sm font-semibold text-(--text-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly lockedInputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  // AECI-1811: the portal form layout (`vendor/shared/portal-form.ts`) and the shared
+  // field recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly fieldsetClass = PORTAL_FIELDSET_CLASS;
+  protected readonly legendClass = PORTAL_LEGEND_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  /**
+   * The portal save bar without its pull over a card's padding: this form sits inside
+   * an owned row, above the row's retire controls, so `PORTAL_SAVE_BAR_CLASS`'s
+   * negative margins would run it into them. Same sticky foot, hairline, order and
+   * wrap. It keeps the `aec-portal-save-bar` marker, so `PORTAL_FORM_CLASS` still
+   * leaves its own buttons out of the scroll margin.
+   */
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly selectChevronClass =
+    'pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)';
+  /** A field AECi locked: the field recipe, read-only on the sunken surface (DESIGN.md "Locked field"). */
+  protected readonly lockedInputClass = FIELD_INPUT_CLASS.replace(
+    'bg-(--surface-base)',
+    'bg-(--surface-sunken)',
+  );
 }
 
 function emptyDraft(): Draft {

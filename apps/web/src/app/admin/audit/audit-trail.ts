@@ -18,7 +18,31 @@ import { RelativeTime } from '../../shared/relative-time/relative-time';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminCursorPaginator } from '../admin-cursor-paginator';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_TABLE } from '../console/console-table';
+import { AecButton } from '../../shared/button/button';
+import { AdminDisclosureButton } from '../console/disclosure-button';
 import { describeAuditAction } from './audit-action-labels';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
+
+/**
+ * The trail's looks beyond the console table recipe (AECI-2128). Shared with
+ * `/admin/audit`, which renders the trail under its own filters.
+ */
+export const AUDIT_CLASSES = {
+  /** A loading line. 16px secondary. */
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
+  /** A load failure: the sentence, then its Try again button. */
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
+  /** The sentence of a load failure. */
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
+  /** A link inside a cell: Forest, underlined, so it reads as a filter link. */
+  inlineLink:
+    'rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+} as const;
 
 /** One row of a `before_state` to `after_state` diff. */
 export interface DiffRow {
@@ -95,7 +119,15 @@ export const AUDIT_TRAIL_RESULT_ID = 'audit-trail-result';
  */
 @Component({
   selector: 'aec-audit-trail',
-  imports: [AdminCursorPaginator, AdminPaginator, RelativeTime, RouterLink, SortHeader],
+  imports: [
+    AdminCursorPaginator,
+    AdminDisclosureButton,
+    AdminPaginator,
+    AecButton,
+    RelativeTime,
+    RouterLink,
+    SortHeader,
+  ],
   templateUrl: './audit-trail.html',
 })
 export class AuditTrail {
@@ -169,6 +201,18 @@ export class AuditTrail {
   protected readonly topPagerLabel = $localize`:@@admin.audit.pager.top:Pagination, above the table`;
   protected readonly bottomPagerLabel = $localize`:@@admin.audit.pager.bottom:Pagination, below the table`;
   protected readonly whenLabel = $localize`:@@admin.audit.col.when:When`;
+  /** The leading toggle cell: the console's disclosure cell, widened for the
+   *  toggle's visible words ("Show changes", ruled on PR #1495). */
+  protected readonly toggleCellClass =
+    'py-0 ps-1 pe-3 align-middle whitespace-nowrap border-b border-(--border-default)';
+
+  protected readonly tc = CONSOLE_TABLE;
+  protected readonly statusLineClass = AUDIT_CLASSES.statusLine;
+  protected readonly loadFailedClass = AUDIT_CLASSES.loadFailed;
+  protected readonly failedTextClass = AUDIT_CLASSES.failedText;
+  protected readonly inlineLinkClass = AUDIT_CLASSES.inlineLink;
+  /** The trail renders once per page, so one caption id is enough. */
+  protected readonly captionId = 'audit-trail-caption';
 
   /**
    * Ids of the rows whose diff is expanded. Collapsed by default: most rows are

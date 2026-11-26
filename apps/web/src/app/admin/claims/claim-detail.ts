@@ -1,8 +1,24 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { injectInPageHref } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
@@ -20,6 +36,20 @@ import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { QUEUE_BODY_CLASS, QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FOREST_LINK_CLASS,
+  CONSOLE_NEUTRAL_BOX_CLASS,
+} from '../console/console-detail';
 
 /** Same page size as the vendor and connector trails. */
 const AUDIT_PAGE_SIZE = 25;
@@ -47,7 +77,7 @@ const AUDIT_PAGE_SIZE = 25;
  * fetches in `afterNextRender`, so it never reads a cookie or a session directly.
  *
  * 1. **Claim** — submitter, target, status, body, source and Linear links.
- * 2. **Verification signals** — the same evidence the queue card carries,
+ * 2. **Verification signals** — the same evidence the queue row carries,
  *    including the §5.2 payer test through the SHARED `productRolesLabel`, so the
  *    two screens cannot describe one vendor differently.
  * 3. **Operator note** — the write this issue adds. Free text, admin-only, never
@@ -71,8 +101,10 @@ const AUDIT_PAGE_SIZE = 25;
 @Component({
   selector: 'aec-claim-detail',
   imports: [
+    AecButton,
     AecFormSubmit,
     AuditTrail,
+    Chip,
     ClaimAccountConflict,
     DatePipe,
     DomainMatchSignal,
@@ -88,6 +120,27 @@ export class ClaimDetail {
   protected readonly duplicateHref = injectInPageHref('admin-claim-duplicate');
 
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  // AECI-2111: the console's detail page (mock-up 14): flat panels, labelled facts.
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly factsClass = CONSOLE_FACTS_CLASS;
+  protected readonly valueClass = CONSOLE_FACT_VALUE_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly neutralBoxClass = CONSOLE_NEUTRAL_BOX_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
+  protected readonly tableLinkClass = CONSOLE_TABLE.link;
+  protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** The duplicate chip's link: no underline of its own, the chip is the target. */
+  protected readonly chipLinkClass =
+    'inline-flex rounded-pill no-underline hover:opacity-80 focus-visible:outline-3 focus-visible:outline-offset-3';
+  protected readonly tone = adminStatusTone;
 
   protected readonly claimId = signal(this.route.snapshot.paramMap.get('id') ?? '');
   protected readonly claim = signal<AdminClaimDetail | null>(null);
@@ -231,6 +284,14 @@ export class ClaimDetail {
       );
     } catch (err) {
       this.noteFailed.set(this.noteErrorMessage(err));
+      // A failed save moves focus to its message (the console's danger-pattern rule).
+      afterNextRender(
+        {
+          write: () =>
+            this.host.nativeElement.querySelector<HTMLElement>('#admin-claim-note-failed')?.focus(),
+        },
+        { injector: this.injector },
+      );
     } finally {
       this.notePending.set(false);
     }
@@ -291,6 +352,26 @@ export class ClaimDetail {
       case 'rejected':
         return $localize`:@@admin.claims.detail.status.rejected:Rejected`;
     }
+  }
+
+  /** The chip tone for a claim status. Exhaustive, so a new status is a compile error. */
+  protected statusTone(status: AdminClaimDetail['status']) {
+    let key: AdminStatusKey;
+    switch (status) {
+      case 'open':
+        key = 'open';
+        break;
+      case 'in_review':
+        key = 'inReview';
+        break;
+      case 'resolved':
+        key = 'approved';
+        break;
+      case 'rejected':
+        key = 'rejected';
+        break;
+    }
+    return adminStatusTone(key);
   }
 
   /** AECI-1420: the claimant's address is a site admin or holds a seat on another

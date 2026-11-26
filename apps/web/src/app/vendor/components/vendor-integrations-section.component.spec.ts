@@ -63,12 +63,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 async function create(
-  options: { canAuthor?: boolean; contextProductId?: string | null; urlState?: boolean } = {},
+  options: { canAuthor?: boolean; contextProductId?: string; urlState?: boolean } = {},
 ): Promise<ComponentFixture<VendorIntegrationsSection>> {
   const fixture = TestBed.createComponent(VendorIntegrationsSection);
   fixture.componentRef.setInput('canAuthor', options.canAuthor ?? true);
   fixture.componentRef.setInput('vendorName', 'Summit BIM');
-  fixture.componentRef.setInput('contextProductId', options.contextProductId ?? null);
+  // AECI-1811: the section is always scoped to a product, as the routed page does it.
+  fixture.componentRef.setInput('contextProductId', options.contextProductId ?? PRIMARY);
   fixture.componentRef.setInput('urlState', options.urlState ?? false);
   for (let n = 0; n < 3; n++) {
     fixture.detectChanges();
@@ -90,11 +91,15 @@ const chip = (fixture: ComponentFixture<unknown>, key: string) =>
 
 const PROCORE = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
 const PRIMARY = PROCORE.context_product.id;
+/** The rows filed under the primary product: what the default tab lists. */
+const ON_PRIMARY = VENDOR_INTEGRATIONS_FIXTURE.integrations.filter(
+  (i) => i.context_product.id === PRIMARY,
+).length;
 
 describe('VendorIntegrationsSection — rows link to the page (§6.17.1)', () => {
   it('renders one link per integration', async () => {
     const fixture = await create();
-    expect(rows(fixture)).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+    expect(rows(fixture)).toHaveLength(ON_PRIMARY);
   });
 
   it('links each row to its own page', async () => {
@@ -146,7 +151,9 @@ describe('VendorIntegrationsSection — rows link to the page (§6.17.1)', () =>
       ],
     });
     api.getContests.mockResolvedValue({ submitted: [], received: [CONTEST_RECEIVED_ON_OWNED] });
-    const fixture = await create();
+    const fixture = await create({
+      contextProductId: INTEGRATION_OWNED_CLAIMED.context_product.id,
+    });
     expect(rowFor(fixture, INTEGRATION_OWNED_CLAIMED.id)!.textContent).toContain(
       'Needs your decision',
     );
@@ -156,11 +163,10 @@ describe('VendorIntegrationsSection — rows link to the page (§6.17.1)', () =>
 describe('VendorIntegrationsSection — status chips', () => {
   it('offers All plus every status that has a result, with counts', async () => {
     const fixture = await create();
-    expect(chip(fixture, 'all').textContent).toContain(
-      String(VENDOR_INTEGRATIONS_FIXTURE.integrations.length),
-    );
+    expect(chip(fixture, 'all').textContent).toContain(String(ON_PRIMARY));
     expect(chip(fixture, 'disagreement')).not.toBeNull();
-    expect(chip(fixture, 'needs_answer')).not.toBeNull();
+    // The other product's "needs your answer" row is not on this tab, so its chip is not either.
+    expect(el(fixture).querySelector('[data-testid="status-chip-needs_answer"]')).toBeNull();
     expect(el(fixture).querySelector('[data-testid="status-chip-retired"]')).toBeNull();
   });
 
@@ -177,7 +183,7 @@ describe('VendorIntegrationsSection — status chips', () => {
     )!;
     clear.click();
     fixture.detectChanges();
-    expect(rows(fixture)).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+    expect(rows(fixture)).toHaveLength(ON_PRIMARY);
   });
 
   it('maps the old §6.3 status values to their nearest key', () => {
@@ -264,7 +270,7 @@ describe('VendorIntegrationsSection — the load ladder', () => {
     const fixture = await create({ canAuthor: false });
     expect(text(fixture)).toContain('Answering is not available for these integrations right now.');
     expect(text(fixture)).not.toContain('active vendor access');
-    expect(rows(fixture)).toHaveLength(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+    expect(rows(fixture)).toHaveLength(ON_PRIMARY);
   });
 
   it('opens an owns-both row on a Free tab when the other endpoint is licensed (AECI-1355)', async () => {
@@ -299,10 +305,13 @@ describe('VendorIntegrationsSection — the load ladder', () => {
 describe('VendorIntegrationsSection — per-product scoping', () => {
   it('shows only the entries filed under the given product', async () => {
     const fixture = await create({ contextProductId: PRIMARY });
-    const expected = VENDOR_INTEGRATIONS_FIXTURE.integrations.filter(
-      (i) => i.context_product.id === PRIMARY,
-    ).length;
-    expect(rows(fixture)).toHaveLength(expected);
+    expect(ON_PRIMARY).toBeLessThan(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+    expect(rows(fixture)).toHaveLength(ON_PRIMARY);
+  });
+
+  it('lists nothing while the product id is still empty, never every product', async () => {
+    const fixture = await create({ contextProductId: '' });
+    expect(rows(fixture)).toHaveLength(0);
   });
 
   it('issues ONE vendor-wide read, not one per product', async () => {

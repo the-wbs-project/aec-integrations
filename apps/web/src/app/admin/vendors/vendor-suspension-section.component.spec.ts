@@ -712,3 +712,181 @@ describe('the suspension model', () => {
     ).toContain('stage 2 window');
   });
 });
+
+describe('VendorSuspensionSection on the console recipe (AECI-2124)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const active = () => document.activeElement as HTMLElement | null;
+
+  it('draws no box inside the panel: the stages are parts under a hairline', async () => {
+    const { el } = await setup(stateOf(suspension({ can_start_stage_2: true })));
+    for (const id of [
+      'suspension-stage-2',
+      'suspension-cost-log',
+      'suspension-terminate',
+      'suspension-lift',
+    ]) {
+      const part = el.querySelector(`[data-testid="${id}"]`)!;
+      expect(part.className).toContain('border-t');
+      expect(part.className).not.toContain('rounded');
+      expect(part.className).not.toContain('p-4');
+    }
+    // The state is the console's Bone notice.
+    expect(el.querySelector('[data-testid="suspension-banner"]')!.className).toContain(
+      'bg-(--accent-warm)',
+    );
+  });
+
+  it('Suspend and stage 2 confirm with danger; Lift with primary; openers are secondary', async () => {
+    const none = await setup(stateOf(null));
+    expect(none.button('Suspend')!.className).toContain('aec-btn-secondary');
+    none.button('Suspend')!.click();
+    await none.refresh();
+    expect(none.button('Suspend and send the notice')!.className).toContain('bg-(--status-error)');
+
+    const open = await setup(stateOf(suspension({ can_start_stage_2: true })));
+    expect(open.button('Start stage 2')!.className).toContain('aec-btn-secondary');
+    open.button('Start stage 2')!.click();
+    await open.refresh();
+    expect(open.button('Start stage 2 and send the notice')!.className).toContain(
+      'bg-(--status-error)',
+    );
+    expect(open.button('Lift the suspension')!.className).toContain('aec-btn-secondary');
+  });
+
+  it('Lift confirms with primary', async () => {
+    const { refresh, button } = await setup(stateOf(suspension()));
+    button('Lift the suspension')!.click();
+    await refresh();
+    expect(button('Lift and restore every seat')!.className).toContain('bg-(--accent-primary)');
+  });
+
+  it('Escape closes each form and returns focus to its opener', async () => {
+    const none = await setup(stateOf(null));
+    none.button('Suspend')!.click();
+    await none.refresh();
+    escape(none.el.querySelector('[id="host-suspend-rule"]')!);
+    await none.refresh();
+    expect(none.el.querySelector('[id="host-suspend-rule"]')).toBeNull();
+    expect(active()).toBe(none.button('Suspend'));
+
+    const open = await setup(stateOf(suspension({ can_start_stage_2: true })));
+    open.button('Start stage 2')!.click();
+    await open.refresh();
+    escape(open.el.querySelector('[id="host-stage2-finding"]')!);
+    await open.refresh();
+    expect(open.el.querySelector('[id="host-stage2-finding"]')).toBeNull();
+    expect(active()).toBe(open.button('Start stage 2'));
+
+    open.button('Lift the suspension')!.click();
+    await open.refresh();
+    open.button('Cancel')!.click();
+    await open.refresh();
+    expect(open.el.querySelector('[id="host-lift-reason"]')).toBeNull();
+    expect(active()).toBe(open.button('Lift the suspension'));
+  });
+
+  it('Escape does nothing while the suspend runs', async () => {
+    let resolve!: (r: unknown) => void;
+    const suspend = vi.fn(() => new Promise((done) => (resolve = done)));
+    const { el, refresh, button, type } = await setup(stateOf(null), { suspend });
+    button('Suspend')!.click();
+    await refresh();
+    type('host-suspend-rule', 'Rule 4');
+    type('host-suspend-evidence', 'Screenshots');
+    type('host-suspend-reason', 'Internal');
+    await refresh();
+    button('Suspend and send the notice')!.click();
+    await refresh();
+    expect(suspend).toHaveBeenCalled();
+    escape(el.querySelector('[id="host-suspend-rule"]')!);
+    await refresh();
+    expect(el.querySelector('[id="host-suspend-rule"]')).not.toBeNull();
+    expect(el.querySelector('form')?.getAttribute('aria-busy')).toBe('true');
+    resolve({ suspension: suspension(), notice_sent: true });
+    await refresh();
+    expect(el.querySelector('[id="host-suspend-rule"]')).toBeNull();
+  });
+});
+
+describe('the suspension parts on the console recipe (AECI-2124 review)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const active = () => document.activeElement as HTMLElement | null;
+  const ready = () => suspension({ can_terminate: true });
+
+  it('Terminate: no box, a hairline statement, a secondary opener and a danger confirm', async () => {
+    const { el, button, refresh } = await setup(stateOf(ready()));
+    const statement = el.querySelector('[data-testid="suspension-statement-preview"]')!;
+    expect(statement.className).toContain('border-y');
+    expect(statement.className).not.toContain('rounded');
+    expect(statement.className).not.toContain('p-3');
+    expect(button('Terminate')!.className).toContain('aec-btn-secondary');
+    button('Terminate')!.click();
+    await refresh();
+    expect(button('Terminate and refund $400.00')!.className).toContain('bg-(--status-error)');
+    expect(el.querySelector('[data-terminate-warning]')!.className).toContain('bg-(--accent-warm)');
+  });
+
+  it('Terminate: Cancel and Escape close the step and return focus to Terminate', async () => {
+    const { el, button, refresh, api } = await setup(stateOf(ready()));
+    button('Terminate')!.click();
+    await refresh();
+    expect(active()).toBe(el.querySelector('[data-terminate-warning]'));
+    escape(el.querySelector('[data-terminate-warning]')!);
+    await refresh();
+    expect(button('Terminate and refund $400.00')).toBeUndefined();
+    expect(active()).toBe(button('Terminate'));
+
+    button('Terminate')!.click();
+    await refresh();
+    button('Cancel')!.click();
+    await refresh();
+    expect(active()).toBe(button('Terminate'));
+    expect(api.terminate).not.toHaveBeenCalled();
+  });
+
+  it('Terminate: Escape does nothing while it runs, and a refusal takes focus', async () => {
+    let reject!: (e: unknown) => void;
+    const terminate = vi.fn(() => new Promise((_, no) => (reject = no)));
+    const { el, button, refresh } = await setup(stateOf(ready()), { terminate });
+    button('Terminate')!.click();
+    await refresh();
+    button('Terminate and refund $400.00')!.click();
+    await refresh();
+    escape(el.querySelector('[data-terminate-warning]')!);
+    await refresh();
+    expect(el.querySelector('[data-terminate-warning]')).not.toBeNull();
+    reject(apiError(503, 'VENDOR_TERMINATION_STRIPE_UNAVAILABLE'));
+    await refresh();
+    expect(active()?.getAttribute('role')).toBe('alert');
+  });
+
+  it('Cost log: the console table, a secondary opener, Escape closes and returns focus', async () => {
+    const { el, button, refresh } = await setup(stateOf(suspension({ cost_log: [ENTRY] })));
+    const region = el.querySelector('[data-testid="suspension-cost-log"] [role="region"]')!;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    expect(el.querySelector(`[id="${region.getAttribute('aria-labelledby')}"]`)?.tagName).toBe(
+      'CAPTION',
+    );
+    expect(button('Add a cost entry')!.className).toContain('aec-btn-secondary');
+    button('Add a cost entry')!.click();
+    await refresh();
+    expect(active()).toBe(el.querySelector('[id="host-cost-kind-staff"]'));
+    expect(button('Log this cost')!.className).toContain('bg-(--accent-primary)');
+    escape(el.querySelector('[id="host-cost-description"]')!);
+    await refresh();
+    expect(el.querySelector('[id="host-cost-description"]')).toBeNull();
+    expect(active()).toBe(button('Add a cost entry'));
+
+    button('Void')!.click();
+    await refresh();
+    expect(active()).toBe(el.querySelector('[id="host-void-reason-e1"]'));
+    escape(el.querySelector('[id="host-void-reason-e1"]')!);
+    await refresh();
+    expect(el.querySelector('[id="host-void-reason-e1"]')).toBeNull();
+    expect(active()).toBe(button('Void'));
+  });
+});

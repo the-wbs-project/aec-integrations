@@ -121,6 +121,23 @@ describe('VendorGlanceBand — populated', () => {
     expect(conflict?.querySelector('.bg-\\(--status-error\\) svg')).not.toBeNull();
   });
 
+  it('draws every tile on the shared white card, and only a link tile lifts (AECI-1810)', async () => {
+    const fixture = await create((h) => {
+      h.total.set(2);
+      h.products.set([SUMMIT]);
+    });
+    const conflict = tile(fixture, 'conflict');
+    const suggestions = tile(fixture, 'suggestions');
+    for (const t of [conflict, suggestions]) {
+      expect(t?.classList.contains('aec-card')).toBe(true);
+      expect(t?.classList.contains('rounded-card')).toBe(true);
+      expect(t?.parentElement?.classList.contains('group/card')).toBe(true);
+    }
+    // The conflict tile is a link here and lifts; the none-open tile does not.
+    expect(conflict?.className).toContain('motion-safe:group-hover/card:-translate-y-1');
+    expect(suggestions?.className).not.toContain('-translate-y-1');
+  });
+
   it('says "Across N products" when conflicts span several', async () => {
     const fixture = await create((h) => {
       h.total.set(3);

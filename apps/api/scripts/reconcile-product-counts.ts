@@ -109,7 +109,7 @@ export interface RetiredColumns {
   /** Whether `products.hidden_at` exists yet (migration `0113`, AECI-1238). Optional,
    *  read as true when absent. A row touching a hidden product is not live. */
   productsHidden?: boolean;
-  /** Whether `vetoed_at` exists yet on both edge tables (migration `0131`, AECI-2042).
+  /** Whether `vetoed_at` exists yet on both edge tables (migration `0132`, AECI-2042).
    *  Optional, read as true when absent. A vetoed row is not live. */
   vetoed?: boolean;
 }
@@ -293,7 +293,7 @@ function retiredColumnsOf(target: Target): RetiredColumns {
     // AECI-1613: an absent table reads as no row, so the averages use each review's
     // own rating until `0108` reaches the tier. A failed read still throws.
     reviewUpdates: readDdl(target, REVIEW_UPDATES_DDL_QUERY, 'review_updates') !== undefined,
-    // AECI-2042: `vetoed_at` (`0131`) on both edge tables. Without it no row is vetoed.
+    // AECI-2042: `vetoed_at` (`0132`) on both edge tables. Without it no row is vetoed.
     vetoed: ddlHasVetoedColumn(
       integrationsDdlOrThrow(readDdl(target, INTEGRATIONS_DDL_QUERY, 'integrations')),
     ),

@@ -1,8 +1,8 @@
-<div
-  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-  [attr.aria-labelledby]="labelledBy()"
->
-  <p class="text-sm text-(--text-primary)">
+<!-- AECI-2125: the console language. A hairline above it inside the Catalogue
+     panel, a secondary opener, the field recipe, and a primary confirm: either
+     move can be undone by the other, so neither is a danger action. -->
+<div class="border-t border-(--border-default) pt-6" [attr.aria-labelledby]="labelledBy()">
+  <p class="max-w-prose text-t-14 text-(--text-primary)">
     @if (frozen()) {
     <span i18n="@@admin.connectors.managed.state.vendor">
       This catalogue is vendor-managed. The review lane is frozen for it: the review app's sync is
@@ -16,11 +16,7 @@
   </p>
 
   @if (!formMode()) {
-  <button
-    type="button"
-    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    (click)="openForm()"
-  >
+  <button aecButton variant="secondary" compact class="mt-4" (click)="openForm()">
     @if (frozen()) {
     <span i18n="@@admin.connectors.managed.action.reclaim">Take the lane back</span>
     } @else {
@@ -31,10 +27,10 @@
   <form
     method="dialog"
     novalidate
-    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    class="mt-4 grid max-w-[32rem] gap-4 border-t border-(--border-default) pt-4"
     (aecSubmit)="submit()"
   >
-    <p class="text-sm text-(--text-secondary)">
+    <p [class]="noticeClass">
       @if (formMode() === 'vendor') {
       <span i18n="@@admin.connectors.managed.confirm.freeze">
         Handing this catalogue over freezes the review lane for it. From then on the review app's
@@ -53,25 +49,25 @@
     <!-- The seat disclaimer is not decoration. Nothing else on this page says
              it, and an operator who assumed a handover also provisions a login
              would be wrong with no correction anywhere. -->
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.connectors.managed.confirm.noSeat">
+    <p class="text-t-14 text-(--text-secondary)" i18n="@@admin.connectors.managed.confirm.noSeat">
       This records who the catalogue was handed to. It does not create an account, grant a login, or
       open an entitlement.
     </p>
 
-    <div>
+    <div class="grid gap-2">
       <label
-        class="block text-xs font-bold text-(--text-secondary)"
+        [class]="labelClass"
         [attr.for]="'conn-vendor-' + idPrefix()"
         i18n="@@admin.connectors.managed.vendor.label"
       >
         Vendor taking it over (optional)
       </label>
       @if (selectedVendor(); as v) {
-      <p class="mt-1 flex items-center gap-2 text-sm text-(--text-primary)">
+      <p class="flex flex-wrap items-center gap-2 text-t-16 text-(--text-primary)">
         <span>{{ v.company_name }}</span>
         <button
-          type="button"
-          class="cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          aecButton
+          variant="ghost"
           (click)="clearVendor()"
           i18n="@@admin.connectors.managed.vendor.change"
         >
@@ -79,19 +75,21 @@
         </button>
       </p>
       } @else {
-      <div class="mt-1 flex gap-2">
+      <div class="flex gap-2">
         <input
           [id]="'conn-vendor-' + idPrefix()"
           type="search"
-          class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
+          class="min-w-0"
           i18n-placeholder="@@admin.connectors.managed.vendor.placeholder"
           placeholder="Search by name or slug"
           [value]="vendorQuery()"
           (input)="onVendorQueryInput($event)"
         />
         <button
-          type="button"
-          class="shrink-0 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          aecButton
+          variant="secondary"
+          class="shrink-0"
           [disabled]="vendorSearching()"
           (click)="searchVendors()"
           i18n="@@admin.connectors.managed.vendor.find"
@@ -102,19 +100,20 @@
       @if (vendorResults().length > 0) {
       <ul
         role="list"
-        class="mt-2 space-y-1"
+        class="grid gap-1 rounded-control border border-(--border-default) p-1"
         i18n-aria-label="@@admin.connectors.managed.vendor.results"
         aria-label="Matching vendors"
       >
         @for (v of vendorResults(); track v.id) {
         <li>
+          <!-- A pick from a result list, not an action: a full-width row, 44px. -->
           <button
             type="button"
-            class="w-full cursor-pointer rounded-(--radius-sm) px-2 py-1 text-start text-sm text-(--text-primary) hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="min-h-11 w-full cursor-pointer rounded-mark px-3 py-2 text-start text-t-14 text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:outline-offset-3"
             (click)="chooseVendor(v)"
           >
             {{ v.company_name }}
-            <span class="block text-xs text-(--text-secondary)">{{ v.slug }}</span>
+            <span class="block text-t-13 text-(--text-secondary)">{{ v.slug }}</span>
           </button>
         </li>
         }
@@ -123,9 +122,9 @@
     </div>
     }
 
-    <div>
+    <div class="grid gap-2">
       <label
-        class="block text-xs font-bold text-(--text-secondary)"
+        [class]="labelClass"
         [attr.for]="'conn-reason-' + idPrefix()"
         i18n="@@admin.connectors.managed.reason.label"
       >
@@ -135,18 +134,15 @@
         [id]="'conn-reason-' + idPrefix()"
         rows="2"
         maxlength="500"
-        class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="inputClass"
+        class="min-h-20 resize-y py-3"
         [value]="reason()"
         (input)="onReasonInput($event)"
       ></textarea>
     </div>
 
-    <div class="flex gap-2">
-      <button
-        type="submit"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [disabled]="pending()"
-      >
+    <div class="flex flex-wrap gap-2">
+      <button aecButton type="submit" [disabled]="pending()">
         @if (pending()) {
         <span i18n="@@admin.connectors.managed.working">Working…</span>
         } @else if (formMode() === 'vendor') {
@@ -156,8 +152,8 @@
         }
       </button>
       <button
-        type="button"
-        class="cursor-pointer px-3 py-2 text-sm text-(--text-secondary) underline disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        aecButton
+        variant="ghost"
         [disabled]="pending()"
         (click)="closeForm()"
         i18n="@@admin.connectors.managed.cancel"
@@ -167,6 +163,8 @@
     </div>
   </form>
   } @if (failedMessage()) {
-  <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  <p class="mt-4 text-t-14 font-semibold text-(--text-primary)" role="alert">
+    {{ failedMessage() }}
+  </p>
   }
 </div>

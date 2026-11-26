@@ -27,6 +27,16 @@ import {
 
 import { ReviewStars } from '../../reviews/review-stars';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -90,25 +100,32 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
  */
 @Component({
   selector: 'aec-vendor-reviews-list',
-  imports: [AecFormSubmit, AecSelect, DatePipe, ReviewStars, RouterLink, VendorDocsLink],
+  imports: [
+    AecButton,
+    AecCard,
+    AecFormSubmit,
+    AecIcon,
+    AecSelect,
+    Chip,
+    DatePipe,
+    ReviewStars,
+    RouterLink,
+    VendorDocsLink,
+  ],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-reviews-heading" data-vendor-reviews>
-      <div class="max-w-[60ch] space-y-2">
-        <h2 id="vendor-reviews-heading" class="m-0">
-          <!-- The size lives on the span: styles.css sizes h2 outside any cascade layer. -->
-          <span
-            class="block font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.reviews.heading"
-            >Reviews</span
-          >
+      <div class="max-w-[30rem] space-y-2">
+        <!-- AECI-1812: the h2 at the global size, as on every portal section. -->
+        <h2 id="vendor-reviews-heading">
+          <span i18n="@@vendor.reviews.heading">Reviews</span>
         </h2>
         <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.reviews.intro">
           Approved reviews of this product, newest first. You can answer each one once, in public.
           AEC Integrations checks every reply against the
           <a
             routerLink="/legal/review-guidelines"
-            class="font-medium text-(--accent-primary) underline underline-offset-2"
+            class="rounded-mark text-(--accent-primary) underline underline-offset-2"
             >review guidelines</a
           >
           before it shows. A reply never changes a review or where the product ranks.
@@ -125,23 +142,16 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
         -->
         <p
           id="vendor-reviews-locked"
-          class="mt-4 flex max-w-[60ch] items-start gap-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
+          class="mt-4 flex max-w-[60ch] items-start gap-2 rounded-panel bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
           data-reviews-locked
           data-testid="locked-reason"
         >
-          <svg
-            aria-hidden="true"
-            class="mt-0.5 h-4 w-4 shrink-0 text-(--text-secondary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect x="5" y="11" width="14" height="10" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-          </svg>
+          <aec-icon
+            name="lock"
+            decorative
+            [size]="4"
+            class="mt-1 shrink-0 text-(--text-secondary)"
+          />
           <span i18n="@@vendor.reviews.locked"
             >Replying is not available on this product right now. You can still read every review,
             see where your past replies stand, and withdraw a reply you posted.</span
@@ -154,7 +164,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
           id="vendor-reviews-alert"
           tabindex="-1"
           role="alert"
-          class="mt-4 max-w-[60ch] rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="mt-4 max-w-[60ch] rounded-panel border border-(--border-strong) bg-(--surface-raised) p-4 text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           data-reviews-alert
         >
           {{ listAlert() }}
@@ -163,13 +173,15 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
 
       @if (stale()) {
         <div
-          class="mt-4 flex max-w-[60ch] flex-wrap items-center gap-3 rounded-(--radius-md) bg-(--surface-sunken) px-4 py-3 text-sm text-(--text-primary)"
+          class="mt-4 flex max-w-[60ch] flex-wrap items-center gap-4 rounded-panel bg-(--surface-sunken) p-4 text-sm text-(--text-primary)"
           data-reviews-stale
         >
           <span i18n="@@vendor.reviews.stale">These reviews changed elsewhere.</span>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryClass"
             (click)="discardAndReload()"
             i18n="@@vendor.reviews.stale.reload"
           >
@@ -197,8 +209,10 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
             Could not load the reviews.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryClass"
             (click)="reload()"
             i18n="@@vendor.reviews.retry"
           >
@@ -212,15 +226,17 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
       } @else {
         @if (state() === 'failed') {
           <div
-            class="mt-4 flex max-w-[60ch] flex-wrap items-center gap-3 text-sm text-(--text-primary)"
+            class="mt-4 flex max-w-[60ch] flex-wrap items-center gap-4 text-sm text-(--text-primary)"
             data-reviews-refresh-failed
           >
             <span i18n="@@vendor.reviews.refreshFailed"
               >Could not refresh the list. It shows what was loaded last.</span
             >
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryClass"
               (click)="reload()"
               i18n="@@vendor.reviews.retry"
             >
@@ -234,32 +250,29 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
             {{ emptyMessage() }}
           </p>
         } @else {
-          <ul class="mt-6 space-y-8" [attr.aria-busy]="refreshing() ? 'true' : null">
+          <!-- AECI-1812: each review is one shared white card. The reviewer's updates
+               follow under a rule; the replies are sunken panels set in from the start. -->
+          <ul class="mt-6 space-y-6" [attr.aria-busy]="refreshing() ? 'true' : null">
             @for (item of items(); track item.review.id) {
               <li [attr.data-review]="item.review.id" [attr.data-reply-state]="stateOf(item)">
-                <article class="space-y-3" [attr.aria-labelledby]="titleId(item)">
-                  <div
-                    class="space-y-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-                  >
-                    <div class="flex flex-wrap items-start justify-between gap-3">
-                      <h3
-                        [id]="titleId(item)"
-                        class="min-w-0 break-words font-semibold text-(--text-primary)"
-                      >
+                <article aecCard [class]="'space-y-4 p-6'" [attr.aria-labelledby]="titleId(item)">
+                  <div class="space-y-3">
+                    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                      <h3 [id]="titleId(item)" class="min-w-0 break-words">
                         {{ item.review.title }}
                       </h3>
-                      <span class="shrink-0 text-xs text-(--text-secondary)">{{
+                      <span class="shrink-0 text-t-13 text-(--text-secondary)">{{
                         item.review.created_at | date: 'mediumDate'
                       }}</span>
                     </div>
                     <div
-                      class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
+                      class="flex flex-wrap items-center gap-x-6 gap-y-1 text-t-13 text-(--text-secondary)"
                     >
-                      <span class="flex items-center gap-1.5">
+                      <span class="flex items-center gap-2">
                         <span i18n="@@vendor.reviews.item.overall">Product quality</span>
                         <aec-review-stars [rating]="item.review.rating_overall" kind="overall" />
                       </span>
-                      <span class="flex items-center gap-1.5">
+                      <span class="flex items-center gap-2">
                         <span i18n="@@vendor.reviews.item.onboarding">Onboarding experience</span>
                         <aec-review-stars
                           [rating]="item.review.rating_onboarding"
@@ -278,30 +291,21 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                        product page. The original card above never changes. -->
                   @for (u of updatesOf(item); track $index; let i = $index) {
                     <section
-                      class="ms-6 block space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4 sm:ms-10"
+                      class="block space-y-2 border-s-2 border-(--border-strong) ps-4"
                       [attr.aria-labelledby]="updateId(item, i)"
                       data-review-update
                     >
-                      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                         <h4
                           [id]="updateId(item, i)"
-                          class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+                          class="flex min-w-0 items-center gap-2 text-sm font-semibold text-(--text-primary)"
                         >
-                          <!-- Hand-inlined Lucide history. Decorative. -->
-                          <svg
-                            class="size-4 shrink-0 text-(--text-secondary)"
-                            aria-hidden="true"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                            <path d="M3 3v5h5" />
-                            <path d="M12 7v5l4 2" />
-                          </svg>
+                          <aec-icon
+                            name="history"
+                            decorative
+                            [size]="4"
+                            class="shrink-0 text-(--text-secondary)"
+                          />
                           <span class="break-words" i18n="@@vendor.reviews.update.label"
                             >Update from the reviewer</span
                           >
@@ -315,22 +319,22 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                           >
                         </h4>
                         <time
-                          class="shrink-0 text-xs text-(--text-secondary)"
+                          class="shrink-0 text-t-13 text-(--text-secondary)"
                           [attr.datetime]="u.published_at"
                           >{{ u.published_at | date: 'mediumDate' }}</time
                         >
                       </div>
                       @if (u.rating_overall !== null && u.rating_onboarding !== null) {
                         <div
-                          class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
+                          class="flex flex-wrap items-center gap-x-6 gap-y-1 text-t-13 text-(--text-secondary)"
                         >
-                          <span class="flex items-center gap-1.5">
+                          <span class="flex items-center gap-2">
                             <span i18n="@@vendor.reviews.update.overall"
                               >New product quality rating</span
                             >
                             <aec-review-stars [rating]="u.rating_overall" kind="overall" />
                           </span>
-                          <span class="flex items-center gap-1.5">
+                          <span class="flex items-center gap-2">
                             <span i18n="@@vendor.reviews.update.onboarding"
                               >New onboarding experience rating</span
                             >
@@ -352,30 +356,23 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                       [attr.aria-labelledby]="otherId(item, other)"
                       data-other-response
                     >
-                      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                         <h4
                           [id]="otherId(item, other)"
-                          class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+                          class="flex min-w-0 items-center gap-2 text-sm font-semibold text-(--text-primary)"
                         >
-                          <!-- Hand-inlined Lucide corner-down-right. Decorative. -->
-                          <svg
-                            class="size-4 shrink-0 text-(--text-secondary) rtl:-scale-x-100"
-                            aria-hidden="true"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <polyline points="15 10 20 15 15 20" />
-                            <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                          </svg>
+                          <aec-icon
+                            name="corner-down-right"
+                            decorative
+                            [size]="4"
+                            [mirrorRtl]="true"
+                            class="shrink-0 text-(--text-secondary)"
+                          />
                           <span class="break-words">{{ otherLabel(other) }}</span>
                           <span class="sr-only">{{ replyContext(item) }}</span>
                         </h4>
                         <time
-                          class="shrink-0 text-xs text-(--text-secondary)"
+                          class="shrink-0 text-t-13 text-(--text-secondary)"
                           [attr.datetime]="other.published_at"
                           >{{ other.published_at | date: 'mediumDate' }}</time
                         >
@@ -385,7 +382,10 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                       >
                         {{ other.body }}
                       </p>
-                      <p class="text-xs text-(--text-secondary)" i18n="@@vendor.reviews.other.note">
+                      <p
+                        class="text-t-13 text-(--text-secondary)"
+                        i18n="@@vendor.reviews.other.note"
+                      >
                         Another company that owns this product posted this reply. Only they can
                         change it.
                       </p>
@@ -397,7 +397,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                     tabindex="-1"
                     [class]="
                       replyBlockClass +
-                      ' focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)'
+                      ' focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)'
                     "
                     [attr.aria-labelledby]="replyHeadingId(item)"
                     [attr.aria-describedby]="canReply() ? null : 'vendor-reviews-locked'"
@@ -411,12 +411,19 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                         <span i18n="@@vendor.reviews.own.heading">Your reply</span>
                         <span class="sr-only">{{ replyContext(item) }}</span>
                       </h4>
-                      <span [class]="pillClass(stateOf(item))" data-reply-pill>{{
-                        stateLabel(stateOf(item))
-                      }}</span>
+                      <aec-chip
+                        class="shrink-0"
+                        density="dense"
+                        [tone]="chipTone(stateOf(item))"
+                        [icon]="stateOf(item) === 'pending' ? 'clock' : null"
+                        data-reply-pill
+                        >{{ stateLabel(stateOf(item)) }}</aec-chip
+                      >
                     </div>
 
-                    <p class="text-xs text-(--text-secondary)">{{ stateHint(stateOf(item)) }}</p>
+                    <p class="text-t-13 text-(--text-secondary)">
+                      {{ stateHint(stateOf(item)) }}
+                    </p>
 
                     @if (item.response; as own) {
                       @if (!isComposing(item)) {
@@ -427,17 +434,18 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                           {{ own.body }}
                         </p>
                       }
-                      <p class="text-xs text-(--text-secondary)">{{ ownMeta(own) }}</p>
+                      <p class="text-t-13 text-(--text-secondary)">{{ ownMeta(own) }}</p>
                       @if (
                         (own.status === 'rejected' || own.status === 'removed') &&
                         own.rejection_reason
                       ) {
+                        <!-- A rule, not a box: no bordered box inside the panel. -->
                         <div
-                          class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-3 py-2 text-sm"
+                          class="border-s-2 border-(--border-strong) ps-4 text-sm"
                           data-reply-reason
                         >
                           <p
-                            class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+                            class="aec-overline text-(--text-secondary)"
                             i18n="@@vendor.reviews.reason.label"
                           >
                             Reason from AEC Integrations
@@ -460,13 +468,13 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                         <label [for]="fieldId(item)" [class]="labelClass">{{
                           composeLabel()
                         }}</label>
-                        <p [id]="fieldId(item) + '-hint'" class="text-xs text-(--text-secondary)">
+                        <p [id]="fieldId(item) + '-hint'" [class]="hintClass">
                           {{ composeHint() }}
                         </p>
                         @if (editingPublished(item)) {
                           <p
                             [id]="fieldId(item) + '-warn'"
-                            class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-3 py-2 text-sm font-medium text-(--text-primary)"
+                            class="border-s-2 border-(--border-strong) ps-4 text-sm font-semibold text-(--text-primary)"
                             data-reply-warning
                             i18n="@@vendor.reviews.compose.publishedWarning"
                           >
@@ -486,9 +494,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                         <p
                           [id]="fieldId(item) + '-count'"
                           [class]="
-                            overLimit()
-                              ? 'text-xs font-semibold text-(--status-error)'
-                              : 'text-xs text-(--text-secondary)'
+                            overLimit() ? 'text-xs font-semibold text-(--status-error)' : hintClass
                           "
                           data-reply-count
                         >
@@ -498,19 +504,20 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                           <p
                             [id]="fieldId(item) + '-error'"
                             role="alert"
-                            class="text-sm font-medium text-(--status-error)"
+                            [class]="errorClass"
                             data-reply-error
                           >
                             {{ formError() }}
                           </p>
                         }
-                        <div class="flex flex-wrap items-center gap-2 pt-1">
-                          <button type="submit" [class]="primaryClass" [disabled]="busy() !== null">
+                        <div class="flex flex-wrap items-center gap-2 pt-2">
+                          <button aecButton type="submit" [disabled]="busy() !== null">
                             {{ isBusy(item, 'save') ? savingLabel() : saveLabel() }}
                           </button>
                           <button
+                            aecButton
+                            variant="secondary"
                             type="button"
-                            [class]="secondaryClass"
                             [disabled]="busy() !== null"
                             (click)="cancelCompose(item)"
                             i18n="@@vendor.reviews.compose.cancel"
@@ -520,12 +527,13 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                         </div>
                       </form>
                     } @else {
-                      <div class="flex flex-wrap items-center gap-2 pt-1">
+                      <div class="flex flex-wrap items-center gap-2 pt-2">
                         @if (canReply() && composeModeFor(item); as mode) {
                           <button
+                            aecButton
+                            [variant]="mode === 'create' ? 'primary' : 'secondary'"
                             type="button"
                             [id]="actionId(item)"
-                            [class]="mode === 'create' ? primaryClass : secondaryClass"
                             [disabled]="busy() !== null || compose() !== null"
                             (click)="openCompose(item, mode)"
                             [attr.data-action]="mode"
@@ -541,13 +549,18 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                               class="flex basis-full flex-wrap items-center gap-2"
                               data-withdraw-confirm
                             >
-                              <p class="text-sm text-(--text-primary)">
+                              <p class="basis-full text-sm text-(--text-primary)">
                                 {{ withdrawQuestion(item) }}
                               </p>
+                              <!-- Danger on a published reply: withdrawing takes it off the
+                                   public page, and a resubmit only returns it to pending,
+                                   where AECi can still reject it (spec section 11c). Primary
+                                   on a pending reply, which was never public. -->
                               <button
+                                aecButton
+                                [variant]="withdrawConfirmVariant(item)"
                                 type="button"
                                 [id]="withdrawConfirmId(item)"
-                                [class]="secondaryClass"
                                 [disabled]="busy() !== null"
                                 (click)="withdraw(item)"
                               >
@@ -559,8 +572,9 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                                 <span class="sr-only">{{ replyContext(item) }}</span>
                               </button>
                               <button
+                                aecButton
+                                variant="secondary"
                                 type="button"
-                                [class]="secondaryClass"
                                 [disabled]="busy() !== null"
                                 (click)="cancelWithdraw(item)"
                                 i18n="@@vendor.reviews.withdraw.keep"
@@ -570,9 +584,10 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                             </div>
                           } @else {
                             <button
+                              aecButton
+                              variant="secondary"
                               type="button"
                               [id]="withdrawStartId(item)"
-                              [class]="secondaryClass"
                               [disabled]="busy() !== null || compose() !== null"
                               (click)="startWithdraw(item)"
                             >
@@ -585,7 +600,7 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                     }
 
                     @if (rowError()?.id === item.review.id) {
-                      <p role="alert" class="text-sm font-medium text-(--text-primary)">
+                      <p role="alert" class="text-sm font-semibold text-(--text-primary)">
                         {{ rowError()?.message }}
                       </p>
                     }
@@ -596,10 +611,11 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
           </ul>
 
           @if (pageCount() > 1) {
-            <nav class="mt-6 flex items-center gap-3" [attr.aria-label]="pagingLabel">
+            <nav class="mt-6 flex flex-wrap items-center gap-4" [attr.aria-label]="pagingLabel">
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="page() <= 1 || compose() !== null"
                 (click)="goToPage(page() - 1)"
                 i18n="@@vendor.reviews.page.prev"
@@ -608,8 +624,9 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
               </button>
               <span class="text-sm text-(--text-secondary)">{{ pageLabel() }}</span>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="page() >= pageCount() || compose() !== null"
                 (click)="goToPage(page() + 1)"
                 i18n="@@vendor.reviews.page.next"
@@ -794,6 +811,17 @@ export class VendorReviewsList {
       case 'resubmit':
         return $localize`:@@vendor.reviews.action.resubmit:Resubmit`;
     }
+  }
+
+  /**
+   * The Withdraw confirm's look (ruled for AECI-1812). Withdrawing a published reply
+   * clears `published_at` and takes it off the product page; a resubmit only returns
+   * it to `pending`, where AECi can still reject it (STAGE_2_VENDOR_PORTAL_SPEC.md
+   * §11c). That cannot be undone, so the confirm is danger. A pending reply was never
+   * public, so withdrawing it loses nothing and the confirm is primary.
+   */
+  protected withdrawConfirmVariant(item: VendorReviewItem): 'danger' | 'primary' {
+    return item.response?.status === 'published' ? 'danger' : 'primary';
   }
 
   protected canWithdraw(item: VendorReviewItem): boolean {
@@ -1119,31 +1147,28 @@ export class VendorReviewsList {
     }
   }
 
-  protected pillClass(state: ReviewReplyState): string {
-    const base =
-      'inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
+  /** The reply state on the shared chip (AECI-1812). Forest when published, the
+   *  strong edge when pending (with a clock) or turned down, the dense chip's
+   *  sunken rest otherwise. The words carry the state. */
+  protected chipTone(state: ReviewReplyState): ChipTone | null {
     switch (state) {
       case 'published':
-        return `${base} border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)`;
+        return 'forest';
       case 'pending':
-        return `${base} aec-pill-attention bg-(--surface-raised) text-(--text-primary)`;
       case 'rejected':
       case 'removed':
-        return `${base} border-(--border-strong) bg-(--surface-raised) text-(--text-primary)`;
+        return 'strong';
       default:
-        return `${base} border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)`;
+        return null;
     }
   }
 
+  /** A reply (another owner's, or the caller's own): a sunken panel set in from the
+   *  start edge, inside the review's card. No edge, so it is not a card in a card. */
   protected readonly replyBlockClass =
-    'ms-6 block space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-sunken) p-4 sm:ms-10';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */
-  protected readonly primaryClass =
-    'inline-flex min-h-10 items-center justify-center gap-1 rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
-  protected readonly secondaryClass =
-    'inline-flex min-h-10 items-center justify-center gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
+    'ms-4 block space-y-2 rounded-panel bg-(--surface-sunken) p-4 sm:ms-8';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} block leading-[1.6]`;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
 }

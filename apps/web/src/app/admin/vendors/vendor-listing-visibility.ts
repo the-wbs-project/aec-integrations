@@ -14,8 +14,11 @@ import { isHttpsUrl, type AdminListingHideProduct, type AdminVendorDetail } from
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
+import { AecButton } from '../../shared/button/button';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_LABEL_CLASS } from '../console/console-table';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
-import { SUSPENSION_BUTTON } from './vendor-suspension-model';
+import { VENDOR_INLINE_LINK_CLASS, VENDOR_PAIRS_CLASS } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /**
  * "Listing visibility" on the Vendor tab of `/admin/vendors/:id` (AECI-1238,
@@ -34,7 +37,7 @@ import { SUSPENSION_BUTTON } from './vendor-suspension-model';
  */
 @Component({
   selector: 'aec-vendor-listing-visibility',
-  imports: [DatePipe, ListingHideForm, NewTabIcon],
+  imports: [AecButton, DatePipe, ListingHideForm, NewTabIcon],
   templateUrl: './vendor-listing-visibility.html',
 })
 export class VendorListingVisibility {
@@ -50,7 +53,12 @@ export class VendorListingVisibility {
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
 
-  protected readonly buttonClass = SUSPENSION_BUTTON;
+  // AECI-2112: the console's notice and fact recipes (mock-up 14).
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly pairsClass = VENDOR_PAIRS_CLASS;
+  protected readonly termClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
   protected readonly kindLabel = listingHideKindLabel;
 
   protected readonly formMode = signal<ListingHideMode | null>(null);

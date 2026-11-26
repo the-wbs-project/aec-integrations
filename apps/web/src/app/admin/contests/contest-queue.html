@@ -1,881 +1,811 @@
+<!-- AECI-2102: one console table row per change request (mock-up 14). The values, the
+     reason, the appeal and the decision sit in the row's expanded detail. -->
 <section aria-labelledby="admin-contests-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-contests-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.contests.heading"
-    >
-      Change requests
-    </h2>
-
-    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-      <!-- AECI-1009: contests, or protests of an owner's decision -->
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-contests-view-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.contests.view.label"
-          >Show</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-contests-view-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of viewOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setView(opt.key)"
-            [attr.aria-pressed]="view() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
-      </div>
-
-      @if (view() === 'protests') {
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-contests-protest-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.contests.protest.filter.label"
-          >Appeal</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-contests-protest-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of protestOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setProtestFilter(opt.key)"
-            [attr.aria-pressed]="protestFilter() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
-      </div>
-      } @else {
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-contests-status-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.contests.filter.status.label"
-          >Status</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-contests-status-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of statusOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setStatus(opt.key)"
-            [attr.aria-pressed]="statusFilter() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-contests-route-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.contests.filter.route.label"
-          >Decided by</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-contests-route-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of routeOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setRoute(opt.key)"
-            [attr.aria-pressed]="routeFilter() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-          >
-            {{ opt.label }}
-          </button>
-          }
-        </div>
-      </div>
-      }
-    </div>
-  </div>
-
+  <h2
+    id="admin-contests-heading"
+    tabindex="-1"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.contests.heading"
+  >
+    Change requests
+  </h2>
   @if (view() === 'protests') {
-  <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.contests.protest.intro">
+  <p
+    class="mt-2 max-w-[56ch] text-t-14 text-(--text-secondary)"
+    i18n="@@admin.contests.protest.intro"
+  >
     The owner of a claimed integration declined a contest, or did not answer it for 30 days, and the
     vendor that filed it asked us to review it. Read both sides, then say which one you agree with.
     Your answer is advice. It never changes the listing, because the owner keeps the integration's
     details, and it files no Linear issue.
   </p>
   } @else {
-  <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.contests.intro">
+  <p class="mt-2 max-w-[56ch] text-t-14 text-(--text-secondary)" i18n="@@admin.contests.intro">
     A vendor on one end of an integration says one of its fields is wrong. Read the value on record,
     the proposed value and the reason, then accept or decline. Accepting never edits the live
     listing: it files a review issue in Linear so the review app applies the value.
   </p>
   }
 
+  <div [class]="f.toolbar">
+    <!-- AECI-1009: contests, or protests of an owner's decision -->
+    <div [class]="f.group">
+      <span id="admin-contests-view-label" [class]="f.label" i18n="@@admin.contests.view.label"
+        >Show</span
+      >
+      <div role="group" aria-labelledby="admin-contests-view-label" [class]="f.seg">
+        @for (opt of viewOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setView(opt.key)"
+          [attr.aria-pressed]="view() === opt.key"
+          [class]="f.option"
+        >
+          @if (view() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+
+    @if (view() === 'protests') {
+    <div [class]="f.group">
+      <span
+        id="admin-contests-protest-label"
+        [class]="f.label"
+        i18n="@@admin.contests.protest.filter.label"
+        >Appeal</span
+      >
+      <div role="group" aria-labelledby="admin-contests-protest-label" [class]="f.seg">
+        @for (opt of protestOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setProtestFilter(opt.key)"
+          [attr.aria-pressed]="protestFilter() === opt.key"
+          [class]="f.option"
+        >
+          @if (protestFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+    } @else {
+    <div [class]="f.group">
+      <span
+        id="admin-contests-status-label"
+        [class]="f.label"
+        i18n="@@admin.contests.filter.status.label"
+        >Status</span
+      >
+      <div role="group" aria-labelledby="admin-contests-status-label" [class]="f.seg">
+        @for (opt of statusOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setStatus(opt.key)"
+          [attr.aria-pressed]="statusFilter() === opt.key"
+          [class]="f.option"
+        >
+          @if (statusFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+
+    <div [class]="f.group">
+      <span
+        id="admin-contests-route-label"
+        [class]="f.label"
+        i18n="@@admin.contests.filter.route.label"
+        >Decided by</span
+      >
+      <div role="group" aria-labelledby="admin-contests-route-label" [class]="f.seg">
+        @for (opt of routeOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setRoute(opt.key)"
+          [attr.aria-pressed]="routeFilter() === opt.key"
+          [class]="f.option"
+        >
+          @if (routeFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+    }
+  </div>
+
   <!-- The one polite live region. Visible, so the "already decided" reload is not a silent jump. -->
   <p
     role="status"
     aria-live="polite"
     [class.mt-4]="liveMessage()"
-    class="text-sm font-medium text-(--text-primary)"
+    class="text-t-14 font-semibold text-(--text-primary)"
   >
     {{ liveMessage() }}
   </p>
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.contests.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.contests.loading">
     Loading change requests…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div class="mt-6 space-y-4">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.contests.loadFailed"
     >
       We couldn't load change requests. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.contests.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.contests.retry">
       Try again
     </button>
   </div>
   } @else if (visibleContests().length === 0) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.contests.empty">
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.contests.empty">
     No change requests match these filters.
   </p>
   } @else { @if (truncated()) {
-  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.contests.cappedNote">
+  <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@admin.contests.cappedNote">
     Showing the first {{ loadedCount() }} of {{ total() }} change requests. Decide these to see the
     rest.
   </p>
   }
 
-  <ul role="list" class="mt-6 space-y-5">
-    @for (c of visibleContests(); track c.id) {
-    <li>
-      <article
-        [attr.aria-labelledby]="'contest-' + c.id + '-pair'"
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <!-- Header: status, route, pair (linked to the public pair page), age -->
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                >{{ statusLabel(c.status) }}</span
-              >
-              @if (c.routed_to === 'owner') {
-              <span
-                class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
-                i18n="@@admin.contests.route.withOwner"
-                >With the owner</span
-              >
-              }
-            </div>
-
-            <h3
-              [id]="'contest-' + c.id + '-pair'"
-              class="mt-2 text-base font-bold text-(--text-primary)"
-            >
-              @if (c.integration.pair_path) {
-              <a
-                [routerLink]="c.integration.pair_path"
-                class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ pairLabel(c) }}</a
-              >
-              } @else {
-              <span>{{ pairLabel(c) }}</span>
-              }
-            </h3>
-            @if (c.integration.name) {
-            <p class="mt-0.5 text-sm text-(--text-secondary)">{{ c.integration.name }}</p>
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-contests-caption"
+  >
+    <table [class]="t.table" class="min-w-[60rem]">
+      <caption id="admin-contests-caption" [class]="t.caption" i18n="@@admin.contests.heading">
+        Change requests
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" [class]="t.head">
+            <span class="sr-only" i18n="@@admin.contests.col.details">Details</span>
+          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.contests.col.integration">Integration</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.contests.field.label">Field</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.contests.meta.submitter">Filed by</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.contests.meta.submitted">Submitted</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.contests.filter.status.label">Status</th>
+        </tr>
+      </thead>
+      @for (c of visibleContests(); track c.id) {
+      <tbody data-testid="contest-record">
+        <tr [class]="isOpen(c.id) ? t.rowOpen : t.row" data-testid="contest-row">
+          <td [class]="t.disclosure">
+            <aec-admin-disclosure-button
+              [expanded]="isOpen(c.id)"
+              [controls]="'contest-' + c.id + '-detail'"
+              [label]="rowLabel(c)"
+              (toggled)="toggleRow(c.id)"
+            />
+          </td>
+          <!-- The pair (linked to the public pair page), its name and its connector -->
+          <th scope="row" [id]="'contest-' + c.id + '-pair'" [class]="t.rowHead">
+            @if (c.integration.pair_path) {
+            <a [routerLink]="c.integration.pair_path" [class]="t.link">{{ pairLabel(c) }}</a>
+            } @else {
+            <span>{{ pairLabel(c) }}</span>
+            } @if (c.integration.name) {
+            <span [class]="t.sub">{{ c.integration.name }}</span>
             } @if (c.integration.connector; as connector) {
-            <p
-              class="mt-0.5 text-sm text-(--text-secondary)"
+            <span
+              [class]="t.sub"
               data-testid="contest-connector"
               i18n="@@admin.contests.deliveredThrough"
+              >Delivered through {{ connector.name }}</span
             >
-              Delivered through {{ connector.name }}
-            </p>
             }
-          </div>
-
-          <span class="shrink-0 text-xs text-(--text-secondary)">{{ age(c.created_at) }}</span>
-        </div>
-
-        <!-- The field and the two values -->
-        <div class="mt-4 border-t border-(--border-default) pt-4">
-          <p class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)">
-            <span i18n="@@admin.contests.field.label">Field</span>:
-            <span class="text-(--text-primary)">{{ fieldLabel(c.field) }}</span>
-          </p>
-          <dl class="mt-3 grid gap-4 sm:grid-cols-2">
-            <div class="min-w-0">
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.value.current"
+          </th>
+          <td [class]="t.cell">{{ fieldLabel(c.field) }}</td>
+          <td [class]="t.cell">{{ c.submitter_vendor.name }}</td>
+          <td [class]="t.nowrap">
+            {{ c.created_at | date: 'medium' }}
+            <span [class]="t.sub">{{ age(c.created_at) }}</span>
+          </td>
+          <td [class]="t.cell">
+            <span class="flex flex-wrap items-center gap-2">
+              <aec-chip density="dense" [tone]="statusTone(c.status)"
+                >{{ statusLabel(c.status) }}</aec-chip
               >
-                On record
-              </dt>
-              <dd class="mt-1 break-words text-sm text-(--text-primary)">
-                {{ valueDisplay(c, 'current') }}
-              </dd>
-            </div>
-            <div class="min-w-0">
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.value.proposed"
+              @if (c.routed_to === 'owner') {
+              <aec-chip density="dense" [tone]="tone('withTheOwner')"
+                ><span i18n="@@admin.contests.route.withOwner">With the owner</span></aec-chip
               >
-                Proposed
-              </dt>
-              <dd class="mt-1 break-words text-sm font-medium text-(--text-primary)">
-                {{ valueDisplay(c, 'proposed') }}
-              </dd>
-            </div>
-            <!-- AECI-1006: the live value, only when it moved since the contest was filed -->
-            @if (liveDiffers(c)) {
-            <div class="min-w-0 sm:col-span-2" data-testid="contest-live-value">
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.value.live"
-              >
-                On the integration now
-              </dt>
-              <dd class="mt-1 break-words text-sm text-(--text-primary)">
-                {{ valueDisplay(c, 'live') }}
-              </dd>
-            </div>
-            }
-          </dl>
-          @if (c.value_stale && c.status === 'open') {
-          <p
-            [id]="'contest-' + c.id + '-stale'"
-            class="mt-3 max-w-prose text-xs font-medium leading-relaxed text-(--text-primary)"
-            data-testid="contest-stale"
-            i18n="@@admin.contests.stale"
-          >
-            This value changed after the contest was filed, most likely by the integration's owner.
-            Accepting would overwrite that change, so it is refused. Decline it, or ask the vendor
-            to withdraw it and file again against the current value.
-          </p>
-          }
-        </div>
-
-        <!-- The vendor's reason -->
-        <div class="mt-4">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.reason.heading"
-          >
-            Reason
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ c.reason }}
-          </p>
-        </div>
-
-        <!-- Who and when -->
-        @if (isSelfDisclaim(c)) {
-        <!-- AECI-1225: the vendor on file filed it about itself. -->
-        <p
-          class="mt-4 text-sm font-medium text-(--text-primary)"
-          data-testid="contest-self-disclaim"
-          i18n="@@admin.contests.selfDisclaim"
+              }
+            </span>
+          </td>
+        </tr>
+        <tr
+          [id]="'contest-' + c.id + '-detail'"
+          [class]="t.detailRow"
+          [hidden]="!isOpen(c.id)"
+          data-testid="contest-detail"
         >
-          {{ c.submitter_vendor.name }} is the vendor on file and says this integration is not
-          theirs.
-        </p>
-        }
-        <dl class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.contests.meta.submitter">Filed by</dt>
-            <dd>{{ c.submitter_vendor.name }}</dd>
-          </div>
-          @if (!isSelfDisclaim(c)) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.contests.meta.owner">Offered by</dt>
-            <dd>{{ ownerName(c) }}</dd>
-          </div>
-          }
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.contests.meta.submitted">Submitted</dt>
-            <dd>{{ c.created_at | date: 'medium' }}</dd>
-          </div>
-          @if (c.decided_at) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.contests.meta.decided">Decided</dt>
-            <dd>{{ c.decided_at | date: 'medium' }}</dd>
-          </div>
-          }
-        </dl>
+          <td [attr.colspan]="columnCount" [class]="t.detailCell">
+            <div [class]="t.detailInner">
+              <div [class]="detailGridClass">
+                <div class="min-w-0">
+                  <!-- The two values, and the live one when it moved -->
+                  <dl class="grid gap-4 sm:grid-cols-2">
+                    <div class="min-w-0">
+                      <dt [class]="labelClass" i18n="@@admin.contests.value.current">On record</dt>
+                      <dd class="mt-1 break-words text-t-16 text-(--text-primary)">
+                        {{ valueDisplay(c, 'current') }}
+                      </dd>
+                    </div>
+                    <div class="min-w-0">
+                      <dt [class]="labelClass" i18n="@@admin.contests.value.proposed">Proposed</dt>
+                      <dd class="mt-1 break-words text-t-16 font-semibold text-(--text-primary)">
+                        {{ valueDisplay(c, 'proposed') }}
+                      </dd>
+                    </div>
+                    <!-- AECI-1006: the live value, only when it moved since the contest was filed -->
+                    @if (liveDiffers(c)) {
+                    <div class="min-w-0 sm:col-span-2" data-testid="contest-live-value">
+                      <dt [class]="labelClass" i18n="@@admin.contests.value.live">
+                        On the integration now
+                      </dt>
+                      <dd class="mt-1 break-words text-t-16 text-(--text-primary)">
+                        {{ valueDisplay(c, 'live') }}
+                      </dd>
+                    </div>
+                    }
+                  </dl>
+                  @if (c.value_stale && c.status === 'open') {
+                  <p
+                    [id]="'contest-' + c.id + '-stale'"
+                    [class]="noticeClass"
+                    class="mt-4 max-w-prose"
+                    data-testid="contest-stale"
+                    i18n="@@admin.contests.stale"
+                  >
+                    This value changed after the contest was filed, most likely by the integration's
+                    owner. Accepting would overwrite that change, so it is refused. Decline it, or
+                    ask the vendor to withdraw it and file again against the current value.
+                  </p>
+                  }
 
-        @if (c.decision_note) {
-        <div class="mt-4 border-t border-(--border-default) pt-4">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.note.heading"
-          >
-            Decision note
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ c.decision_note }}
-          </p>
-        </div>
-        }
+                  <!-- The vendor's reason -->
+                  <div class="mt-4 border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.contests.reason.heading">Reason</p>
+                    <p [class]="bodyClass" class="mt-2">{{ c.reason }}</p>
+                  </div>
 
-        <!-- AECI-1009: the protest to AECi, both sides in full -->
-        @if (c.protest; as p) {
-        <div
-          class="mt-4 border-t border-(--border-default) pt-4"
-          [attr.data-testid]="'contest-protest-' + c.id"
-        >
-          <div class="flex flex-wrap items-center gap-2">
-            <h4
-              class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.contests.protest.heading"
-            >
-              Appeal to AEC Integrations
-            </h4>
-            <span
-              class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-              >{{ protestStatusLabel(p.status) }}</span
-            >
-          </div>
-          <dl class="mt-3 grid gap-3 text-sm">
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.protest.basis"
-              >
-                Why it came here
-              </dt>
-              <dd class="mt-1 text-(--text-primary)">
-                @if (p.basis === 'silence') {
-                <span i18n="@@admin.contests.protest.basis.silence"
-                  >The owner did not answer the contest within 30 days.</span
-                >
-                } @else {
-                <span i18n="@@admin.contests.protest.basis.declined"
-                  >The owner declined the contest.</span
-                >
-                }
-              </dd>
-            </div>
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.protest.case"
-              >
-                The submitter's case
-              </dt>
-              <dd class="mt-1 max-w-prose whitespace-pre-line text-(--text-primary)">
-                {{ p.reason }}
-              </dd>
-              @if (p.evidence_urls.length > 0) {
-              <dd class="mt-1">
-                <ul class="space-y-0.5">
-                  @for (url of p.evidence_urls; track url) {
-                  <li class="break-all">
+                  <!-- Who and when -->
+                  @if (isSelfDisclaim(c)) {
+                  <!-- AECI-1225: the vendor on file filed it about itself. -->
+                  <p
+                    class="mt-4 text-t-14 font-semibold text-(--text-primary)"
+                    data-testid="contest-self-disclaim"
+                    i18n="@@admin.contests.selfDisclaim"
+                  >
+                    {{ c.submitter_vendor.name }} is the vendor on file and says this integration is
+                    not theirs.
+                  </p>
+                  } @if (!isSelfDisclaim(c) || c.decided_at) {
+                  <dl [class]="factsClass" class="mt-4">
+                    @if (!isSelfDisclaim(c)) {
+                    <div class="flex flex-wrap gap-x-2">
+                      <dt [class]="labelClass" i18n="@@admin.contests.meta.owner">Offered by</dt>
+                      <dd>{{ ownerName(c) }}</dd>
+                    </div>
+                    } @if (c.decided_at) {
+                    <div class="flex flex-wrap gap-x-2">
+                      <dt [class]="labelClass" i18n="@@admin.contests.meta.decided">Decided</dt>
+                      <dd>{{ c.decided_at | date: 'medium' }}</dd>
+                    </div>
+                    }
+                  </dl>
+                  } @if (c.decision_note) {
+                  <div class="mt-4 border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.contests.note.heading">Decision note</p>
+                    <p [class]="bodyClass" class="mt-2">{{ c.decision_note }}</p>
+                  </div>
+                  }
+
+                  <!-- AECI-1009: the protest to AECi, both sides in full -->
+                  @if (c.protest; as p) {
+                  <div
+                    class="mt-4 border-t border-(--border-default) pt-4"
+                    [attr.data-testid]="'contest-protest-' + c.id"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <p [class]="labelClass" i18n="@@admin.contests.protest.heading">
+                        Appeal to AEC Integrations
+                      </p>
+                      <aec-chip density="dense" [tone]="protestTone(p.status)"
+                        >{{ protestStatusLabel(p.status) }}</aec-chip
+                      >
+                    </div>
+                    <dl class="mt-3 grid gap-4 text-t-16">
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.contests.protest.basis">
+                          Why it came here
+                        </dt>
+                        <dd class="mt-1 text-(--text-primary)">
+                          @if (p.basis === 'silence') {
+                          <span i18n="@@admin.contests.protest.basis.silence"
+                            >The owner did not answer the contest within 30 days.</span
+                          >
+                          } @else {
+                          <span i18n="@@admin.contests.protest.basis.declined"
+                            >The owner declined the contest.</span
+                          >
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.contests.protest.case">
+                          The submitter's case
+                        </dt>
+                        <dd [class]="bodyClass" class="mt-1">{{ p.reason }}</dd>
+                        @if (p.evidence_urls.length > 0) {
+                        <dd class="mt-1">
+                          <ul class="space-y-1">
+                            @for (url of p.evidence_urls; track url) {
+                            <li class="break-all">
+                              <a
+                                [href]="url"
+                                target="_blank"
+                                rel="noopener nofollow"
+                                class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover)"
+                                >{{ url }}</a
+                              >
+                            </li>
+                            }
+                          </ul>
+                        </dd>
+                        }
+                      </div>
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.contests.protest.reply">
+                          The owner's reply
+                        </dt>
+                        <dd [class]="bodyClass" class="mt-1">
+                          @if (p.reply) { {{ p.reply }} } @else if (replyPending(c)) {
+                          <span i18n="@@admin.contests.protest.replyDue"
+                            >Reply due {{ p.reply_due_at | date: 'medium' }}</span
+                          >
+                          } @else {
+                          <span i18n="@@admin.contests.protest.noReply"
+                            >No reply by {{ p.reply_due_at | date: 'medium' }}</span
+                          >
+                          }
+                        </dd>
+                        @if (p.reply_evidence_urls.length > 0) {
+                        <dd class="mt-1">
+                          <ul class="space-y-1">
+                            @for (url of p.reply_evidence_urls; track url) {
+                            <li class="break-all">
+                              <a
+                                [href]="url"
+                                target="_blank"
+                                rel="noopener nofollow"
+                                class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover)"
+                                >{{ url }}</a
+                              >
+                            </li>
+                            }
+                          </ul>
+                        </dd>
+                        }
+                      </div>
+                      @if (p.decision_note) {
+                      <div>
+                        <dt [class]="labelClass" i18n="@@admin.contests.protest.note">Our note</dt>
+                        <dd [class]="bodyClass" class="mt-1">{{ p.decision_note }}</dd>
+                      </div>
+                      }
+                    </dl>
+                    @if (c.owner_changed) {
+                    <p
+                      class="mt-3 text-t-14 font-semibold text-(--text-primary)"
+                      i18n="@@admin.contests.protest.ownerChanged"
+                    >
+                      The owner has changed since the decision. Your answer is still advice about
+                      that decision.
+                    </p>
+                    } @if (c.live_value !== c.current_value) {
+                    <p class="mt-2 text-t-14 text-(--text-primary)">
+                      <span class="font-semibold" i18n="@@admin.contests.protest.liveNow"
+                        >On the integration now:</span
+                      >
+                      {{ valueDisplay(c, 'live') }}
+                    </p>
+                    } @if (p.status === 'open') {
+                    <div class="mt-4 flex flex-wrap items-center gap-3">
+                      <button
+                        aecButton
+                        [id]="'contest-' + c.id + '-protest-uphold-open'"
+                        (click)="openProtestForm(c.id, 'uphold')"
+                        [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
+                        [attr.aria-describedby]="'protest-' + c.id + '-help'"
+                        i18n="@@admin.contests.protest.uphold"
+                      >
+                        Agree with the submitter
+                      </button>
+                      <button
+                        aecButton
+                        variant="secondary"
+                        [id]="'contest-' + c.id + '-protest-reject-open'"
+                        (click)="openProtestForm(c.id, 'reject')"
+                        [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
+                        [attr.aria-describedby]="'protest-' + c.id + '-help'"
+                        i18n="@@admin.contests.protest.reject"
+                      >
+                        Agree with the owner
+                      </button>
+                    </div>
+                    <p [id]="'protest-' + c.id + '-help'" [class]="helpClass" class="mt-2">
+                      <span i18n="@@admin.contests.protest.help"
+                        >Your answer is advice. It changes nothing on the listing and files no
+                        Linear issue. Both vendors see it in full, with your note. Agreeing with the
+                        owner stops the submitter contesting this field again for 90 days, unless
+                        its value changes.</span
+                      >
+                      @if (replyPending(c)) {
+                      <span i18n="@@admin.contests.protest.helpBeforeReply">
+                        The owner can still reply until {{ p.reply_due_at | date: 'medium' }}.
+                        Deciding now means deciding without that reply.</span
+                      >
+                      }
+                    </p>
+
+                    @if (protestFormOpenId() === c.id) {
+                    <form
+                      method="dialog"
+                      novalidate
+                      (aecSubmit)="confirmProtest(c.id, protestMode() ?? 'reject')"
+                      (keydown.escape)="dismissProtestForm(c.id)"
+                      [class]="formClass"
+                      class="mt-4"
+                    >
+                      <label [attr.for]="'protest-note-' + c.id" [class]="labelClass">
+                        @if (protestMode() === 'uphold') {
+                        <span i18n="@@admin.contests.protest.note.uphold"
+                          >Why you agree with the submitter (required)</span
+                        >
+                        } @else {
+                        <span i18n="@@admin.contests.protest.note.reject"
+                          >Why you agree with the owner (required)</span
+                        >
+                        }
+                      </label>
+                      <p
+                        [id]="'protest-note-' + c.id + '-help'"
+                        [class]="hintClass"
+                        i18n="@@admin.contests.protest.note.help"
+                      >
+                        Shown to both vendors. It is the whole of what your answer gives them, so
+                        say what decided it.
+                      </p>
+                      <textarea
+                        [id]="'protest-note-' + c.id"
+                        rows="3"
+                        maxlength="2000"
+                        required
+                        [attr.aria-invalid]="protestNoteMissing() ? 'true' : null"
+                        [attr.aria-describedby]="'protest-note-' + c.id + '-help' + (protestNoteMissing() ? ' protest-note-' + c.id + '-error' : '')"
+                        [value]="protestNote()"
+                        (input)="onProtestNote($event)"
+                        [class]="inputClass"
+                        class="min-h-24 resize-y py-3"
+                      ></textarea>
+                      @if (protestNoteMissing()) {
+                      <p
+                        [id]="'protest-note-' + c.id + '-error'"
+                        role="alert"
+                        [class]="errorClass"
+                        i18n="@@admin.contests.protest.note.missing"
+                      >
+                        Write a note before you record the answer.
+                      </p>
+                      }
+                      <div class="mt-2 flex flex-wrap gap-3">
+                        <button
+                          aecButton
+                          compact
+                          type="submit"
+                          [disabled]="pendingActionId() === c.id"
+                        >
+                          @if (pendingActionId() === c.id) {
+                          <span i18n="@@admin.contests.protest.recording">Recording…</span>
+                          } @else {
+                          <span i18n="@@admin.contests.protest.record">Record the answer</span>
+                          }
+                        </button>
+                        <button
+                          aecButton
+                          variant="ghost"
+                          (click)="dismissProtestForm(c.id)"
+                          [disabled]="pendingActionId() === c.id"
+                          i18n="@@admin.contests.protest.cancel"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                    } @if (failedActionId() === c.id) {
+                    <p
+                      [id]="'contest-' + c.id + '-protest-failed'"
+                      tabindex="-1"
+                      [class]="failedClass"
+                      class="mt-3"
+                      role="alert"
+                    >
+                      {{ failedActionMessage() }}
+                    </p>
+                    } }
+                  </div>
+                  }
+                </div>
+
+                <div class="grid min-w-0 content-start gap-4">
+                  <!-- Accepted AECi rows: the review issue that carries the value upstream -->
+                  @if (c.status === 'accepted' && (c.routed_to === 'aeci' || isStranded(c))) {
+                  <div>
+                    @if (c.upstream_linear_issue_url) {
                     <a
-                      [href]="url"
+                      [href]="c.upstream_linear_issue_url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                      >{{ url }}</a
+                      class="inline-flex min-h-11 items-center gap-2 text-t-14 font-semibold text-(--text-primary) underline underline-offset-3 hover:text-(--accent-primary)"
+                      ><span i18n="@@admin.contests.linear.link">Review issue in Linear</span>
+                      <aec-new-tab-icon
+                    /></a>
+                    } @else {
+                    <aec-chip density="dense" [tone]="tone('linearIssuePending')"
+                      ><span i18n="@@admin.contests.linear.pending"
+                        >Linear issue pending</span
+                      ></aec-chip
                     >
-                  </li>
+                    }
+                  </div>
                   }
-                </ul>
-              </dd>
-              }
-            </div>
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.protest.reply"
-              >
-                The owner's reply
-              </dt>
-              <dd class="mt-1 max-w-prose whitespace-pre-line text-(--text-primary)">
-                @if (p.reply) { {{ p.reply }} } @else if (replyPending(c)) {
-                <span i18n="@@admin.contests.protest.replyDue"
-                  >Reply due {{ p.reply_due_at | date: 'medium' }}</span
-                >
-                } @else {
-                <span i18n="@@admin.contests.protest.noReply"
-                  >No reply by {{ p.reply_due_at | date: 'medium' }}</span
-                >
-                }
-              </dd>
-              @if (p.reply_evidence_urls.length > 0) {
-              <dd class="mt-1">
-                <ul class="space-y-0.5">
-                  @for (url of p.reply_evidence_urls; track url) {
-                  <li class="break-all">
-                    <a
-                      [href]="url"
-                      target="_blank"
-                      rel="noopener nofollow"
-                      class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                      >{{ url }}</a
+
+                  <!-- Owner-routed open rows are read-only here -->
+                  @if (c.status === 'open' && isStranded(c)) {
+                  <p [class]="helpClass" i18n="@@admin.contests.stranded">
+                    The owner's vendor account no longer exists, so AEC Integrations decides this
+                    contest.
+                  </p>
+                  } @else if (c.status === 'open' && c.routed_to === 'owner') {
+                  <p [class]="helpClass" i18n="@@admin.contests.ownerReadOnly">
+                    The integration's owner decides this contest. It is shown here so you can see
+                    the dispute, but you cannot decide it.
+                  </p>
+                  }
+
+                  <!-- Decisions (open AECi rows only) -->
+                  @if (isActionable(c)) {
+                  <!-- AECI-2104: Decline is the shared danger form. It opens under its
+                       opener. Accept keeps its own form below: it approves. -->
+                  <p
+                    [id]="'contest-' + c.id + '-accept-help'"
+                    [class]="helpClass"
+                    i18n="@@admin.contests.accept.help2"
+                  >
+                    Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration
+                    nobody has claimed, the live listing changes only at the next promote. On one
+                    its owner has claimed, or when you approve a vendor as the owner, the change
+                    goes live now.
+                  </p>
+                  <div class="flex flex-wrap items-start gap-3">
+                    <button
+                      aecButton
+                      [id]="'contest-' + c.id + '-accept-open'"
+                      (click)="openForm(c.id, 'accept')"
+                      [disabled]="pendingActionId() === c.id || formOpenId() === c.id || c.value_stale"
+                      [attr.aria-describedby]="
+                        'contest-' + c.id + '-accept-help' + (c.value_stale ? ' contest-' + c.id + '-stale' : '')
+                      "
+                      i18n="@@admin.contests.accept"
                     >
-                  </li>
-                  }
-                </ul>
-              </dd>
-              }
+                      Accept
+                    </button>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="declineCopy.opener"
+                      [confirmLabel]="declineCopy.confirm"
+                      [busyLabel]="declineCopy.busy"
+                      [reasonLabel]="declineCopy.label"
+                      [reasonHelp]="declineCopy.help"
+                      [reasonRequired]="null"
+                      [maxLength]="declineMax"
+                      [cancelLabel]="declineCopy.cancel"
+                      [openerDisabled]="declineBlocked(c.id)"
+                      [busy]="pendingActionId() === c.id"
+                      [open]="formOpenId() === c.id && formMode() === 'decline'"
+                      (openChange)="onDeclineOpen(c.id, $event)"
+                      (confirmed)="confirm(c.id, 'decline', $event)"
+                    />
+                  </div>
+
+                  @if (formOpenId() === c.id && formMode() === 'accept') {
+                  <form
+                    method="dialog"
+                    novalidate
+                    (aecSubmit)="confirm(c.id, 'accept')"
+                    (keydown.escape)="dismissForm(c.id)"
+                    [class]="formClass"
+                  >
+                    <label [attr.for]="'contest-note-' + c.id" [class]="labelClass">
+                      @if (acceptNoteRequired(c)) {
+                      <span i18n="@@admin.contests.accept.vendorLabelRequired"
+                        >Reason shown to the vendor (required)</span
+                      >
+                      } @else {
+                      <span i18n="@@admin.contests.accept.label"
+                        >Note for the review issue (optional)</span
+                      >
+                      }
+                    </label>
+                    <p [id]="'contest-note-' + c.id + '-help'" [class]="hintClass">
+                      @if (acceptNoteRequired(c)) {
+                      <span i18n="@@admin.contests.accept.vendorHelpRequired"
+                        >The owner holds this integration, so accepting changes their listing. The
+                        owner and the vendor that filed the contest both read this in their portal
+                        messages. It is also recorded in the audit trail and copied into the Linear
+                        issue.</span
+                      >
+                      } @else {
+                      <span i18n="@@admin.contests.accept.noteHelp"
+                        >Copied into the Linear issue and shown to the vendor that filed the
+                        contest.</span
+                      >
+                      }
+                    </p>
+                    <textarea
+                      [id]="'contest-note-' + c.id"
+                      rows="3"
+                      maxlength="2000"
+                      [required]="acceptNoteRequired(c)"
+                      [attr.aria-invalid]="noteMissing() ? 'true' : null"
+                      [attr.aria-describedby]="'contest-note-' + c.id + '-help' + (noteMissing() ? ' contest-note-' + c.id + '-error' : '')"
+                      [value]="formText()"
+                      (input)="onFormInput($event)"
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                    ></textarea>
+                    @if (noteMissing()) {
+                    <p
+                      [id]="'contest-note-' + c.id + '-error'"
+                      role="alert"
+                      [class]="errorClass"
+                      i18n="@@admin.contests.accept.vendorReasonMissing"
+                    >
+                      Write a reason for the vendor before you accept. The owner holds this
+                      integration.
+                    </p>
+                    }
+                    <!-- AECI-1628: the accept writes the owner's value here, so the listing shows it
+                         as AEC Integrations' correction with this link as its source. -->
+                    @if (acceptSourceRequired(c)) {
+                    <label
+                      [attr.for]="'contest-source-' + c.id"
+                      [class]="labelClass"
+                      class="pt-2"
+                      i18n="@@admin.contests.accept.sourceLabel"
+                    >
+                      Source link (required)
+                    </label>
+                    <p
+                      [id]="'contest-source-' + c.id + '-help'"
+                      [class]="hintClass"
+                      i18n="@@admin.contests.accept.sourceHelp"
+                    >
+                      Where you read the accepted value. The listing shows this change as corrected
+                      by AEC Integrations, with this link as its source.
+                    </p>
+                    <input
+                      [id]="'contest-source-' + c.id"
+                      type="url"
+                      inputmode="url"
+                      autocomplete="off"
+                      maxlength="2048"
+                      required
+                      placeholder="https://"
+                      [attr.aria-invalid]="sourceProblem() ? 'true' : null"
+                      [attr.aria-describedby]="'contest-source-' + c.id + '-help' + (sourceProblem() ? ' contest-source-' + c.id + '-error' : '')"
+                      [value]="sourceUrl()"
+                      (input)="onSourceInput($event)"
+                      [class]="inputClass"
+                    />
+                    @if (sourceProblem() === 'missing') {
+                    <p
+                      [id]="'contest-source-' + c.id + '-error'"
+                      role="alert"
+                      [class]="errorClass"
+                      i18n="@@admin.contests.accept.sourceMissing"
+                    >
+                      Add the link where you read this value before you accept.
+                    </p>
+                    } @else if (sourceProblem() === 'invalid') {
+                    <p
+                      [id]="'contest-source-' + c.id + '-error'"
+                      role="alert"
+                      [class]="errorClass"
+                      i18n="@@admin.contests.accept.sourceInvalid"
+                    >
+                      Use an https:// link with no username or password.
+                    </p>
+                    } }
+                    <label
+                      [attr.for]="'contest-internal-note-' + c.id"
+                      [class]="labelClass"
+                      class="pt-2"
+                      i18n="@@admin.contests.accept.internalNoteLabel"
+                    >
+                      Internal note (optional, never shown to the vendor)
+                    </label>
+                    <textarea
+                      [id]="'contest-internal-note-' + c.id"
+                      rows="2"
+                      [attr.maxlength]="internalNoteMax"
+                      [value]="internalNote()"
+                      (input)="onInternalNoteInput($event)"
+                      [class]="inputClass"
+                      class="min-h-20 resize-y py-3"
+                    ></textarea>
+                    <div class="mt-2 flex flex-wrap gap-3">
+                      <button
+                        aecButton
+                        compact
+                        type="submit"
+                        [disabled]="pendingActionId() === c.id"
+                      >
+                        @if (pendingActionId() === c.id) {
+                        <span i18n="@@admin.contests.accepting">Accepting…</span>
+                        } @else {
+                        <span i18n="@@admin.contests.accept.confirm"
+                          >Accept and file the issue</span
+                        >
+                        }
+                      </button>
+                      <button
+                        aecButton
+                        variant="ghost"
+                        (click)="dismissForm(c.id)"
+                        [disabled]="pendingActionId() === c.id"
+                        i18n="@@admin.contests.form.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                  } @if (failedActionId() === c.id) {
+                  <p
+                    [id]="'contest-' + c.id + '-failed'"
+                    tabindex="-1"
+                    [class]="failedClass"
+                    role="alert"
+                  >
+                    {{ failedActionMessage() }}
+                  </p>
+                  } }
+                </div>
+              </div>
             </div>
-            @if (p.decision_note) {
-            <div>
-              <dt
-                class="text-xs font-bold text-(--text-secondary)"
-                i18n="@@admin.contests.protest.note"
-              >
-                Our note
-              </dt>
-              <dd class="mt-1 max-w-prose whitespace-pre-line text-(--text-primary)">
-                {{ p.decision_note }}
-              </dd>
-            </div>
-            }
-          </dl>
-          @if (c.owner_changed) {
-          <p
-            class="mt-3 text-xs font-medium text-(--text-primary)"
-            i18n="@@admin.contests.protest.ownerChanged"
-          >
-            The owner has changed since the decision. Your answer is still advice about that
-            decision.
-          </p>
-          } @if (c.live_value !== c.current_value) {
-          <p class="mt-2 text-xs text-(--text-primary)">
-            <span class="font-bold" i18n="@@admin.contests.protest.liveNow"
-              >On the integration now:</span
-            >
-            {{ valueDisplay(c, 'live') }}
-          </p>
-          } @if (p.status === 'open') {
-          <div class="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              (click)="openProtestForm(c.id, 'uphold')"
-              [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
-              [attr.aria-describedby]="'protest-' + c.id + '-help'"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.contests.protest.uphold"
-            >
-              Agree with the submitter
-            </button>
-            <button
-              type="button"
-              (click)="openProtestForm(c.id, 'reject')"
-              [disabled]="pendingActionId() === c.id || protestFormOpenId() === c.id"
-              [attr.aria-describedby]="'protest-' + c.id + '-help'"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.contests.protest.reject"
-            >
-              Agree with the owner
-            </button>
-          </div>
-          <p
-            [id]="'protest-' + c.id + '-help'"
-            class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
-          >
-            <span i18n="@@admin.contests.protest.help"
-              >Your answer is advice. It changes nothing on the listing and files no Linear issue.
-              Both vendors see it in full, with your note. Agreeing with the owner stops the
-              submitter contesting this field again for 90 days, unless its value changes.</span
-            >
-            @if (replyPending(c)) {
-            <span i18n="@@admin.contests.protest.helpBeforeReply">
-              The owner can still reply until {{ p.reply_due_at | date: 'medium' }}. Deciding now
-              means deciding without that reply.</span
-            >
-            }
-          </p>
-
-          @if (protestFormOpenId() === c.id) {
-          <form
-            method="dialog"
-            novalidate
-            (aecSubmit)="confirmProtest(c.id, protestMode() ?? 'reject')"
-            class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-          >
-            <label
-              [attr.for]="'protest-note-' + c.id"
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            >
-              @if (protestMode() === 'uphold') {
-              <span i18n="@@admin.contests.protest.note.uphold"
-                >Why you agree with the submitter (required)</span
-              >
-              } @else {
-              <span i18n="@@admin.contests.protest.note.reject"
-                >Why you agree with the owner (required)</span
-              >
-              }
-            </label>
-            <p
-              [id]="'protest-note-' + c.id + '-help'"
-              class="text-xs text-(--text-secondary)"
-              i18n="@@admin.contests.protest.note.help"
-            >
-              Shown to both vendors. It is the whole of what your answer gives them, so say what
-              decided it.
-            </p>
-            <textarea
-              [id]="'protest-note-' + c.id"
-              rows="3"
-              maxlength="2000"
-              required
-              [attr.aria-invalid]="protestNoteMissing() ? 'true' : null"
-              [attr.aria-describedby]="'protest-note-' + c.id + '-help' + (protestNoteMissing() ? ' protest-note-' + c.id + '-error' : '')"
-              [value]="protestNote()"
-              (input)="onProtestNote($event)"
-              class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ></textarea>
-            @if (protestNoteMissing()) {
-            <p
-              [id]="'protest-note-' + c.id + '-error'"
-              role="alert"
-              class="text-sm font-medium text-(--text-primary)"
-              i18n="@@admin.contests.protest.note.missing"
-            >
-              Write a note before you record the answer.
-            </p>
-            }
-            <div class="flex flex-wrap gap-3 pt-1">
-              <button
-                type="submit"
-                [disabled]="pendingActionId() === c.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (pendingActionId() === c.id) {
-                <span i18n="@@admin.contests.protest.recording">Recording…</span>
-                } @else {
-                <span i18n="@@admin.contests.protest.record">Record the answer</span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="closeProtestForm()"
-                [disabled]="pendingActionId() === c.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.contests.protest.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-          } @if (failedActionId() === c.id) {
-          <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-            {{ failedActionMessage() }}
-          </p>
-          } }
-        </div>
-        }
-
-        <!-- Accepted AECi rows: the review issue that carries the value upstream -->
-        @if (c.status === 'accepted' && (c.routed_to === 'aeci' || isStranded(c))) {
-        <div class="mt-4">
-          @if (c.upstream_linear_issue_url) {
-          <a
-            [href]="c.upstream_linear_issue_url"
-            target="_blank"
-            rel="noopener nofollow"
-            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-strong) px-3 py-1 text-xs font-medium text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ><span i18n="@@admin.contests.linear.link">Review issue in Linear</span>
-            <aec-new-tab-icon
-          /></a>
-          } @else {
-          <span
-            class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary)"
-            i18n="@@admin.contests.linear.pending"
-            >Linear issue pending</span
-          >
-          }
-        </div>
-        }
-
-        <!-- Owner-routed open rows are read-only here -->
-        @if (c.status === 'open' && isStranded(c)) {
-        <p class="mt-5 text-sm text-(--text-secondary)" i18n="@@admin.contests.stranded">
-          The owner's vendor account no longer exists, so AEC Integrations decides this contest.
-        </p>
-        } @else if (c.status === 'open' && c.routed_to === 'owner') {
-        <p class="mt-5 text-sm text-(--text-secondary)" i18n="@@admin.contests.ownerReadOnly">
-          The integration's owner decides this contest. It is shown here so you can see the dispute,
-          but you cannot decide it.
-        </p>
-        }
-
-        <!-- Decisions (open AECi rows only) -->
-        @if (isActionable(c)) {
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            (click)="openForm(c.id, 'accept')"
-            [disabled]="pendingActionId() === c.id || formOpenId() === c.id || c.value_stale"
-            [attr.aria-describedby]="
-              'contest-' + c.id + '-accept-help' + (c.value_stale ? ' contest-' + c.id + '-stale' : '')
-            "
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.contests.accept"
-          >
-            Accept
-          </button>
-          <button
-            type="button"
-            (click)="openForm(c.id, 'decline')"
-            [disabled]="pendingActionId() === c.id || formOpenId() === c.id"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.contests.decline"
-          >
-            Decline
-          </button>
-        </div>
-        <p
-          [id]="'contest-' + c.id + '-accept-help'"
-          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
-          i18n="@@admin.contests.accept.help2"
-        >
-          Accepting files a REVIEW issue in Linear (playbook AECI-1025). On an integration nobody
-          has claimed, the live listing changes only at the next promote. On one its owner has
-          claimed, or when you approve a vendor as the owner, the change goes live now.
-        </p>
-
-        @if (formOpenId() === c.id && formMode() === 'accept') {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirm(c.id, 'accept')"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-        >
-          <label
-            [attr.for]="'contest-note-' + c.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          >
-            @if (acceptNoteRequired(c)) {
-            <span i18n="@@admin.contests.accept.vendorLabelRequired"
-              >Reason shown to the vendor (required)</span
-            >
-            } @else {
-            <span i18n="@@admin.contests.accept.label">Note for the review issue (optional)</span>
-            }
-          </label>
-          <p [id]="'contest-note-' + c.id + '-help'" class="text-xs text-(--text-secondary)">
-            @if (acceptNoteRequired(c)) {
-            <span i18n="@@admin.contests.accept.vendorHelpRequired"
-              >The owner holds this integration, so accepting changes their listing. The owner and
-              the vendor that filed the contest both read this in their portal messages. It is also
-              recorded in the audit trail and copied into the Linear issue.</span
-            >
-            } @else {
-            <span i18n="@@admin.contests.accept.noteHelp"
-              >Copied into the Linear issue and shown to the vendor that filed the contest.</span
-            >
-            }
-          </p>
-          <textarea
-            [id]="'contest-note-' + c.id"
-            rows="3"
-            maxlength="2000"
-            [required]="acceptNoteRequired(c)"
-            [attr.aria-invalid]="noteMissing() ? 'true' : null"
-            [attr.aria-describedby]="'contest-note-' + c.id + '-help' + (noteMissing() ? ' contest-note-' + c.id + '-error' : '')"
-            [value]="formText()"
-            (input)="onFormInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          @if (noteMissing()) {
-          <p
-            [id]="'contest-note-' + c.id + '-error'"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.contests.accept.vendorReasonMissing"
-          >
-            Write a reason for the vendor before you accept. The owner holds this integration.
-          </p>
-          }
-          <!-- AECI-1628: the accept writes the owner's value here, so the listing shows it
-               as AEC Integrations' correction with this link as its source. -->
-          @if (acceptSourceRequired(c)) {
-          <label
-            [attr.for]="'contest-source-' + c.id"
-            class="block pt-2 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.accept.sourceLabel"
-          >
-            Source link (required)
-          </label>
-          <p
-            [id]="'contest-source-' + c.id + '-help'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.contests.accept.sourceHelp"
-          >
-            Where you read the accepted value. The listing shows this change as corrected by AEC
-            Integrations, with this link as its source.
-          </p>
-          <input
-            [id]="'contest-source-' + c.id"
-            type="url"
-            inputmode="url"
-            autocomplete="off"
-            maxlength="2048"
-            required
-            placeholder="https://"
-            [attr.aria-invalid]="sourceProblem() ? 'true' : null"
-            [attr.aria-describedby]="'contest-source-' + c.id + '-help' + (sourceProblem() ? ' contest-source-' + c.id + '-error' : '')"
-            [value]="sourceUrl()"
-            (input)="onSourceInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          />
-          @if (sourceProblem() === 'missing') {
-          <p
-            [id]="'contest-source-' + c.id + '-error'"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.contests.accept.sourceMissing"
-          >
-            Add the link where you read this value before you accept.
-          </p>
-          } @else if (sourceProblem() === 'invalid') {
-          <p
-            [id]="'contest-source-' + c.id + '-error'"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.contests.accept.sourceInvalid"
-          >
-            Use an https:// link with no username or password.
-          </p>
-          } }
-          <label
-            [attr.for]="'contest-internal-note-' + c.id"
-            class="block pt-2 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.accept.internalNoteLabel"
-          >
-            Internal note (optional, never shown to the vendor)
-          </label>
-          <textarea
-            [id]="'contest-internal-note-' + c.id"
-            rows="2"
-            [attr.maxlength]="internalNoteMax"
-            [value]="internalNote()"
-            (input)="onInternalNoteInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === c.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === c.id) {
-              <span i18n="@@admin.contests.accepting">Accepting…</span>
-              } @else {
-              <span i18n="@@admin.contests.accept.confirm">Accept and file the issue</span>
-              }
-            </button>
-            <button
-              type="button"
-              (click)="closeForm()"
-              [disabled]="pendingActionId() === c.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.contests.form.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        } @if (formOpenId() === c.id && formMode() === 'decline') {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirm(c.id, 'decline')"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-        >
-          <label
-            [attr.for]="'contest-reason-' + c.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.decline.label"
-          >
-            Why you are declining (recommended)
-          </label>
-          <p
-            [id]="'contest-reason-' + c.id + '-help'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.contests.decline.help"
-          >
-            Shown to the vendor that filed the contest. A reason tells them what evidence would
-            change the answer.
-          </p>
-          <textarea
-            [id]="'contest-reason-' + c.id"
-            rows="3"
-            maxlength="2000"
-            [attr.aria-describedby]="'contest-reason-' + c.id + '-help'"
-            [value]="formText()"
-            (input)="onFormInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === c.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === c.id) {
-              <span i18n="@@admin.contests.declining">Declining…</span>
-              } @else {
-              <span i18n="@@admin.contests.decline.confirm">Confirm decline</span>
-              }
-            </button>
-            <button
-              type="button"
-              (click)="closeForm()"
-              [disabled]="pendingActionId() === c.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.contests.form.cancel2"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        } @if (failedActionId() === c.id) {
-        <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-          {{ failedActionMessage() }}
-        </p>
-        } }
-      </article>
-    </li>
-    }
-  </ul>
+          </td>
+        </tr>
+      </tbody>
+      }
+    </table>
+  </div>
   }
   <!-- AECI-2042: Sync Service pair reports, their reviews, and endpoint removals. -->
   <aec-admin-pair-rights />

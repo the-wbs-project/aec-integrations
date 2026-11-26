@@ -26,6 +26,17 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_PANEL_CLASS } from '../console/console-table';
 import { isStatus } from '../http-status';
 import { AdminAuditApi, type AdminAuditListParams } from './admin-audit-api';
 import { knownAuditActions } from './audit-action-labels';
@@ -283,10 +294,20 @@ function dropUndefined<T extends object>(value: T): T {
  */
 @Component({
   selector: 'aec-admin-audit-log',
-  imports: [AecSelect, AuditTrail],
+  imports: [AecButton, AecIcon, AecSelect, AuditTrail, Chip],
   templateUrl: './audit-log.html',
 })
 export class AuditLog {
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** Ids and action tokens are typed exactly, so their fields use the mono face. */
+  protected readonly monoInputClass = `${FIELD_INPUT_CLASS} font-mono`;
+
   private readonly api = inject(AdminAuditApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);

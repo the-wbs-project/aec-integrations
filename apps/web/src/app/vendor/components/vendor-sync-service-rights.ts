@@ -3,7 +3,7 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import type { EvidencedPairContestTarget, PairFlowDirection } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
-import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
@@ -103,7 +103,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               >
               <textarea
                 id="veto-reason-{{ target().id }}"
-                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
+                [class]="inputClass"
                 rows="3"
                 maxlength="1000"
                 required
@@ -154,7 +154,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               >
               <textarea
                 id="exist-reason-{{ target().id }}"
-                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
+                [class]="inputClass"
                 rows="3"
                 maxlength="1000"
                 required
@@ -209,7 +209,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               >
               <select
                 id="flow-claim-{{ target().id }}"
-                class="rounded-control border border-(--border-default) p-2 text-sm"
+                [class]="inputClass"
+                class="w-auto"
                 (change)="claimId.set(valueOf($event))"
               >
                 @for (f of rights.flows; track f.claim_id) {
@@ -229,7 +230,8 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               >
               <select
                 id="flow-dir-{{ target().id }}"
-                class="rounded-control border border-(--border-default) p-2 text-sm"
+                [class]="inputClass"
+                class="w-auto"
                 (change)="proposed.set(valueOf($event))"
               >
                 <option value="" i18n="@@vendor.syncRights.flow.none">
@@ -247,7 +249,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               >
               <textarea
                 id="flow-reason-{{ target().id }}"
-                class="w-full rounded-control border border-(--border-default) p-2 text-sm"
+                [class]="inputClass"
                 rows="3"
                 maxlength="1000"
                 required
@@ -307,6 +309,8 @@ export class VendorSyncServiceRights {
 
   /** The Label role (AECI-2083 portal recipe). */
   protected readonly labelClass = FIELD_LABEL_CLASS;
+  /** The shared field recipe (`shared/form-field/form-field-classes.ts`). */
+  protected readonly inputClass = FIELD_INPUT_CLASS;
 
   /** A form control's value, from its event. */
   protected valueOf(event: Event): string {

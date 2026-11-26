@@ -3,7 +3,7 @@ import {
   type CdkConnectedOverlayConfig,
   type ConnectedPosition,
 } from '@angular/cdk/overlay';
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
@@ -39,12 +39,30 @@ import {
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
+import { AdminPaginator } from '../admin-paginator';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDangerAction, type AdminDangerConfirmStep } from '../console/danger-action';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_HELP_CLASS,
+} from './queue-classes';
+import { queueFocusAfterRemoval } from './queue-focus';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
  *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
@@ -56,14 +74,11 @@ const HIGH_TOXICITY_THRESHOLD = 70;
  *  loaded, so we load the max and surface a note if the server reports more. */
 const QUEUE_PAGE_SIZE = 100;
 
-type SortKey = 'toxicity' | 'queue_age' | 'product' | 'reviewer';
+/** Rows per screen. The loaded set (at most `QUEUE_PAGE_SIZE`) is cut into pages
+ *  of this size in the browser, because the sorts run over the loaded set. */
+const SCREEN_PAGE_SIZE = 25;
 
-/** Reject-reason rule (local — there's no separate `@aeci/shared` schema for the
- *  field alone; the wire body is `ModerateReviewSchema`). `.trim().min(1)` makes a
- *  whitespace-only reason invalid; the API enforces the same on its side. */
-const RejectReasonSchema = z.object({
-  rejection_reason: z.string().trim().min(1).max(500),
-});
+type SortKey = 'toxicity' | 'queue_age' | 'product' | 'reviewer';
 
 /** Ban-reason rule (AECI-218). Same shape/limits as the reject reason; the API
  *  enforces the same via `BanReviewerSchema`'s refine. */
@@ -89,7 +104,7 @@ const BanReasonSchema = z.object({
  *
  * Each approve/reject is a `PATCH` that, on success, removes the row and
  * decrements `AdminSummaryStore` so the nav badge ticks down immediately. Reject
- * requires a non-empty reason (Signal Forms + Aria), mirroring the review form.
+ * requires a trimmed reason of 1 to 500 characters, the rule the API enforces.
  *
  * ── STATUS TABS AND REMOVE (AECI-1643, `ADMIN_PANEL_SPEC.md` §5.21) ──────────
  * Pending (the default), Approved, Rejected and Removed, as on
@@ -98,11 +113,32 @@ const BanReasonSchema = z.object({
  * on a pending review, Remove on an approved one, nothing on rejected or removed.
  * Remove needs a reason and a second, deliberate confirm, the same inline two-step
  * the review-updates queue uses. A remove does not touch the pending badge.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14, ruled 2026-11-24) ──────────────────────
+ * One row per review on the console table recipe. The review text, its facts and
+ * the decision forms sit in the row's detail, opened by its leading disclosure.
+ * Previous and Next page the loaded set (`SCREEN_PAGE_SIZE` a page); the capped-set
+ * note is unchanged. Focus: after a decision removes a row it moves to the
+ * disclosure of the row that took its place, or to the queue heading when none
+ * is left. A failed decision moves it to the row's alert, because the disabled
+ * button would otherwise drop it to the body.
+ *
+ * ── THE DANGER FORM (AECI-2104 part 2) ───────────────────────────────────────
+ * Reject and Remove are `<aec-admin-danger-action>` (`admin/console/danger-action.ts`):
+ * the opener, the reason, its refusals, Remove's locked second step, Cancel and
+ * Escape live there. This component keeps which row's form is open, the in-flight
+ * id it passes as `busy`, and the row-level failure alert, which Approve shares.
  */
 @Component({
   selector: 'aec-review-queue',
   imports: [
+    AdminDangerAction,
+    AdminDisclosureButton,
+    AdminPaginator,
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     DatePipe,
     OverlayModule,
     RouterLink,
@@ -118,6 +154,20 @@ const BanReasonSchema = z.object({
 export class ReviewQueue {
   /** A field's inline error: the shared recipe (AECI-1984). */
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 9;
+  protected readonly pageSize = SCREEN_PAGE_SIZE;
+  private readonly document = inject(DOCUMENT);
   private readonly api = inject(AdminReviewsApi);
   private readonly bansApi = inject(ReviewerBansApi);
   private readonly summaryStore = inject(AdminSummaryStore);
@@ -132,6 +182,15 @@ export class ReviewQueue {
 
   /** Id of the review whose action is in flight (disables its buttons). */
   protected readonly pendingActionId = signal<string | null>(null);
+  /** Which decision is in flight on `pendingActionId` (AECI-2104). A form's busy
+   *  label and its hidden status speak only for its own decision, so an Approve
+   *  pressed while a reason form is open never reads as that form's action. */
+  private readonly pendingDecision = signal<ReviewDecision | null>(null);
+
+  /** The decision `action` is the one in flight on row `id`. */
+  protected busyWith(id: string, action: ReviewDecision): boolean {
+    return this.pendingActionId() === id && this.pendingDecision() === action;
+  }
   /** Id of the review whose reject form is open (one at a time). */
   protected readonly rejectingId = signal<string | null>(null);
   // ── AECI-1643 status tabs + remove ─────────────────────────────────────────
@@ -145,10 +204,35 @@ export class ReviewQueue {
   protected readonly reasonMax = REVIEW_REASON_MAX;
   /** Id of the review whose remove form is open (one at a time). */
   protected readonly removingId = signal<string | null>(null);
-  protected readonly removeText = signal('');
-  protected readonly removeReasonMissing = signal(false);
-  /** True once the reason is locked and the "Remove permanently" step shows. */
-  protected readonly removeConfirming = signal(false);
+
+  /** Reject's words. One message covers both of its rules (empty, over 500). */
+  protected readonly rejectCopy = {
+    opener: $localize`:@@admin.reviews.reject:Reject`,
+    label: $localize`:@@admin.reviews.reject.label:Reason for rejection`,
+    error: $localize`:@@admin.reviews.reject.error:Enter a reason between 1 and 500 characters so the reviewer understands the decision.`,
+    confirm: $localize`:@@admin.reviews.reject.confirm:Confirm rejection`,
+    busy: $localize`:@@admin.reviews.rejecting:Rejecting…`,
+    cancel: $localize`:@@admin.reviews.reject.cancel:Cancel`,
+  } as const;
+
+  /** Remove's words. The reason is natively capped at `reasonMax`. */
+  protected readonly removeCopy = {
+    opener: $localize`:@@admin.reviews.remove:Remove from the page`,
+    label: $localize`:@@admin.reviews.remove.label:Why you are removing it (required)`,
+    help: $localize`:@@admin.reviews.remove.reasonHelp:Shown to the reviewer on their account page. Name the guideline the review breaks.`,
+    missing: $localize`:@@admin.reviews.remove.missing:Write a reason before you confirm.`,
+    confirm: $localize`:@@admin.reviews.removeConfirm.confirm:Remove permanently`,
+    busy: $localize`:@@admin.reviews.removing:Removing…`,
+    cancel: $localize`:@@admin.reviews.remove.cancel:Cancel`,
+  } as const;
+
+  /** Removal is final, so it takes a second, deliberate step. */
+  protected readonly removeStep: AdminDangerConfirmStep = {
+    continueLabel: $localize`:@@admin.reviews.remove.continue:Continue to removal`,
+    title: $localize`:@@admin.reviews.removeConfirm.title:Remove this review permanently?`,
+    body: $localize`:@@admin.reviews.removeConfirm.body:Removal is final. The review comes off the product page with its vendor replies and updates, and its ratings stop counting in the product's averages. The reviewer cannot post a new review of this product. Nobody can undo it from this screen.`,
+    editLabel: $localize`:@@admin.reviews.removeConfirm.edit:Edit the reason`,
+  };
 
   /** Last failed action, keyed to a row so the alert renders inline. */
   protected readonly failedAction = signal<{ id: string; reason: 'generic' | 'already' } | null>(
@@ -184,14 +268,23 @@ export class ReviewQueue {
   });
 
   protected readonly loadedCount = computed(() => this.reviews().length);
+
+  // ── AECI-2102 the table: open rows and the screen page ─────────────────────
+  /** Ids of the rows whose detail is open. The parent owns it, per the recipe. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
+  /** The page asked for. `currentPage` clamps it when decisions shrink the set. */
+  private readonly page = signal(1);
+  protected readonly currentPage = computed(() => {
+    const pages = Math.max(1, Math.ceil(this.reviews().length / SCREEN_PAGE_SIZE));
+    return Math.min(this.page(), pages);
+  });
+  /** The rows on screen: one page of the sorted, loaded set. */
+  protected readonly pagedReviews = computed(() => {
+    const start = (this.currentPage() - 1) * SCREEN_PAGE_SIZE;
+    return this.sortedReviews().slice(start, start + SCREEN_PAGE_SIZE);
+  });
   /** True when the server has more pending than we loaded (note shown). */
   protected readonly truncated = computed(() => this.total() > this.reviews().length);
-
-  /** Reject-form model + Signal Form (shared by whichever row's reject is open). */
-  private readonly rejectionModel = signal<{ rejection_reason: string }>({ rejection_reason: '' });
-  protected readonly rejectForm = form(this.rejectionModel, (p) => {
-    validateStandardSchema(p, RejectReasonSchema);
-  });
 
   // ── AECI-218 repeat-offender prompt + ban dialog ───────────────────────────
   /** Set by a reject whose response carried a repeat-offender prompt (reviewer's
@@ -276,12 +369,37 @@ export class ReviewQueue {
     void this.load();
   }
 
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminReview): string {
+    const product = r.product.name;
+    const reviewer = r.reviewer_email ?? $localize`:@@admin.reviews.meta.anonymized:Anonymized`;
+    return $localize`:@@admin.reviews.row.label:Review of ${product}:product: by ${reviewer}:reviewer:`;
+  }
+
+  protected setPage(page: number): void {
+    this.page.set(page);
+  }
+
   /** Switch the status tab: close any open form and reload that status. */
   protected setStatus(status: ReviewStatus): void {
     if (this.statusFilter() === status) return;
     this.statusFilter.set(status);
-    this.cancelReject();
-    this.closeRemove();
+    this.page.set(1);
+    this.rejectingId.set(null);
+    this.removingId.set(null);
     this.failedAction.set(null);
     this.liveMessage.set('');
     void this.load();
@@ -309,6 +427,26 @@ export class ReviewQueue {
 
   protected setSort(key: SortKey): void {
     this.sortKey.set(key);
+    this.page.set(1);
+  }
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** The chip tone for a review status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: ReviewStatus): ConsoleChipTone {
+    switch (status) {
+      case 'pending':
+        return adminStatusTone('pending');
+      case 'approved':
+        return adminStatusTone('approved');
+      case 'rejected':
+        return adminStatusTone('rejected');
+      case 'removed':
+        return adminStatusTone('removed');
+    }
   }
 
   protected isHighToxicity(score: number | null): boolean {
@@ -411,6 +549,7 @@ export class ReviewQueue {
     if (this.pendingActionId()) return;
     this.failedAction.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set('approve');
     try {
       await this.api.moderate(id, { action: 'approve' });
       this.onModerated(id, $localize`:@@admin.reviews.announce.approved:Review approved.`);
@@ -418,114 +557,85 @@ export class ReviewQueue {
       this.onModerateError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
-  /** Open the inline reject form for a row (resets the shared field + its
-   *  touched/invalid state, so a prior failed submit doesn't show a stale error
-   *  on the freshly opened, empty form). */
-  protected openReject(id: string): void {
-    this.failedAction.set(null);
-    this.rejectionModel.set({ rejection_reason: '' });
-    this.rejectForm.rejection_reason().reset();
-    this.rejectingId.set(id);
+  /** The reject form opened or closed (its opener, Cancel or Escape). One row's
+   *  form is open at a time. The danger form starts each open clean and focuses
+   *  its own field, and it ignores a close while the row's request runs. */
+  protected onRejectOpen(id: string, open: boolean): void {
+    if (open) {
+      this.failedAction.set(null);
+      this.rejectingId.set(id);
+    } else if (this.rejectingId() === id) {
+      this.rejectingId.set(null);
+    }
   }
 
-  protected cancelReject(): void {
-    this.rejectingId.set(null);
-    this.rejectionModel.set({ rejection_reason: '' });
-    this.rejectForm.rejection_reason().reset();
-  }
-
-  protected async confirmReject(id: string): Promise<void> {
+  /** The danger form checked the reason (trimmed, 1 to 500 characters). */
+  protected async confirmReject(id: string, reason: string): Promise<void> {
     if (this.pendingActionId()) return;
     this.failedAction.set(null);
-    await submit(this.rejectForm, async (f) => {
-      const reason = f().value().rejection_reason.trim();
-      this.pendingActionId.set(id);
-      try {
-        const res = await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
-        this.rejectingId.set(null);
-        this.rejectionModel.set({ rejection_reason: '' });
-        this.onModerated(id, $localize`:@@admin.reviews.announce.rejected:Review rejected.`);
-        // AECI-218: surface the advisory "consider a ban" banner when this
-        // rejection was the reviewer's 3rd+ (the API decides; null otherwise).
-        this.repeatOffenderPrompt.set(res.repeat_offender);
-      } catch (err) {
-        this.onModerateError(id, err);
-      } finally {
-        this.pendingActionId.set(null);
-      }
-      return undefined;
-    });
+    this.pendingActionId.set(id);
+    this.pendingDecision.set('reject');
+    try {
+      const res = await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
+      this.rejectingId.set(null);
+      this.onModerated(id, $localize`:@@admin.reviews.announce.rejected:Review rejected.`);
+      // AECI-218: surface the advisory "consider a ban" banner when this
+      // rejection was the reviewer's 3rd+ (the API decides; null otherwise).
+      this.repeatOffenderPrompt.set(res.repeat_offender);
+    } catch (err) {
+      this.onModerateError(id, err);
+    } finally {
+      this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
+    }
   }
 
   // ── AECI-1643 remove a published review ────────────────────────────────────
 
-  protected openRemove(id: string): void {
-    this.failedAction.set(null);
-    this.removeText.set('');
-    this.removeReasonMissing.set(false);
-    this.removeConfirming.set(false);
-    this.removingId.set(id);
-    this.focusAfterRender(`remove-reason-${id}`);
+  /** The remove form opened or closed. As for Reject. */
+  protected onRemoveOpen(id: string, open: boolean): void {
+    if (open) {
+      this.failedAction.set(null);
+      this.removingId.set(id);
+    } else if (this.removingId() === id) {
+      this.removingId.set(null);
+    }
   }
 
-  protected closeRemove(): void {
-    this.removingId.set(null);
-    this.removeText.set('');
-    this.removeReasonMissing.set(false);
-    this.removeConfirming.set(false);
-  }
-
-  protected onRemoveInput(event: Event): void {
-    this.removeText.set((event.target as HTMLTextAreaElement).value);
-    if (this.removeReasonMissing()) this.removeReasonMissing.set(false);
-  }
-
-  /** First submit locks the reason and shows the confirm. Only the second sends. */
-  protected async confirmRemove(id: string): Promise<void> {
+  /** Step two's "Remove permanently". The danger form checked the reason and
+   *  showed the locked confirm first. Only this press sends. */
+  protected async confirmRemove(id: string, reason: string): Promise<void> {
     if (this.pendingActionId()) return;
-    const reason = this.removeText().trim();
-    if (reason === '') {
-      this.removeReasonMissing.set(true);
-      return;
-    }
-    if (!this.removeConfirming()) {
-      this.removeConfirming.set(true);
-      this.focusAfterRender(`remove-confirm-${id}`);
-      return;
-    }
     this.failedAction.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set('remove');
     try {
       await this.api.moderate(id, { action: 'remove', rejection_reason: reason });
-      this.closeRemove();
+      this.removingId.set(null);
       // Not in the pending count, so the badge does not move.
       this.removeRow(id);
       this.liveMessage.set(
         $localize`:@@admin.reviews.announce.removed:Review removed from the product page. The reviewer can see your reason on their account page.`,
       );
     } catch (err) {
-      if (isAlreadyModerated(err)) this.closeRemove();
+      if (isAlreadyModerated(err)) this.removingId.set(null);
       this.onModerateError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
-  /** Leave the remove confirm and unlock the reason. Sends nothing. */
-  protected editRemoveReason(id: string): void {
-    this.removeConfirming.set(false);
-    this.focusAfterRender(`remove-reason-${id}`);
-  }
-
-  private focusAfterRender(elementId: string): void {
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
     afterNextRender(
-      {
-        write: () =>
-          this.host.nativeElement.querySelector<HTMLElement>(`[id="${elementId}"]`)?.focus(),
-      },
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
       { injector: this.injector },
     );
   }
@@ -553,11 +663,34 @@ export class ReviewQueue {
       return;
     }
     this.failedAction.set({ id, reason: 'generic' });
+    this.focusAfterRender(`review-${id}-failed`);
   }
 
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the last row of the
+   *  new last page, the heading, or nowhere when the row was not on screen. */
   private removeRow(id: string): void {
+    const index = this.pagedReviews().findIndex((r) => r.id === id);
+    const pageBefore = this.currentPage();
     this.reviews.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    this.openIds.update((ids) => {
+      if (!ids.has(id)) return ids;
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    const target = queueFocusAfterRemoval(
+      index,
+      pageBefore,
+      this.currentPage(),
+      this.pagedReviews(),
+    );
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-reviews-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="review-${target.row.id}-detail"]` : undefined,
+    );
   }
 
   // ── AECI-218 ban actions ───────────────────────────────────────────────────
@@ -603,11 +736,19 @@ export class ReviewQueue {
         this.closeBan();
         this.repeatOffenderPrompt.set(null);
         this.liveMessage.set($localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`);
+        // The notice and its "Ban reviewer" button are gone, so focus the heading.
+        this.focusAfterRender('admin-reviews-heading');
       } catch (err) {
         // Keep the dialog open so the admin can retry; surface an inline error.
         const lastSeatVendorId = lastSeatRefusalVendorId(err);
         if (lastSeatVendorId) this.banLastSeatVendorId.set(lastSeatVendorId);
         else this.banFailed.set(true);
+        // The dialog is in the CDK overlay, outside this host, so look it up on the document.
+        const alertId = lastSeatVendorId ? 'ban-last-seat' : 'ban-failed';
+        afterNextRender(
+          { write: () => this.document.getElementById(alertId)?.focus() },
+          { injector: this.injector },
+        );
       } finally {
         this.banSubmitting.set(false);
       }
