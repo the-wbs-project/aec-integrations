@@ -17,6 +17,10 @@
     because it disagrees with the review.
   </p>
 
+  <!-- AECI-1949: the per-person filter, as on /admin/dmca. -->
+  @if (account(); as accountId) {
+  <aec-queue-account-filter class="mb-4 block" [accountId]="accountId" [email]="accountEmail()" />
+  }
   <div [class]="f.toolbar">
     <div [class]="f.group">
       <span id="admin-replies-status-label" [class]="f.label" i18n="@@admin.replies.filter.label"
@@ -115,11 +119,20 @@
           </th>
           <td [class]="t.cell">{{ r.vendor.name }}</td>
           <td [class]="t.nowrap">
-            @if (r.author_email) { {{ r.author_email }} } @else {
+            <!-- AECI-1949: the address opens the person's account page. -->
+            @if (r.author_profile_id) {
+            <a [routerLink]="['/admin/users', r.author_profile_id]" [class]="t.link">
+              @if (r.author_email) { {{ r.author_email }} } @else {
+              <span class="text-(--text-secondary)" i18n="@@admin.replies.meta.authorUnknown"
+                >Not available</span
+              >
+              }
+            </a>
+            } @else { @if (r.author_email) { {{ r.author_email }} } @else {
             <span class="text-(--text-secondary)" i18n="@@admin.replies.meta.authorUnknown"
               >Not available</span
             >
-            }
+            } }
           </td>
           <td [class]="t.nowrap">{{ r.updated_at | date: 'medium' }}</td>
           <td [class]="t.cell">

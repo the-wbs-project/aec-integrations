@@ -15,6 +15,10 @@
     guidelines. Do not reject an update only because it changes the rating or the opinion.
   </p>
 
+  <!-- AECI-1949: the per-person filter, as on /admin/dmca. -->
+  @if (account(); as accountId) {
+  <aec-queue-account-filter class="mb-4 block" [accountId]="accountId" [email]="accountEmail()" />
+  }
   <div [class]="f.toolbar">
     <div [class]="f.group">
       <span
@@ -125,11 +129,22 @@
             >
           </th>
           <td [class]="t.nowrap">
-            @if (u.reviewer_email) { {{ u.reviewer_email }} } @else {
+            <!-- AECI-1949: the address opens the person's account page. -->
+            @if (u.reviewer_id) {
+            <a [routerLink]="['/admin/users', u.reviewer_id]" [class]="t.link">
+              @if (u.reviewer_email) { {{ u.reviewer_email }} } @else {
+              <span
+                class="text-(--text-secondary)"
+                i18n="@@admin.reviewUpdates.meta.reviewerUnknown"
+                >Not available</span
+              >
+              }
+            </a>
+            } @else { @if (u.reviewer_email) { {{ u.reviewer_email }} } @else {
             <span class="text-(--text-secondary)" i18n="@@admin.reviewUpdates.meta.reviewerUnknown"
               >Not available</span
             >
-            }
+            } }
           </td>
           <td [class]="t.num">
             <!-- The update's toxicity (ADMIN_PANEL_SPEC.md 5.20). One image, named in full. -->

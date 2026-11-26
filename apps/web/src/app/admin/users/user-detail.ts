@@ -26,6 +26,13 @@ import { AuditTrail } from '../audit/audit-trail';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { lastSeatRefusalVendorId } from '../last-seat-refusal';
+import {
+  BanPendingChoice,
+  banPendingCounts,
+  banPendingTotal,
+  isBanPendingChanged,
+  isBanRejectTooMany,
+} from '../reviewers/ban-pending-choice';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { SortHeader } from '../../shared/sort-header/sort-header';
@@ -99,7 +106,17 @@ import { USER_CLASSES } from './user-console-classes';
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [AecButton, AecFormSubmit, AecIcon, AuditTrail, Chip, RouterLink, DatePipe, SortHeader],
+  imports: [
+    AecButton,
+    AecFormSubmit,
+    AecIcon,
+    AuditTrail,
+    BanPendingChoice,
+    Chip,
+    RouterLink,
+    DatePipe,
+    SortHeader,
+  ],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
@@ -190,6 +207,13 @@ export class UserDetail {
   protected readonly banReason = signal('');
   protected readonly actionPending = signal(false);
   protected readonly actionFailed = signal('');
+  /** AECI-1949: "Also reject N pending items", checked by default each time the form
+   *  opens. Sent as `reject_pending` only when there is something to reject. */
+  protected readonly rejectPending = signal(true);
+  protected readonly pendingCounts = computed(() => {
+    const u = this.user();
+    return u ? banPendingCounts(u) : null;
+  });
   /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` names the vendor, so the refusal can link to it. */
   protected readonly lastSeatVendorId = signal<string | null>(null);
 
@@ -266,6 +290,7 @@ export class UserDetail {
     this.actionFailed.set('');
     this.lastSeatVendorId.set(null);
     this.banReason.set('');
+    this.rejectPending.set(true);
     this.banFormOpen.set(true);
     this.focusAfterRender(() => this.banReasonInput()?.nativeElement);
   }
@@ -312,10 +337,22 @@ export class UserDetail {
       this.focusAfterRender(() => this.banReasonInput()?.nativeElement);
       return;
     }
+    const rejectPending = banPendingTotal(this.pendingCounts()) > 0 && this.rejectPending();
     await this.runBanAction(
-      { action: 'ban', reason },
+      { action: 'ban', reason, ...(rejectPending ? { reject_pending: true } : {}) },
       $localize`:@@admin.users.ban.announce.banned:Account banned. They are locked out on their next request.`,
     );
+  }
+
+  /** AECI-1949: re-read the counts without the page's loading state, so the open ban
+   *  form survives. A failed read keeps the counts the page already shows. */
+  private async refreshCounts(): Promise<void> {
+    try {
+      const fresh = await this.api.getUser(this.userId());
+      this.user.update((u) => (u ? { ...u, counts: fresh.counts } : u));
+    } catch {
+      // The page already shows counts. The next load corrects them.
+    }
   }
 
   /** Reinstate. No reason, no confirm step — `reviewer-bans.ts` records why:
@@ -336,7 +373,7 @@ export class UserDetail {
    * and no window where the screen shows the pre-write state.
    */
   private async runBanAction(
-    input: { action: 'ban'; reason: string } | { action: 'unban' },
+    input: { action: 'ban'; reason: string; reject_pending?: true } | { action: 'unban' },
     announcement: string,
   ): Promise<void> {
     this.actionPending.set(true);
@@ -348,7 +385,15 @@ export class UserDetail {
         u ? { ...u, banned_at: result.banned_at, ban_reason: result.ban_reason } : u,
       );
       this.banFormOpen.set(false);
-      this.liveMessage.set(announcement);
+      const rejected = banPendingTotal(result.rejected ?? null);
+      const rejectedNote =
+        rejected > 0
+          ? ' ' +
+            $localize`:@@admin.users.ban.announce.rejected:${rejected}:COUNT: pending items rejected.`
+          : '';
+      this.liveMessage.set(announcement + rejectedNote);
+      // The pending counts moved with the rejects.
+      if (rejected > 0) void this.refreshCounts();
       // A ban swaps the form for the "Banned since" status; a reinstate swaps it back
       // for the ban button.
       this.focusAfterRender(() =>
@@ -363,6 +408,18 @@ export class UserDetail {
       const lastSeatVendorId = lastSeatRefusalVendorId(err);
       if (lastSeatVendorId) {
         this.lastSeatVendorId.set(lastSeatVendorId);
+      } else if (isBanPendingChanged(err)) {
+        // AECI-1949: nothing was saved. Show the new counts and keep the form open,
+        // so the operator confirms against what is pending now.
+        await this.refreshCounts();
+        this.rejectPending.set(true);
+        this.actionFailed.set(
+          $localize`:@@admin.users.ban.error.pendingChanged:Their pending items changed while you were banning, so nothing was saved. The counts are updated. Check them and confirm again.`,
+        );
+      } else if (isBanRejectTooMany(err)) {
+        this.actionFailed.set(
+          $localize`:@@admin.users.ban.error.tooMany:This person has more pending items than one ban can reject. Nothing was saved. Reject some from the filtered queues first, or untick the box to ban without rejecting.`,
+        );
       } else if (isStatus(err, 422)) {
         // Already in that state: the page reloads to show the truth. The reload
         // re-renders the whole page, so focus the message once it has landed.

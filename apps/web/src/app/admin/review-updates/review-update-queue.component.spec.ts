@@ -10,7 +10,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -83,7 +83,7 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(api: ApiMock, seed: number | null = 3) {
+async function setup(api: ApiMock, seed: number | null = 3, url = '/') {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -92,6 +92,7 @@ async function setup(api: ApiMock, seed: number | null = 3) {
       { provide: AdminReviewUpdatesApi, useValue: api },
     ],
   });
+  if (url !== '/') await TestBed.inject(Router).navigateByUrl(url);
   const store = TestBed.inject(AdminSummaryStore);
   if (seed !== null) store.seed({ reviewUpdates: seed });
   const fixture = TestBed.createComponent(ReviewUpdateQueue);
@@ -416,5 +417,39 @@ describe('ReviewUpdateQueue', () => {
       await flush(fixture);
       expect(document.activeElement).toBe(buttonByText(detail(el, 'u1'), 'Remove from the page'));
     });
+  });
+});
+
+// AECI-1949: the per-person filter and the link to the account page.
+describe('ReviewUpdateQueue per-person filter (AECI-1949)', () => {
+  const PERSON = '00000000-0000-4000-8000-000000000999';
+
+  it('sends ?account= as account_id and shows the filter bar', async () => {
+    const api = makeApiMock([makeUpdate({ id: 'x1', reviewer_id: PERSON })]);
+    const { el } = await setup(api, 3, `/?account=${PERSON}`);
+    expect(api.listUpdates).toHaveBeenCalledWith(expect.objectContaining({ account_id: PERSON }));
+    const bar = el.querySelector('[data-testid="queue-account-filter"]');
+    expect(bar?.textContent).toContain('Showing items by reviewer@firm.example.');
+    expect(bar?.querySelector('a')?.getAttribute('href')).toBe(`/admin/users/${PERSON}`);
+  });
+
+  it('Clear filter drops the param and reloads every account', async () => {
+    const api = makeApiMock([makeUpdate({ id: 'x1', reviewer_id: PERSON })]);
+    const { el, fixture } = await setup(api, 3, `/?account=${PERSON}`);
+    el.querySelector<HTMLButtonElement>('[data-testid="queue-account-clear"]')!.click();
+    await flush(fixture);
+    await flush(fixture);
+    expect(api.listUpdates).toHaveBeenCalledTimes(2);
+    expect(api.listUpdates.mock.calls[1]![0]).not.toHaveProperty('account_id');
+    expect(el.querySelector('[data-testid="queue-account-filter"]')).toBeNull();
+  });
+
+  it('links the address to /admin/users/:id', async () => {
+    const api = makeApiMock([makeUpdate({ id: 'x1', reviewer_id: PERSON })]);
+    const { el } = await setup(api);
+    const link = [...el.querySelectorAll('a')].find(
+      (a) => a.textContent?.trim() === 'reviewer@firm.example',
+    );
+    expect(link?.getAttribute('href')).toBe(`/admin/users/${PERSON}`);
   });
 });
