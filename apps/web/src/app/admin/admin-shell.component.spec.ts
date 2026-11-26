@@ -150,7 +150,7 @@ describe('AdminShell', () => {
     it('keeps every §5 route reachable, in order, from inside the panels', () => {
       const root = render({ pending_reviews: 4 });
       // Insights = Overview, Activity (AECI-577, §5.2), Traffic (AECI-578, §5.3),
-      // Audience (AECI-586, §5.4) and Subscribers (AECI-859, §5.4 — the
+      // Search (AECI-822, §5.24), Audience (AECI-586, §5.4) and Subscribers (AECI-859, §5.4 — the
       // row-level half of the same section); Catalog = Coverage (AECI-579, §5.5)
       // and Connectors (AECI-722, §5.9);
       // Operations = the three queues, Vendor claims (AECI-521 — folded into
@@ -162,6 +162,7 @@ describe('AdminShell', () => {
         '/admin/overview',
         '/admin/activity',
         '/admin/traffic',
+        '/admin/seo',
         '/admin/audience',
         '/admin/subscribers',
         '/admin/catalog',

@@ -1,0 +1,329 @@
+<section [attr.aria-labelledby]="idPrefix() + '-queue-heading'">
+  <!-- tabindex -1: a settled retry moves focus here, so it never drops to the page. -->
+  <h3
+    #heading
+    tabindex="-1"
+    [id]="idPrefix() + '-queue-heading'"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.seo.queue.heading"
+  >
+    Do this now
+  </h3>
+  <p [class]="captionClass" class="mt-2 max-w-[52ch] text-pretty" i18n="@@admin.seo.queue.intro">
+    Pages a search engine has not fetched, and the Google re-index queue. Copy a URL, paste it into
+    the engine's URL inspection tool, and request a crawl. A page leaves this list when a verified
+    crawler visit is recorded.
+  </p>
+
+  @if (loading()) {
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.queue.loading">
+    Loading the search queue…
+  </p>
+  } @else if (loadFailed()) {
+  <!-- The /admin/system error recipe (ADMIN_PANEL_SPEC.md §5.24.4 names it). -->
+  <div class="mt-6 space-y-4">
+    <p
+      class="text-t-16 font-semibold text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.seo.queue.loadFailed"
+    >
+      We couldn't load the search queue. Your session may have expired.
+    </p>
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.seo.queue.retry">
+      Try again
+    </button>
+  </div>
+  } @else if (data(); as d) { @if (urlUnset()) {
+  <p
+    class="mt-6 max-w-[62ch] text-t-16 text-pretty text-(--text-primary)"
+    data-testid="admin-seo-url-unset"
+  >
+    <span class="font-semibold" i18n="@@admin.seo.queue.urlUnset.lead">No URLs on this tier.</span>
+    {{ ' ' }}<span i18n="@@admin.seo.queue.urlUnset.body"
+      >Its public site address is not set, so no page URL can be built and no lane can be
+      listed.</span
+    >
+  </p>
+  } @else { @if (allEmpty()) {
+  <p
+    class="mt-6 max-w-[62ch] text-t-16 text-pretty text-(--text-primary)"
+    data-testid="admin-seo-all-empty"
+  >
+    <span class="font-semibold" i18n="@@admin.seo.queue.allEmpty.lead">Nothing outstanding.</span>
+    {{ ' ' }}<span i18n="@@admin.seo.queue.allEmpty.body"
+      >Every catalog page that is due a crawl had a verified one in the last {{ d.window.days }}
+      days, and the re-index queue is empty.</span
+    >
+  </p>
+  }
+
+  <ul role="list" class="mt-6 grid gap-4 md:grid-cols-3">
+    @for (lane of lanes(); track lane.lane + lane.engine) {
+    <li
+      [class]="panelClass"
+      class="flex flex-col ring-(--accent-primary)"
+      [class.ring-2]="lane.lane === 'uncrawled' && isOpen(lane.engine) && lane.count > 0"
+      [attr.data-testid]="'admin-seo-lane-' + lane.lane + '-' + lane.engine"
+    >
+      <h4 [id]="idPrefix() + '-lane-title-' + lane.lane + '-' + lane.engine" [class]="labelClass">
+        @if (lane.lane === 'reindex') {
+        <span i18n="@@admin.seo.lane.reindex">Re-index queue</span>
+        } @else {
+        <span i18n="@@admin.seo.lane.uncrawled">Not crawled</span>
+        } {{ ' ' }}<span class="mt-1 block font-normal">{{ engineName(lane.engine) }}</span>
+      </h4>
+
+      <p class="mt-3 flex items-baseline gap-2 text-(--text-primary)">
+        <span class="font-display text-t-36 leading-none font-semibold tabular-nums"
+          >{{ lane.count }}</span
+        >
+        {{ ' ' }}@if (lane.lane === 'reindex') {
+        <span class="text-t-14 text-(--text-secondary)" i18n="@@admin.seo.lane.reindex.unit"
+          >{lane.count, plural, =1 {URL waiting} other {URLs waiting}}</span
+        >
+        } @else {
+        <span class="text-t-14 text-(--text-secondary)" i18n="@@admin.seo.lane.uncrawled.unit"
+          >{lane.count, plural, =1 {page} other {pages}}</span
+        >
+        }
+      </p>
+
+      @if (lane.count === 0) {
+      <p class="mt-2 mb-4 text-t-14 text-(--text-secondary)" i18n="@@admin.seo.lane.nothing">
+        Nothing outstanding
+      </p>
+      } @else if (lane.lane === 'reindex') {
+      <p class="mt-2 mb-4 text-t-14 text-pretty text-(--text-secondary)">
+        <span i18n="@@admin.seo.lane.reindex.oldest">Oldest priority 1 or 2 row:</span>
+        {{ ' ' }}@if (lane.oldest_tier12_age_days === null) {
+        <span class="font-semibold text-(--text-primary)" i18n="@@admin.seo.lane.reindex.oldestNone"
+          >None</span
+        >
+        } @else {
+        <span class="font-semibold text-(--text-primary)" i18n="@@admin.seo.lane.reindex.oldestDays"
+          >{roundDays(lane.oldest_tier12_age_days), plural, =1 {1 day} other {{{
+          roundDays(lane.oldest_tier12_age_days) }} days}}</span
+        >
+        }
+      </p>
+      } @else {
+      <p class="mt-2 mb-4 text-t-14 text-pretty text-(--text-secondary)">
+        @if (lane.engine === 'google') {
+        <span i18n="@@admin.seo.lane.uncrawled.google"
+          >Due a crawl, with no verified Googlebot visit in the last {{ d.window.days }} days.</span
+        >
+        } @else {
+        <span i18n="@@admin.seo.lane.uncrawled.bing"
+          >Due a crawl, with no verified Bingbot visit in the last {{ d.window.days }} days.</span
+        >
+        }
+      </p>
+      <!-- A disclosure with a stable name: pressing the open lane closes its
+           list. aria-expanded follows isOpen and aria-controls names the list.
+           No aria-pressed: one control is not both a toggle and a disclosure.
+           aria-describedby names the lane. It is the console's labelled
+           disclosure, the audit trail's "Show changes" control (AECI-1729). -->
+      <aec-admin-disclosure-button
+        class="mt-auto self-start"
+        withLabel
+        [label]="null"
+        [expanded]="isOpen(lane.engine)"
+        [controls]="idPrefix() + '-list'"
+        [describedBy]="idPrefix() + '-lane-title-' + lane.lane + '-' + lane.engine"
+        (toggled)="selectEngine(lane.engine)"
+      >
+        <span i18n="@@admin.seo.lane.show">Show URLs</span>
+      </aec-admin-disclosure-button>
+      }
+      <!-- The re-index lane always links to its queue (§5.24.5), empty or not:
+           the history and the Done dialog live there. -->
+      @if (lane.lane === 'reindex' && lane.href) {
+      <a
+        aecButton
+        variant="secondary"
+        compact
+        [routerLink]="lane.href"
+        class="mt-auto self-start"
+        i18n="@@admin.seo.lane.reindex.link"
+        >Open the re-index queue</a
+      >
+      }
+    </li>
+    }
+  </ul>
+
+  <!-- The selected lane's URLs. Always in the DOM once lanes exist, so the
+       toggles' aria-controls always resolves. Empty when no lane has rows. -->
+  <div [id]="idPrefix() + '-list'" class="mt-8">
+    @if (showList()) {
+    <h4
+      #listHeading
+      tabindex="-1"
+      class="text-t-16 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    >
+      @if (engine() === 'google') {
+      <span i18n="@@admin.seo.list.heading.google">Not crawled by Google</span>
+      } @else {
+      <span i18n="@@admin.seo.list.heading.bing">Not crawled by Bing</span>
+      }
+    </h4>
+    <p [class]="captionClass" class="mt-1">
+      @if (engine() === 'google') {
+      <span i18n="@@admin.seo.list.sub.google"
+        >{total(), plural, =1 {1 page} other {{{ total() }} pages}}, oldest first. No verified
+        Googlebot visit since {{ d.window.from | date: 'mediumDate' : 'UTC' }}.</span
+      >
+      } @else {
+      <span i18n="@@admin.seo.list.sub.bing"
+        >{total(), plural, =1 {1 page} other {{{ total() }} pages}}, oldest first. No verified
+        Bingbot visit since {{ d.window.from | date: 'mediumDate' : 'UTC' }}.</span
+      >
+      }
+    </p>
+
+    @if (switching()) {
+    <p class="mt-4 text-t-16 text-(--text-secondary)" i18n="@@admin.seo.list.loading">
+      Loading URLs…
+    </p>
+    } @else if (listFailed()) {
+    <!-- The /admin/system recipe, scoped to the list: the lane cards above stay. -->
+    <div class="mt-4 space-y-4" data-testid="admin-seo-list-error">
+      <p
+        class="text-t-16 font-semibold text-(--text-primary)"
+        role="alert"
+        i18n="@@admin.seo.list.loadFailed"
+      >
+        We couldn't load these URLs. Your session may have expired.
+      </p>
+      <button aecButton variant="secondary" (click)="retryList()" i18n="@@admin.seo.list.retry">
+        Try again
+      </button>
+    </div>
+    } @else {
+    <!-- The console table recipe (console-table.ts). Its region is positioned,
+         so the sr-only cells cannot escape its clip and widen the page. It is
+         focusable and named, so a keyboard user can scroll it. -->
+    <div
+      [class]="t.region"
+      class="mt-4"
+      tabindex="0"
+      role="region"
+      [attr.aria-labelledby]="idPrefix() + '-list-caption'"
+    >
+      <table [class]="t.table" class="min-w-[56rem]" [attr.aria-busy]="paging()">
+        <caption [id]="idPrefix() + '-list-caption'" [class]="t.caption">
+          @if (engine() === 'google') {
+          <span i18n="@@admin.seo.list.caption.google"
+            >Pages Googlebot has not fetched, oldest first</span
+          >
+          } @else {
+          <span i18n="@@admin.seo.list.caption.bing"
+            >Pages Bingbot has not fetched, oldest first</span
+          >
+          }
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" [class]="t.head" i18n="@@admin.seo.list.col.url">URL</th>
+            <th scope="col" [class]="t.head" class="w-0">
+              <span class="sr-only" i18n="@@admin.seo.list.col.copy">Copy</span>
+            </th>
+            <th scope="col" [class]="t.head" i18n="@@admin.seo.list.col.type">Page type</th>
+            <th scope="col" [class]="t.head" i18n="@@admin.seo.list.col.published">Published</th>
+            <th scope="col" [class]="t.head" i18n="@@admin.seo.list.col.waiting">Waiting</th>
+            <th scope="col" [class]="t.head">
+              @if (engine() === 'google') {
+              <span i18n="@@admin.seo.list.col.lastFetch.google">Last Googlebot visit</span>
+              } @else {
+              <span i18n="@@admin.seo.list.col.lastFetch.bing">Last Bingbot visit</span>
+              }
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.url) {
+          <tr [class]="t.row">
+            <th scope="row" [class]="urlCellClass">
+              <span class="block break-all text-(--text-primary)">{{ row.url }}</span>
+            </th>
+            <!-- Its own cell, so the row header is the URL alone and no cell in
+                 the row hears "Copy" as part of its header. -->
+            <td [class]="t.act">
+              <button
+                aecButton
+                variant="secondary"
+                compact
+                (click)="copyUrl(row.url)"
+                [attr.aria-label]="copyLabel(row.url)"
+              >
+                @if (copiedUrl() === row.url) {
+                <span i18n="@@admin.seo.list.copied">Copied</span>
+                } @else {
+                <span i18n="@@admin.seo.list.copy">Copy</span>
+                }
+              </button>
+            </td>
+            <td [class]="t.cell">{{ pageTypeLabel(row.page_type) }}</td>
+            <td [class]="t.nowrap" class="tabular-nums">
+              @if (row.published_at) { {{ row.published_at | date: 'mediumDate' : 'UTC' }} } @else {
+              <span i18n="@@admin.seo.list.notDated">Not dated</span>
+              }
+            </td>
+            <td [class]="t.nowrap" class="tabular-nums">
+              @if (row.age_days !== null) {
+              <!-- "144 d" for the eye, "144 days" for a screen reader. -->
+              <span aria-hidden="true">{{ waiting(row.age_days) }}</span>
+              <span class="sr-only">{{ waitingSpoken(row.age_days) }}</span>
+              } @else {
+              <span aria-hidden="true">–</span>
+              <span class="sr-only" i18n="@@admin.seo.list.notDatedAge">Not dated</span>
+              }
+            </td>
+            <td [class]="t.cell">
+              @if (row.last_fetch_at) {
+              <span class="block tabular-nums"
+                >{{ row.last_fetch_at | date: 'mediumDate' : 'UTC' }}</span
+              >
+              {{ ' ' }}<span [class]="t.sub" i18n="@@admin.seo.list.daysAgo"
+                >{daysAgo(row.last_fetch_at), plural, =0 {today} =1 {1 day ago} other {{{
+                daysAgo(row.last_fetch_at) }} days ago}}</span
+              >
+              } @else {
+              <span i18n="@@admin.seo.list.neverRecorded">Never recorded</span>
+              }
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-6">
+      <aec-admin-paginator
+        [page]="page()"
+        [perPage]="perPage"
+        [total]="total()"
+        [busy]="paging()"
+        (pageChange)="goToPage($event)"
+      />
+    </div>
+    } }
+  </div>
+  } @if (notes().length > 0) {
+  <div class="mt-6">
+    <aec-admin-notes [notes]="notes()" />
+  </div>
+  }
+
+  <p [class]="noteClass" class="mt-4">
+    <span i18n="@@admin.seo.queue.readAt"
+      >Read at {{ d.generated_at | date: 'medium' : 'UTC' }} UTC.</span
+    >
+    @if (!urlUnset()) { {{ ' ' }}<span i18n="@@admin.seo.queue.window"
+      >Window {{ d.window.from | date: 'mediumDate' : 'UTC' }} to {{ d.window.to | date:
+      'mediumDate' : 'UTC' }}.</span
+    >
+    }
+  </p>
+  }
+</section>

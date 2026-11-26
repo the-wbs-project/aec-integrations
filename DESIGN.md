@@ -1961,8 +1961,8 @@ hues may appear outside `/admin`.
 
 | Slot | Hue     | Light     | Reserved for     |
 | ---- | ------- | --------- | ---------------- |
-| 1    | blue    | `#2a78d6` | human page views |
-| 2    | orange  | `#eb6834` | bot page views   |
+| 1    | blue    | `#2a78d6` | human page views; Google on `/admin/seo` |
+| 2    | orange  | `#eb6834` | bot page views; Bing on `/admin/seo` |
 | 3    | aqua    | `#1baf7a` | —                |
 | 4    | yellow  | `#eda100` | —                |
 | 5    | magenta | `#e87ba4` | —                |
@@ -1997,6 +1997,13 @@ Rules that ride with it:
   every pair of touching fills, columns and stacked segments alike; hairline solid
   gridlines in `--chart-grid`. White does the separating — never a stroke around a
   mark.
+- **A missing value is a gap, never a zero** (AECI-822). A line chart breaks
+  its line where a value was not recorded. Where every series is missing, it
+  draws a hatched band with a label such as "Not recorded". The hatch is
+  `--border-field`, 3.55:1 on the surface, and on a narrow chart the label runs
+  down the band rather than hiding (AECI-823). The hidden table prints the same
+  label. An open period, whose value can still change, is a
+  hollow point off the line.
 - **Never a dual axis**, never a truncated bar baseline, never a rainbow ramp.
 - **Legend for ≥2 series, none for one** (the title already names a lone series).
 - **Light only.** The skill's dark column is recorded there for the Stage 2 dark

@@ -1711,6 +1711,9 @@ const PUBLIC_READ_LIB = [
   'field-captions',
   'owned-integrations',
   'sitemap-build',
+  // AECI-818 moved the sitemap's reads here. `sitemap-build` stays listed so an
+  // order added back to it is still caught.
+  'catalog-urls',
   'display-order',
   'pair-redirect',
   'slug-redirect',
@@ -1803,9 +1806,13 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: `the owned-integrations list, A to Z by partner names then id; ${NEVER_PLAN}`,
   },
   {
-    file: 'apps/api/src/lib/sitemap-build.ts',
+    // AECI-818: the sitemap's four reads moved here from `sitemap-build.ts`, which now
+    // only renders them. Products and vendors by id, pairs by their two slugs,
+    // taxonomy terms by facet then id. The admin search console reads the same list
+    // and re-sorts it by publish date, in `seo-queue.ts`, which is admin-only.
+    file: 'apps/api/src/lib/catalog-urls.ts',
     count: 4,
-    allowed: 'sitemap URL order by id or key; a crawl feed, not an on-page list',
+    allowed: `sitemap URL order by id, pair slugs or facet; a crawl feed, not an on-page list, and ${NEVER_PLAN}`,
   },
   {
     file: 'apps/api/src/lib/pair-mechanism-order.ts',

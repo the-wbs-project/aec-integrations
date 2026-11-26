@@ -290,6 +290,29 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // AECI-1460. The top products and top sources tables on a day with no classes.
   tables_unclassified: () =>
     $localize`:@@admin.notes.tablesUnclassified:This day has no traffic classes, so the product and source tables are not filtered for automation.`,
+
+  // ── AECI-818 — the search console (§5.24.4) ───────────────────────────────
+  crawl_coverage_is_gateway_arrivals: () =>
+    $localize`:@@admin.notes.crawlCoverageIsGatewayArrivals:Crawl coverage counts the page views the site's gateway records. A crawl that got a 404, a server error or a redirect is not counted.`,
+  crawler_label_unverified: (p) =>
+    $localize`:@@admin.notes.crawlerLabelUnverified:Rows before ${str(p, 'since')}:SINCE: carry no Cloudflare bot verification, so they count on the user agent alone.`,
+  crawl_window_clamped: (p) =>
+    $localize`:@@admin.notes.crawlWindowClamped:The crawl window starts at ${str(p, 'from')}:FROM:, the first row that records the page's real path.`,
+  crawler_label_includes_inspection_tool: () =>
+    $localize`:@@admin.notes.crawlerLabelIncludesInspectionTool:The Googlebot label also covers Google's URL Inspection tool, so a live test in Search Console reads as a crawl.`,
+  public_site_url_unset: () =>
+    $localize`:@@admin.notes.publicSiteUrlUnset:This tier has no public site address configured, so no page URLs can be built here.`,
+  // AECI-823 — the funnel (§5.24.7).
+  indexed_is_impression_lower_bound: () =>
+    $localize`:@@admin.notes.indexedIsImpressionLowerBound:Google's indexed figure counts catalog pages with at least one search impression in 28 days. It is a lower bound, not Google's own count of indexed pages.`,
+  search_ingest_absent: (p) =>
+    str(p, 'engine') === 'bing'
+      ? $localize`:@@admin.notes.searchIngestAbsentBing:No Bing Webmaster Tools data has been pulled for this window, so only the stages measured on our side are shown.`
+      : $localize`:@@admin.notes.searchIngestAbsentGoogle:No Search Console data has been pulled for this window, so only the stages measured on our side are shown.`,
+  // The count and the Pacific dates are on the funnel card's own window line
+  // ("Days recorded: N of 28"), so this note does not repeat them (AECI-823).
+  search_window_incomplete: () =>
+    $localize`:@@admin.notes.searchWindowIncomplete:Some Pacific dates in this search window lack daily clicks or impressions, so the totals cover only the dates that have both.`,
 };
 
 /**

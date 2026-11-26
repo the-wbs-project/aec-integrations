@@ -20,7 +20,8 @@
  * `GET /api/admin/vendors/:id/acceptances`, by AECI-1372 with
  * `GET /api/admin/vendors/:id/billing`, by AECI-1373 with
  * `GET /api/admin/license-release-requests`, by AECI-653 with
- * `GET /api/admin/audit`, and by AECI-1638 with `GET /api/admin/litigation-holds`.
+ * `GET /api/admin/audit`, by AECI-1638 with `GET /api/admin/litigation-holds`, and by
+ * AECI-818 with the two `/api/admin/seo` reads.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -84,6 +85,11 @@ import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances'
 import { createAdminVendorBillingHandler } from './admin-vendors-billing';
 import { createAdminLicenseReleaseRequestsListHandler } from './admin-license-release-requests';
 import { createAdminLitigationHoldsHandler } from './admin-litigation-holds';
+import {
+  createAdminSeoFunnelHandler,
+  createAdminSeoQueueHandler,
+  createAdminSeoTrendHandler,
+} from './admin-seo';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
@@ -227,6 +233,11 @@ const ROUTES = [
   // AECI-1638 — the §5.22b litigation holds. ONE read; place and release are covered by
   // `admin-litigation-holds.registration.spec.ts` with the rest of their write semantics.
   { name: 'GET /api/admin/litigation-holds', url: '/api/admin/litigation-holds' },
+  // AECI-818 — the §5.24 search console, Panels 1 and 2. Two reads.
+  { name: 'GET /api/admin/seo/queue', url: '/api/admin/seo/queue' },
+  { name: 'GET /api/admin/seo/trend', url: '/api/admin/seo/trend' },
+  // AECI-823 — Panel 3, the funnel. One read.
+  { name: 'GET /api/admin/seo/funnel', url: '/api/admin/seo/funnel' },
 ] as const;
 
 let jwks: TestJwks;
@@ -437,6 +448,21 @@ function makeApp() {
     '/api/admin/litigation-holds',
     requireAdmin(guard),
     createAdminLitigationHoldsHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/seo/queue',
+    requireAdmin(guard),
+    createAdminSeoQueueHandler(t.factory, () => clock.now()),
+  );
+  app.get(
+    '/api/admin/seo/trend',
+    requireAdmin(guard),
+    createAdminSeoTrendHandler(t.factory, () => clock.now()),
+  );
+  app.get(
+    '/api/admin/seo/funnel',
+    requireAdmin(guard),
+    createAdminSeoFunnelHandler(t.factory, () => clock.now()),
   );
   return app;
 }

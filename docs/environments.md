@@ -299,6 +299,54 @@ pnpm exec wrangler secret list --env production
 To re-send vendors after a rotation, use the production form in `docs/runbooks/catalog.md`
 "Ownership records not reaching the review app". It needs Chris's go-ahead on the day.
 
+### Bing Webmaster Tools ingest per tier (AECI-821)
+
+The weekly `search-ingest` job has a Bing lane. It reads Bing Webmaster Tools (BWT) with an
+API key and writes the `search.bing.www.*` keys to `metrics_daily` (`ADMIN_PANEL_SPEC.md`
+§5.24.10). It needs two things. Each is absent today, so the lane is `skipped` on every tier.
+
+| Name | Kind | Staging | Demo | Production |
+|---|---|---|---|---|
+| `BWT_API_KEY` | Worker secret, from GH secret `BWT_API_KEY_PRODUCTION` | Not pushed | Not pushed | Pushed by `promote-to-prod.yml`, warn-and-skip when empty |
+| `BWT_SITE_URL` | Plain var in `apps/api/wrangler.jsonc` | Unset | Unset | Unset until the operator reads it from BWT |
+
+Unset, either one skips the lane. The heartbeat still fires as
+`aeci.search_ingest.run{engine:bing,outcome:skipped}`, and `job_runs.detail.bing.reason` says
+which: `no_creds`, `no_site_url`, or `site_url_not_www`. The last means the var names a host
+other than `www.aecintegrations.com`. The lane refuses it because every key names the `www.`
+host.
+
+**The key is user-wide and read-write.** Bing issues one key per Microsoft account. It works for
+every site that account can see, and it can call BWT's write methods. A dedicated Microsoft
+account, added as a user on the site, limits the damage of a leak. The code never logs it.
+
+**Operator steps, in run order.**
+
+1. Decide which Microsoft account holds the key. A dedicated account added to the BWT site is
+   the safer choice.
+2. Sign in to Bing Webmaster Tools as that account. Open the site picker and copy the site URL
+   exactly as BWT shows it.
+3. Generate the key: Settings, then API Access, accept the terms, then Generate API Key. Copy it
+   once.
+4. Store the key as the GitHub secret `BWT_API_KEY_PRODUCTION`. `gh secret set` prompts for the
+   value.
+5. **Stop here until AECI-2075 is answered.** The Bing lane must stay off in production until
+   then. The key is read-write, and it travels in the request URL as `?apikey=`. We do not know whether Cloudflare's stored traces record an outbound call's query string. If they do, anyone with trace access to the account could read the
+   key. Steps 1 to 4 are safe meanwhile: without the var the lane makes no call, so the key is
+   never sent.
+6. Add `"BWT_SITE_URL": "<the URL from step 2>"` to the production `vars` block in
+   `apps/api/wrangler.jsonc`, where the comment marks the place, and merge it.
+7. Run `promote-to-prod`. It pushes the key and deploys the var.
+8. After the next Sunday 22:00 UTC run, open `/admin/system`. The `search-ingest` row's
+   `detail.bing` should read `outcome: ok`, with each call `ok`.
+
+```bash
+gh secret set BWT_API_KEY_PRODUCTION
+```
+
+To rotate the key, delete it in BWT, generate a new one, and repeat steps 4 and 7. The old key
+stops working at once, so the next run reads `failed` until the new key is pushed.
+
 ## Promotion model
 
 ```
@@ -998,7 +1046,8 @@ Secrets are stored in three places:
 | `STRIPE_SECRET_KEY` (Stripe API) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499 (epic AECI-1339). Restricted key of the tier's Stripe account (`rk_test_…` from the staging and demo sandboxes, `rk_live_…` on production; its permission list is in §Stripe secrets per tier, AECI-1985), read by `apps/api/src/lib/stripe.ts`. **Recommended + warn-and-skip on every tier, production included**, and never in `REQUIRED_WORKER_SECRETS`. Absent → `stripeCheckoutAvailable` is false and the buy, add and portal routes answer 503. Production is held off by `STRIPE_CHECKOUT_ENABLED="false"`, not by the secret. **Never on the web Worker.** ⚠️ **Operator step:** the staging value sits under the unsuffixed name today. Re-set it as `STRIPE_SECRET_KEY_STAGING` (§Stripe secrets per tier). |
 | `STRIPE_WEBHOOK_SECRET` (inbound Stripe webhook) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ **suffixed per tier**: `STRIPE_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1499. Signing secret (`whsec_…`) of the tier's Stripe webhook endpoint, for `POST /api/webhooks/stripe`. **Fails closed:** absent → every delivery 401s. Recommended + warn-and-skip on every tier, never in `REQUIRED_WORKER_SECRETS`. Locally it is the secret `stripe listen` prints, not a dashboard endpoint's (`local-dev.md` §8). **Never on the web Worker.** ⚠️ **Operator step:** same unsuffixed staging value; re-set it as `STRIPE_WEBHOOK_SECRET_STAGING`. |
 | `REVIEW_APP_OWNERSHIP_URL` + `REVIEW_APP_OWNERSHIP_TOKEN` (ownership receiver) | ❌ **leave unset**: no staging receiver exists (warn-and-skip) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ suffixed per tier: `REVIEW_APP_OWNERSHIP_{URL,TOKEN}_{STAGING,DEMO,PRODUCTION}` | AECI-1418 → **AECI-1427**. Base URL and bearer for the review app's `PUT /vendors/{vendorId}` receiver (`REVIEW_APP_PROMOTE_API.md` §4d). Production base is `https://review.aecintegrations.com/api/ownership`. Required on production in preflight and postflight (ruling D4). Demo stays unset by ruling D5. See "Ownership receiver per tier". |
-| `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/runbooks/alerts.md` "gsc-inspect halted on quota or failed" |
+| `GSC_SA_KEY_JSON` (Google URL Inspection, search ingest) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Since AECI-820 the weekly `search-ingest` run reads Search Analytics and Sitemaps with the same key and scope. Without the key it emits `aeci.search_ingest.run{outcome:skipped}` and writes nothing. Both are gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbooks: `docs/runbooks/alerts.md` "gsc-inspect halted on quota or failed" and "Search ingest partial or failed" |
+| `BWT_API_KEY` (Bing Webmaster Tools, search ingest) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `BWT_API_KEY_PRODUCTION` (suffixed, production only) | AECI-821. The Bing Webmaster Tools API key, sent as `?apikey=` by the Bing lane of the weekly `search-ingest` run. **Recommended, not required**: without it the lane emits `aeci.search_ingest.run{engine:bing,outcome:skipped}` and writes nothing. The lane also needs the plain var `BWT_SITE_URL`, unset today. The key is user-wide and can call BWT write methods, so it is never logged. A CI spec (`apps/api/src/bwt-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Setup and rotation: "Bing Webmaster Tools ingest per tier" above. Runbook: `docs/runbooks/alerts.md` "Search ingest partial or failed" |
 | `INDEXNOW_RUNNER_TOKEN` (IndexNow runner routes) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `INDEXNOW_RUNNER_TOKEN_PRODUCTION` (suffixed, production only), also read by `.github/workflows/indexnow-send.yml` | AECI-1476. Bearer token for `POST /api/internal/indexnow/batch` and `…/batch/:batchId/result`, which the GitHub Actions runner calls to send the daily IndexNow request from a non-Cloudflare IP. **Recommended, not required**: without it both routes answer 401 (fail-closed), the `indexnow-send` run goes red and the `aeci.indexnow.batch` heartbeat stops, so the liveness sweep reports it. The same GH secret feeds both the Worker push and the runner, so they cannot drift. A CI spec (`apps/api/src/indexnow-runner-secrets-ci.spec.ts`) keeps the push step, the recommended list and the workflow in step. Generate with `openssl rand -hex 32`. Runbook: `docs/runbooks/alerts.md` "The runner is red, or its heartbeat is missing" |
 | `TURNSTILE_SECRET_KEY` (Turnstile siteverify) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ on **API Worker only** (CI-pushed), **required** | ✅ **suffixed per tier**: `TURNSTILE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1457 / ADR 0049, **ruling 2026-10-29**. The secret of that tier's Invisible Turnstile widget, read by `lib/turnstile.ts` to verify the browser's token. **Required on every tier**: `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml` list it in `REQUIRED_SECRETS`, so a missing GH secret fails the deploy before anything ships. Each pushes it to the API Worker as `TURNSTILE_SECRET_KEY` and fails the step if it is empty. Staging and production re-assert it on the live Worker through `REQUIRED_WORKER_SECRETS`; demo has no postflight check. The pins are `apps/api/src/turnstile-secrets-ci.spec.ts`. **The on/off switch is the web Worker's public `TURNSTILE_SITE_KEY`**, a committed var required on staging, demo and production (`apps/web/src/turnstile-site-key.spec.ts`). EU, EEA, UK and Swiss visitors skip the check until the AECI-1458 ruling (AECI-1581). A secret with no site key stays dark but counts every in-app view as `verdict:absent`. Never set it by hand on a deployed Worker: the next deploy overwrites it. **Never on the web Worker.** Runbook: "Turnstile per tier" below. A wrong secret reads as about 100% `unknown` and fires `pageviews-turnstile-unknown` |
 | `TOOL_TOKEN` (agent Worker) | ❌ no staging tier | ✅ on **agent Worker only**, set BY HAND | ❌ — no GH secret, nothing in CI pushes it | AECI-1030 / ADR 0034. Shared-secret bearer fallback for `apps/agent`'s in-Worker gate (`src/access.ts`, the byte-for-byte copy of `apps/datatool`'s). The gate **fails closed**: with neither this token nor a verifiable Cloudflare Access assertion, every route 403s, the agent mounts and the test chat page included. Set per tier with `wrangler secret put TOOL_TOKEN -c dist/aeci_agent/wrangler.json` after the matching build — the emitted config is what names the Worker, so build `production` first to target `aeci-agent-production`. A browser on the Access allowlist needs no token; a `curl` needs **both** this token and the `aeci-gh-actions` service-token headers, because Access gates the edge and this gates the Worker. |

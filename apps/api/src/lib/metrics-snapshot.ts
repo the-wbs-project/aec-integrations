@@ -5,7 +5,12 @@
  * A scheduled job (`../scheduled.ts`, cron `15 0 * * *`) captures the prior
  * COMPLETE UTC day: one row per `(day, metric)` for every key in
  * {@link SNAPSHOT_WRITTEN_METRIC_KEYS}, which is `ADMIN_SNAPSHOT_METRIC_KEYS` less
- * `FROZEN_METRIC_KEYS` (AECI-1460). This module is the only writer.
+ * `FROZEN_METRIC_KEYS` (AECI-1460). This module is the only writer of those keys.
+ *
+ * It is not the only writer of the table. Since AECI-820 the weekly search ingest
+ * (`./search-ingest`) upserts `SEARCH_INGEST_METRIC_KEYS`, filed under Pacific
+ * dates. This job never writes, zero-fills or re-checks those keys, and the 03:00
+ * prune never counts them as a captured day (`findSnapshotGap`).
  *
  * ─── Why the table exists at all ─────────────────────────────────────────────
  *
@@ -68,6 +73,7 @@ import {
   claims,
   connectorEvidencedPairs,
   feedback,
+  gscRecrawlQueue,
   integrations,
   mailingList,
   metricsDaily,
@@ -93,6 +99,7 @@ import {
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
+import { computeSeoLanes, readReindexLane, type ReindexLane, type SeoLaneSet } from './seo-queue';
 
 /** Error text, however the throw was shaped. */
 function messageOf(error: unknown): string {
@@ -174,7 +181,48 @@ const PENDING_REVIEWS = eq(reviews.status, 'pending');
  *  same console and must not disagree. */
 const OPEN_REQUESTS = eq(vendorRequests.status, 'open');
 
-type Producer = (db: Db, day: string) => Promise<number>;
+/**
+ * Per-run state shared by the producers of one `runMetricsSnapshot` call.
+ *
+ * `now` is the sample instant. `memo` lets the six `seo.*` keys share one lane
+ * computation rather than run it six times. It lives for one run only, so a
+ * re-run always recomputes. A failure in the shared computation fails each key
+ * that reads it, inside that key's own try/catch, so per-key isolation holds.
+ */
+export interface SnapshotRun {
+  now: Date;
+  memo: Map<string, Promise<unknown>>;
+}
+
+function memoized<T>(run: SnapshotRun, key: string, compute: () => Promise<T>): Promise<T> {
+  let hit = run.memo.get(key) as Promise<T> | undefined;
+  if (!hit) {
+    hit = compute();
+    run.memo.set(key, hit);
+  }
+  return hit;
+}
+
+/** The search console lanes as of the END of `day` (§5.24.8): the crawl window
+ *  ends where the filed day ends, not at the sample instant. */
+function seoLanesFor(db: Db, day: string, run: SnapshotRun): Promise<SeoLaneSet> {
+  return memoized(run, `seo:${day}`, () =>
+    computeSeoLanes(db, new Date(`${shiftDay(day, 1)}T00:00:00.000Z`)),
+  );
+}
+
+function reindexLaneFor(db: Db, run: SnapshotRun): Promise<ReindexLane> {
+  return memoized(run, 'reindex', () => readReindexLane(db, run.now));
+}
+
+/**
+ * A producer returns the value to write, or `null` for "write NO row today". Only
+ * `queue.reindex_oldest_tier12_age_days` returns null, on a day with no tier-1 or
+ * tier-2 row, because 0 would mean "a row queued just now". That follows the
+ * `quality.arrival_cf_coverage` precedent of writing no row rather than a
+ * misleading value.
+ */
+type Producer = (db: Db, day: string, run: SnapshotRun) => Promise<number | null>;
 
 /** A key the snapshot writes: every snapshot key except the frozen ones. */
 export type SnapshotWrittenMetricKey = Exclude<AdminSnapshotMetricKey, FrozenMetricKey>;
@@ -245,6 +293,37 @@ const PRODUCERS: Record<SnapshotWrittenMetricKey, Producer> = {
   'queue.reviews_pending': (db) => countAll(db, reviews, PENDING_REVIEWS),
   'queue.requests_open': (db) => countAll(db, vendorRequests, OPEN_REQUESTS),
 
+  // ── Search console (AECI-818, §5.24.8) ───────────────────────────────────
+  // The same derivation `GET /api/admin/seo/queue` serves, so a stored lane depth
+  // and the live panel can never count one lane two ways.
+  'seo.catalog_urls': async (db, day, run) => (await seoLanesFor(db, day, run)).catalogUrls,
+  'seo.crawled_urls_google': async (db, day, run) =>
+    (await seoLanesFor(db, day, run)).crawled.google,
+  'seo.crawled_urls_bing': async (db, day, run) => (await seoLanesFor(db, day, run)).crawled.bing,
+  'seo.uncrawled_urls_google': async (db, day, run) =>
+    (await seoLanesFor(db, day, run)).uncrawled.google.length,
+  'seo.uncrawled_urls_bing': async (db, day, run) =>
+    (await seoLanesFor(db, day, run)).uncrawled.bing.length,
+  'seo.pairs_without_reviews': async (db, day, run) =>
+    (await seoLanesFor(db, day, run)).pairsWithoutReviews.length,
+  // `countAll` over the table, the same count `pending_reindex` reads.
+  'queue.reindex_pending': (db) => countAll(db, gscRecrawlQueue),
+  // The tier-1 and tier-2 count and the age below come from one memoized read
+  // (`readReindexLane`), so within a run they cannot disagree. The count is
+  // written on every run, 0 included. It is what records "no such row", because
+  // the age key writes no row then, and absence alone cannot tell that from a
+  // failed age write.
+  'queue.reindex_tier12_pending': async (db, _day, run) =>
+    (await reindexLaneFor(db, run)).tier12Count,
+  // A stale same-day row can exist. A re-run for a day whose tier-1 and tier-2
+  // rows have since cleared writes no age row and leaves the earlier run's row in
+  // place. Every reader must go through {@link reindexAgeOnDay}, which keeps the
+  // age row only when its `computed_at` matches the count row's. Nothing deletes
+  // the stale row: a scheduled DELETE must write a summary `audit_log` row in the
+  // same batch (ADR 0022), and the read-side rule makes the delete unnecessary.
+  'queue.reindex_oldest_tier12_age_days': async (db, _day, run) =>
+    (await reindexLaneFor(db, run)).oldestTier12AgeDays,
+
   // ── Data quality ─────────────────────────────────────────────────────────
   // Neither a flow nor a stock: a per-day RATIO measuring whether the day's own
   // telemetry arrived (AECI-869). It is in the vocabulary at all because the
@@ -257,7 +336,9 @@ const PRODUCERS: Record<SnapshotWrittenMetricKey, Producer> = {
 // Orchestration
 // ---------------------------------------------------------------------------
 
-export type SnapshotKeyStatus = 'written' | 'failed';
+/** `absent` = the producer chose to write no row (see {@link Producer}). It is
+ *  neither a write nor a failure, so it never turns the run red. */
+export type SnapshotKeyStatus = 'written' | 'absent' | 'failed';
 
 export type SnapshotKeyOutcome = {
   metric: SnapshotWrittenMetricKey;
@@ -312,16 +393,55 @@ async function upsertMetric(
     });
 }
 
+/** A stored `metrics_daily` reading with its sample instant. */
+export interface StampedReading {
+  value: number;
+  computedAt: string;
+}
+
+/**
+ * `queue.reindex_oldest_tier12_age_days` for one day, read against the same
+ * day's `queue.reindex_tier12_pending` row. The one rule every reader of the age
+ * key uses, so two readers cannot disagree.
+ *
+ * One snapshot run stamps every key it writes with the single `now` it was given
+ * ({@link upsertMetric}). So an age row from the latest run carries the count
+ * row's `computed_at`. An age row with any other stamp is left from an earlier
+ * run of the same day (see the producer).
+ *
+ *   - No count row: null, "Not recorded". Days snapshotted before the count key
+ *     existed read this way too.
+ *   - Count row of 0: `'none'`. There was no tier-1 or tier-2 row.
+ *   - Count above 0 and an age row with the same stamp: the age.
+ *   - Count above 0 and the age row missing or stamped differently: null. The
+ *     age producer or its write failed in that run, so the age was not recorded.
+ */
+export function reindexAgeOnDay(
+  tier12Count: StampedReading | undefined,
+  age: StampedReading | undefined,
+): number | 'none' | null {
+  if (!tier12Count) return null;
+  if (tier12Count.value === 0) return 'none';
+  if (!age || age.computedAt !== tier12Count.computedAt) return null;
+  return age.value;
+}
+
 /** Compute → upsert one metric. Never throws; a failure is reported as an
- *  outcome so the remaining metrics still write. */
+ *  outcome so the remaining metrics still write.
+ *
+ *  A null producer result writes nothing and deletes nothing. An earlier row for
+ *  the same `(day, metric)` therefore survives. For the one null-returning key,
+ *  readers use {@link reindexAgeOnDay} to tell that row from a current one. */
 async function snapshotOneMetric(
   db: Db,
   day: string,
   metric: SnapshotWrittenMetricKey,
   now: Date,
+  run: SnapshotRun,
 ): Promise<Pick<SnapshotKeyOutcome, 'status' | 'value' | 'error'>> {
   try {
-    const value = await PRODUCERS[metric](db, day);
+    const value = await PRODUCERS[metric](db, day, run);
+    if (value === null) return { status: 'absent' };
     if (!Number.isFinite(value)) {
       return { status: 'failed', error: `producer returned a non-finite value (${value})` };
     }
@@ -347,9 +467,10 @@ export async function runMetricsSnapshot(
   now: Date,
 ): Promise<MetricsSnapshotResult> {
   const metrics: SnapshotKeyOutcome[] = [];
+  const run: SnapshotRun = { now, memo: new Map() };
   for (const metric of SNAPSHOT_WRITTEN_METRIC_KEYS) {
     const startedAt = Date.now();
-    const outcome = await snapshotOneMetric(db, day, metric, now);
+    const outcome = await snapshotOneMetric(db, day, metric, now, run);
     metrics.push({ metric, durationMs: Date.now() - startedAt, ...outcome });
   }
   return { day, metrics };
@@ -567,8 +688,10 @@ async function daysWithRawPageViews(db: Db, w: UtcWindow): Promise<Set<string>> 
  *
  *   - **Never insert.** A day with no stored row is skipped outright. Not
  *     because coverage is someone else's job, but because `findSnapshotGap`
- *     (`retention-prune.ts`) probes `selectDistinct({day})` with **no `metric`
- *     predicate** — *any* single row tells the 03:00 prune the day is captured.
+ *     (`retention-prune.ts`) probes `selectDistinct({day})` over the snapshot
+ *     keys — *any* single snapshot-key row tells the 03:00 prune the day is
+ *     captured. (AECI-820 narrowed it to `ADMIN_SNAPSHOT_METRIC_KEYS`; the
+ *     re-checked keys are in that list, so this rule is unchanged.)
  *     Inserting one traffic key for a day the primary pass never covered would
  *     clear the prune to delete that day's `page_views` while seventeen keys,
  *     including every stock, were still missing. Stocks are unrecoverable

@@ -138,13 +138,30 @@ describe('getGoogleAccessToken', () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response('no', { status: 400 }));
     expect(await getGoogleAccessToken(fetchImpl, account)).toEqual({
       ok: false,
+      kind: 'refused',
       message: 'token_http_400',
+    });
+  });
+
+  it('calls a 5xx, a 429 or a dropped connection transient (AECI-820)', async () => {
+    for (const status of [500, 503, 429]) {
+      const fetchImpl = vi.fn().mockResolvedValue(new Response('no', { status }));
+      expect(await getGoogleAccessToken(fetchImpl, account)).toMatchObject({
+        ok: false,
+        kind: 'transient',
+      });
+    }
+    const dropped = vi.fn().mockRejectedValue(new Error('reset'));
+    expect(await getGoogleAccessToken(dropped, account)).toEqual({
+      ok: false,
+      kind: 'transient',
+      message: 'reset',
     });
   });
 
   it('returns a structured failure on a bad key instead of throwing', async () => {
     const result = await getGoogleAccessToken(vi.fn(), { ...account, privateKey: 'garbage' });
-    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ ok: false, kind: 'refused' });
   });
 });
 

@@ -1270,6 +1270,24 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // AECI-1460. `info`, gated on the reported day having no classes: the tables are
   // correct for what they say they count, and the note says they are unfiltered.
   tables_unclassified: 'info',
+  // AECI-818 — the search console (§5.24.4, `API_CONTRACTS.md` §6.10). The two
+  // standing caveats and the clamp are `info`: a reader who misses them still reads
+  // the figures correctly. `crawler_label_unverified` is a `warn`, because the
+  // older rows in the window may be spoofed user agents counted as crawls. An unset
+  // public URL is a `warn`, because the empty lane list is not "nothing to do".
+  crawl_coverage_is_gateway_arrivals: 'info',
+  crawler_label_unverified: 'warn',
+  crawl_window_clamped: 'info',
+  crawler_label_includes_inspection_tool: 'info',
+  public_site_url_unset: 'warn',
+  // AECI-823 — the funnel (§5.24.7). Both `info`: the proxy note explains what the
+  // figure already says it is, and an absent ingest omits stages rather than
+  // zeroing them, so no figure on the panel is wrong.
+  indexed_is_impression_lower_bound: 'info',
+  search_ingest_absent: 'info',
+  // A `warn`: the click totals read as 28 days and cover fewer, so a reader who
+  // misses the note reads a figure that is too low.
+  search_window_incomplete: 'warn',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

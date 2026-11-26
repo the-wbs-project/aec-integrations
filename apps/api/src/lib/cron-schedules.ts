@@ -1,6 +1,6 @@
 /**
- * The twenty-eight cron expressions the API Worker is triggered on, in one place. Since
- * AECI-1638 they drive twenty-nine jobs: `RETENTION_CRON` starts two.
+ * The twenty-nine cron expressions the API Worker is triggered on, in one place. Since
+ * AECI-820 they drive thirty jobs: `RETENTION_CRON` starts two.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -12,7 +12,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-eight, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-nine, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -445,6 +445,30 @@ export const ACCEPTANCE_EVIDENCE_REMOVAL_CRON = '0 17 * * *';
 export const ACCEPTANCE_CHAIN_CRON = '0 18 * * *';
 
 /**
+ * Weekly search ingest (AECI-820 / `ADMIN_PANEL_SPEC.md` §5.24.10). **Sundays at
+ * 22:00 UTC: `0 22 * * 1`.**
+ *
+ * ⚠️ Cloudflare's day-of-week is 1 = Sunday (see {@link ASN_REGISTRY_CRON}), so `1`
+ * here IS Sunday. Written numerically for the same round-trip reason.
+ *
+ * Why Sunday 22:00. The figures do not depend on the hour: Google finalises a day
+ * two to three days late, so the run's windows end three Pacific days back
+ * whenever it fires. 22:00 UTC is 14:00 or 15:00 in California, well after
+ * Google's Pacific midnight. Nothing reads the keys at a fixed hour after the
+ * run: `/admin/seo` reads them on request. The weekly SEO email the hour was once
+ * chosen for was dropped on 2026-11-24 (AECI-819, `ADMIN_PANEL_SPEC.md` §5.24.9).
+ * The hourly WAF poll also fires at 22:00, under its own expression, so the two
+ * never share a `switch` case.
+ *
+ * Queue-backed on `RECONCILE_QUEUE`, the `sitemap_rebuild` precedent: the consumer
+ * dispatches on `message.job`, so nothing new is provisioned. A retry is safe: every
+ * write is an upsert on `(day, metric)`, and a re-pull writes Google's current
+ * figure. One run is six requests, more only on a retry or a full page
+ * (`lib/search-ingest.ts`), far inside Google's 1,200 a minute.
+ */
+export const SEARCH_INGEST_CRON = '0 22 * * 1';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -481,6 +505,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   // AECI-1638: no trigger of its own. The 03:00 `RETENTION_CRON` case enqueues it after
   // the 400-day prune, so it shares that expression (`scheduled.ts`).
   'legal-retention-prune': RETENTION_CRON,
+  'search-ingest': SEARCH_INGEST_CRON,
 };
 
 /**
@@ -523,6 +548,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   plan_snapshot: 'plan-snapshot',
   acceptance_chain: 'acceptance-chain',
   legal_retention: 'legal-retention-prune',
+  search_ingest: 'search-ingest',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -532,7 +558,9 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
  *  AECI-1136 but keeps its old slot among the sub-daily jobs, so the screen's
  *  order did not move. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
- *  carries the schedule, so "Mondays" is already visible beside it. Matches
+ *  carries the schedule, so "Mondays" is already visible beside it. The weekly
+ *  `search-ingest` (Sundays 22:00) sits after the 18:00 `acceptance-chain` for the
+ *  same reason. Matches
  *  `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
@@ -558,6 +586,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'brand-asset-removal',
   'acceptance-evidence-removal',
   'acceptance-chain',
+  'search-ingest',
   'request-reconcile',
   'sitemap-rebuild',
   'plan-snapshot',

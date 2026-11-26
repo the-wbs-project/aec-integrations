@@ -4,8 +4,8 @@ import { buildTimeAxis } from './axis';
 import { ChartDataTable } from './chart-data-table';
 import { ChartLegend, slotNeedsRelief, type ChartLegendItem } from './chart-legend';
 import { areaPath, indexAtFraction, linePath } from './geometry';
-import { formatThousands } from './format';
-import { slotClass, type ChartSeries } from './chart-types';
+import { formatPercent, formatThousands } from './format';
+import { recordedRuns, slotClass, unrecordedSpans, type NullableChartSeries } from './chart-types';
 
 const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8, left: 8 } };
 
@@ -76,6 +76,28 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
                 }
               </g>
 
+              <!-- AECI-822: a stretch where NO series has a value is hatched, so
+                   the gap reads as "nothing was recorded", never as a quiet week.
+                   Hand-drawn lines, not an SVG pattern: a url(#id) fill is a
+                   bare fragment, which the app's base href breaks. The hatch is
+                   --border-field, 3.55:1 on the chart surface, so the band
+                   passes WCAG 1.4.11 (AECI-823). The grid colour was 1.22:1. -->
+              @for (span of gapSpans(); track span.key) {
+                <g aria-hidden="true">
+                  @for (hatch of span.hatches; track $index) {
+                    <line
+                      [attr.x1]="hatch.x1"
+                      [attr.y1]="hatch.y1"
+                      [attr.x2]="hatch.x2"
+                      [attr.y2]="hatch.y2"
+                      stroke="var(--border-field)"
+                      stroke-width="1"
+                      vector-effect="non-scaling-stroke"
+                    />
+                  }
+                </g>
+              }
+
               @for (path of paths(); track path.key) {
                 @if (path.area) {
                   <path [attr.d]="path.area" [class]="path.fill" opacity="0.1" />
@@ -87,6 +109,21 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
                   stroke-width="2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"
+                />
+              }
+
+              <!-- AECI-822: the last point of an open period (a cohort whose window
+                   has not closed) is hollow and off the line, because its value
+                   can still rise. -->
+              @for (dot of openDots(); track dot.key) {
+                <circle
+                  [attr.cx]="dot.x"
+                  [attr.cy]="dot.y"
+                  r="4"
+                  fill="var(--chart-surface)"
+                  [class]="dot.stroke"
+                  stroke-width="2"
                   vector-effect="non-scaling-stroke"
                 />
               }
@@ -116,6 +153,25 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
                 </g>
               }
             </svg>
+
+            <!-- The band's label. When an @container ancestor is narrow, a
+                 one-week band cannot hold the words across, so they run down the
+                 band instead. There is a text cue at every width, never the
+                 hatch alone (AECI-823, WCAG 1.4.11). -->
+            @if (gapLabel()) {
+              @for (span of gapSpans(); track span.key) {
+                <span
+                  class="pointer-events-none absolute top-[40%] -translate-x-1/2 -translate-y-1/2
+                    bg-(--chart-surface) px-1 text-center text-t-12 leading-tight
+                    text-(--text-secondary) @max-md:rotate-180
+                    @max-md:whitespace-nowrap @max-md:[writing-mode:vertical-rl]"
+                  [style.left.%]="span.centerPct"
+                  [style.max-width.%]="span.widthPct"
+                  aria-hidden="true"
+                  >{{ gapLabel() }}</span
+                >
+              }
+            }
 
             <!-- Tooltip: HTML, positioned by percentage from the same pure
                  geometry. Nothing is measured, so it is SSR-consistent. -->
@@ -160,18 +216,34 @@ const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8,
         [categoryHeader]="categoryHeader()"
         [categories]="categories()"
         [series]="series()"
+        [gapLabel]="gapLabel()"
+        [format]="tableFormat()"
       />
     </figure>
   `,
   styles: [':host { display: block; }'],
 })
 export class LineChart {
-  readonly series = input.required<readonly ChartSeries[]>();
+  readonly series = input.required<readonly NullableChartSeries[]>();
   /** Row headers — already-localized day labels, index-aligned to the values. */
   readonly categories = input.required<readonly string[]>();
   readonly categoryHeader = input.required<string>();
   readonly ariaLabel = input.required<string>();
   readonly emptyLabel = input.required<string>();
+  /**
+   * AECI-822. What a `null` value says, in the data table, in the tooltip and on
+   * the hatched band where every series is `null`. A `null` is drawn as a gap,
+   * never as zero. Charts that pass only numbers never see it.
+   */
+  readonly gapLabel = input('');
+  /** `'percent'` reads every value as a fraction from 0 to 1, pins the axis to
+   *  0 to 100% and prints whole percents. `'count'` is the default, unchanged. */
+  readonly unit = input<'count' | 'percent'>('count');
+  /** AECI-822. The last position is still open (its value can still change), so
+   *  it is drawn as a hollow point off the line, and its table cell carries
+   *  {@link openLabel}. */
+  readonly openLast = input(false);
+  readonly openLabel = input('');
 
   protected readonly viewBox = `0 0 ${BOX.width} ${BOX.height}`;
   /** 1-based so `@if (hoverIndex(); as idx)` treats index 0 as present — a plain
@@ -180,30 +252,100 @@ export class LineChart {
 
   protected readonly isEmpty = computed(() => this.categories().length === 0);
 
-  protected readonly axis = computed(() =>
-    buildTimeAxis({
+  protected readonly axis = computed(() => {
+    // A `null` adds nothing to the domain. Mapping it to 0 cannot raise the max,
+    // and an all-number series maps to itself, so existing axes are unchanged.
+    const values = this.series().map((s) => s.values.map((v) => v ?? 0));
+    return buildTimeAxis({
       box: BOX,
       count: this.categories().length,
-      series: this.series().map((s) => s.values),
+      // A rate axis always runs to 100%, so a good week and a bad week are drawn
+      // on the same scale whatever the data's own maximum is.
+      series: this.unit() === 'percent' ? [...values, [1]] : values,
       stacked: false,
-    }),
+    });
+  });
+
+  /** The index left off the line because it is still open, or -1. */
+  private readonly openIndex = computed(() =>
+    this.openLast() ? this.categories().length - 1 : -1,
   );
 
   protected readonly paths = computed(() => {
     const axis = this.axis();
     const single = this.series().length === 1;
+    const open = this.openIndex();
     return this.series().map((s) => {
-      const points = axis.bands.map((band, i) => ({ x: band.center, y: axis.y(s.values[i] ?? 0) }));
+      // `null` breaks the line. A missing index (a series shorter than the axis)
+      // still plots as 0, as it always has.
+      const points = axis.bands.map((band, i) => {
+        const value = s.values[i];
+        if (value === null || i === open) return null;
+        return { x: band.center, y: axis.y(value ?? 0) };
+      });
+      // One run per stretch of recorded values. A series with no `null` is one
+      // run, so its `d` is exactly what a single `linePath` call produced.
+      const runs = recordedRuns(points);
       return {
         key: s.key,
-        line: linePath(points),
+        line: runs.map((run) => linePath(run)).join(' '),
         // The wash reads as "this is the quantity" for a lone series. With two or
         // more it just muddies the overlap, so it is single-series only.
-        area: single ? areaPath(points, axis.plot.y + axis.plot.height) : '',
+        area: single
+          ? runs.map((run) => areaPath(run, axis.plot.y + axis.plot.height)).join(' ')
+          : '',
         fill: slotClass(s.slot, 'fill'),
         stroke: slotClass(s.slot, 'stroke'),
       };
     });
+  });
+
+  protected readonly openDots = computed(() => {
+    const open = this.openIndex();
+    if (open < 0) return [];
+    const axis = this.axis();
+    const x = axis.bands[open]?.center;
+    if (x === undefined) return [];
+    return this.series().flatMap((s) => {
+      const value = s.values[open];
+      if (value === null || value === undefined) return [];
+      return [{ key: s.key, x, y: axis.y(value), stroke: slotClass(s.slot, 'stroke') }];
+    });
+  });
+
+  /** The hatched "nothing recorded" bands, with their label positions. */
+  protected readonly gapSpans = computed(() => {
+    const axis = this.axis();
+    const count = this.categories().length;
+    if (count === 0) return [];
+    const slot = axis.plot.width / count;
+    const top = axis.plot.y;
+    const height = axis.plot.height;
+    return unrecordedSpans(this.series(), count).map((span) => {
+      const x0 = axis.plot.x + slot * span.from;
+      const width = slot * (span.to - span.from + 1);
+      return {
+        key: `${span.from}-${span.to}`,
+        hatches: hatchLines(x0, top, width, height, 8),
+        centerPct: ((x0 + width / 2) / BOX.width) * 100,
+        widthPct: (width / BOX.width) * 100,
+      };
+    });
+  });
+
+  /** Value to text for the table and the tooltip, in this chart's unit. */
+  private readonly valueText = computed(() =>
+    this.unit() === 'percent'
+      ? (value: number) => formatPercent(value, 1)
+      : (value: number) => formatThousands(value),
+  );
+
+  protected readonly tableFormat = computed(() => {
+    const text = this.valueText();
+    const open = this.openIndex();
+    const label = this.openLabel();
+    return (value: number, index: number) =>
+      index === open && label ? `${text(value)} ${label}` : text(value);
   });
 
   /**
@@ -217,10 +359,19 @@ export class LineChart {
       label: s.label,
       slot: s.slot,
       ...(slotNeedsRelief(s.slot) && s.values.length > 0
-        ? { value: formatThousands(s.values[s.values.length - 1] ?? 0) }
+        ? { value: this.reliefValue(s.values) }
         : {}),
     })),
   );
+
+  /** The relief label's text: the last value in this chart's unit and open-week
+   *  wording, or the gap label when nothing was recorded there (AECI-822). A
+   *  count chart with no `null` and no `openLast` prints exactly what `main` did. */
+  private reliefValue(values: readonly (number | null)[]): string {
+    const last = values.length - 1;
+    const value = values[last];
+    return value === null ? this.gapLabel() : this.tableFormat()(value ?? 0, last);
+  }
 
   /** A legend for one series would restate the title, unless that series needs
    *  relief: then the legend is where its value is written. */
@@ -240,27 +391,36 @@ export class LineChart {
     const idx = this.hoverIndex();
     if (idx === null) return [];
     const axis = this.axis();
-    return this.series().map((s) => ({
-      key: s.key,
-      x: axis.bands[idx - 1]?.center ?? 0,
-      y: axis.y(s.values[idx - 1] ?? 0),
-      fill: slotClass(s.slot, 'fill'),
-    }));
+    // A `null` has no position, so it gets no dot. Everything else is as before.
+    return this.series()
+      .filter((s) => s.values[idx - 1] !== null)
+      .map((s) => ({
+        key: s.key,
+        x: axis.bands[idx - 1]?.center ?? 0,
+        y: axis.y(s.values[idx - 1] ?? 0),
+        fill: slotClass(s.slot, 'fill'),
+      }));
   });
 
   protected readonly hoverRows = computed(() => {
     const idx = this.hoverIndex();
     if (idx === null) return [];
-    return this.series().map((s) => ({
-      key: s.key,
-      label: s.label,
-      value: formatThousands(s.values[idx - 1] ?? 0),
-      swatch: slotClass(s.slot, 'swatch'),
-    }));
+    // The table's formatter, so an open week reads "so far" in the tooltip too.
+    // With no `openLast` it is the plain unit format, as before.
+    const text = this.tableFormat();
+    return this.series().map((s) => {
+      const value = s.values[idx - 1];
+      return {
+        key: s.key,
+        label: s.label,
+        value: value === null ? this.gapLabel() : text(value ?? 0, idx - 1),
+        swatch: slotClass(s.slot, 'swatch'),
+      };
+    });
   });
 
   protected tickLabel(value: number): string {
-    return formatThousands(value);
+    return this.unit() === 'percent' ? formatPercent(value, 1) : formatThousands(value);
   }
 
   /**
@@ -285,4 +445,35 @@ export class LineChart {
     const index = indexAtFraction(fraction, this.categories().length);
     this.hoverIndex.set(index === null ? null : index + 1);
   }
+}
+
+/**
+ * Diagonal hatch lines filling a rectangle, clipped to it, `step` user units
+ * apart. Each line runs at 45 degrees, rising right to left. Pure, so the band is in
+ * the SSR HTML like the rest of the chart.
+ */
+function hatchLines(
+  x0: number,
+  y0: number,
+  width: number,
+  height: number,
+  step: number,
+): Array<{ x1: number; y1: number; x2: number; y2: number }> {
+  const lines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  if (width <= 0 || height <= 0 || step <= 0) return lines;
+  const bottom = y0 + height;
+  for (let c = step; c < width + height; c += step) {
+    // Start on the bottom edge, or on the right edge once c passes the width.
+    const x1 = c <= width ? x0 + c : x0 + width;
+    const y1 = c <= width ? bottom : bottom - (c - width);
+    // End on the left edge, or on the top edge once c passes the height.
+    const x2 = c <= height ? x0 : x0 + (c - height);
+    const y2 = c <= height ? bottom - c : y0;
+    lines.push({ x1: round1(x1), y1: round1(y1), x2: round1(x2), y2: round1(y2) });
+  }
+  return lines;
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }

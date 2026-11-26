@@ -1208,7 +1208,7 @@ export const syncServicePairVetoes = sqliteTable(
     vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
     /** The vendor's name at filing, so the owner's notice survives a vendor delete. */
     vendorName: text('vendor_name'),
-    /** The text on record. Since AECI-2192 (0134) it is the English label of
+    /** The text on record. Since AECI-2192 (0135) it is the English label of
      *  `reason_code`; on an older row it is the vendor's own words. */
     reason: text('reason').notNull(),
     /** AECI-2192 (ruling 66): the fixed reason, one of `REMOVAL_REASON_CODES`. NULL on a
@@ -1226,7 +1226,7 @@ export const syncServicePairVetoes = sqliteTable(
     /** The admin's required note on a lift. */
     endNote: text('end_note'),
     /** AECI-2192: why AECi ended it, one of `REMOVAL_END_REASONS`. NULL on a withdraw and
-     *  on a lift before 0134. A plain ADD COLUMN with no CHECK. */
+     *  on a lift before 0135. A plain ADD COLUMN with no CHECK. */
     endReason: text('end_reason', {
       enum: [
         'unauthorised_account',
@@ -4281,6 +4281,18 @@ export const pageViews = sqliteTable(
     index('page_views_operator_pair_idx')
       .on(t.userAgentHash, t.cfAsn, t.createdAt)
       .where(sql`"is_operator" = 1`),
+    // AECI-818 — the search console's crawled-path read (`readLastFetchByPath` in
+    // `lib/seo-queue.ts`), run on every `/api/admin/seo/queue` request and by the
+    // 00:15 snapshot. It groups crawler rows by `(bot_name, concrete_path)` back to
+    // `CONCRETE_PATH_SINCE`. Without this index the only seek is
+    // `page_views_bot_idx`, and `is_bot = 1` is most of the table, so the read
+    // range-scanned nearly every bot row. COVERING (every column the read touches)
+    // and PARTIAL, so the write cost lands only on bot rows that carry a concrete
+    // path. The read spells `is_bot = 1` as a literal: a bound `?` would not let
+    // SQLite prove the index's WHERE.
+    index('page_views_crawl_path_idx')
+      .on(t.botName, t.concretePath, t.createdAt, t.cfVerifiedBotCategory)
+      .where(sql`"is_bot" = 1 AND "concrete_path" IS NOT NULL`),
     // AECI-743 — the constraint that makes the de-duplication atomic, plus the
     // seek ingest uses to probe the current and previous bucket for its metric.
     // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles
@@ -4547,9 +4559,12 @@ export const metricsDaily = sqliteTable(
   'metrics_daily',
   {
     /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
-     *  compared directly against `substr(created_at, 1, 10)` elsewhere. */
+     *  compared directly against `substr(created_at, 1, 10)` elsewhere. The search
+     *  ingest's daily and 28-day keys are the exception: their day is Google's or
+     *  Bing's Pacific date (AECI-820, AECI-821, `SEARCH_INGEST_METRIC_KEYS`). */
     day: text('day').notNull(),
-    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
+    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` or, since AECI-820,
+     *  `SEARCH_INGEST_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
      *  CHECK constraint: the whole point of the key-value shape is that a new
      *  metric costs no migration, and a SQLite CHECK change forces a table rebuild. */
     metric: text('metric').notNull(),

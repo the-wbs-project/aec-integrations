@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d145b129-d683-4c81-a6a2-ddbaa04bdbfc",
+  "id": "bbc0ad87-c5f0-4013-b311-b0ef297d6cd5",
   "prevId": "bec0a2a6-1e54-40b9-9264-a4d7293250fa",
   "tables": {
     "acceptance_chain_exports": {
@@ -6933,6 +6933,17 @@
           "isUnique": false,
           "where": "\"is_operator\" = 1"
         },
+        "page_views_crawl_path_idx": {
+          "name": "page_views_crawl_path_idx",
+          "columns": [
+            "bot_name",
+            "concrete_path",
+            "created_at",
+            "cf_verified_bot_category"
+          ],
+          "isUnique": false,
+          "where": "\"is_bot\" = 1 AND \"concrete_path\" IS NOT NULL"
+        },
         "page_views_dedupe_key_idx": {
           "name": "page_views_dedupe_key_idx",
           "columns": [
@@ -10340,13 +10351,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "reason_code": {
-          "name": "reason_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "filed_by": {
           "name": "filed_by",
           "type": "text",
@@ -10384,13 +10388,6 @@
         },
         "end_note": {
           "name": "end_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "end_reason": {
-          "name": "end_reason",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -10575,206 +10572,6 @@
         "sync_service_pair_vetoes_ended_how_check": {
           "name": "sync_service_pair_vetoes_ended_how_check",
           "value": "\"ended_how\" IS NULL OR \"ended_how\" IN ('withdrawn', 'lifted')"
-        }
-      }
-    },
-    "sync_service_veto_objections": {
-      "name": "sync_service_veto_objections",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "veto_id": {
-          "name": "veto_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "vendor_name": {
-          "name": "vendor_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ground": {
-          "name": "ground",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "explanation": {
-          "name": "explanation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_url": {
-          "name": "source_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "filed_by": {
-          "name": "filed_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'open'"
-        },
-        "decision_note": {
-          "name": "decision_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decided_by": {
-          "name": "decided_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "sync_service_veto_objections_open_key": {
-          "name": "sync_service_veto_objections_open_key",
-          "columns": [
-            "veto_id"
-          ],
-          "isUnique": true,
-          "where": "\"status\" = 'open'"
-        },
-        "sync_service_veto_objections_veto_idx": {
-          "name": "sync_service_veto_objections_veto_idx",
-          "columns": [
-            "veto_id",
-            "created_at"
-          ],
-          "isUnique": false
-        },
-        "sync_service_veto_objections_status_idx": {
-          "name": "sync_service_veto_objections_status_idx",
-          "columns": [
-            "status",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "sync_service_veto_objections_veto_id_sync_service_pair_vetoes_id_fk": {
-          "name": "sync_service_veto_objections_veto_id_sync_service_pair_vetoes_id_fk",
-          "tableFrom": "sync_service_veto_objections",
-          "tableTo": "sync_service_pair_vetoes",
-          "columnsFrom": [
-            "veto_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "sync_service_veto_objections_vendor_id_vendors_id_fk": {
-          "name": "sync_service_veto_objections_vendor_id_vendors_id_fk",
-          "tableFrom": "sync_service_veto_objections",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "sync_service_veto_objections_filed_by_profiles_id_fk": {
-          "name": "sync_service_veto_objections_filed_by_profiles_id_fk",
-          "tableFrom": "sync_service_veto_objections",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "filed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "sync_service_veto_objections_decided_by_profiles_id_fk": {
-          "name": "sync_service_veto_objections_decided_by_profiles_id_fk",
-          "tableFrom": "sync_service_veto_objections",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "decided_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "sync_service_veto_objections_ground_check": {
-          "name": "sync_service_veto_objections_ground_check",
-          "value": "\"ground\" IN ('unauthorised_account', 'wrong_product', 'reason_plainly_false')"
-        },
-        "sync_service_veto_objections_status_check": {
-          "name": "sync_service_veto_objections_status_check",
-          "value": "\"status\" IN ('open', 'accepted', 'declined', 'closed')"
-        },
-        "sync_service_veto_objections_source_check": {
-          "name": "sync_service_veto_objections_source_check",
-          "value": "\"ground\" <> 'reason_plainly_false' OR \"source_url\" IS NOT NULL"
         }
       }
     },

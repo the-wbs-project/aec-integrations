@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all twenty-eight crons (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all thirty cron jobs (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -204,7 +204,7 @@ data today, with the PostHog successor in brackets.
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no alert — dashboard-only)*. ⚠️ **This signal narrows at AECI-651**: the RUM action is consent-independent, its `search_performed` successor is consented-only. Read it as a funnel from then on, not a census |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift / sync-failed / sync-not-running / orphan-cap monitors. **After the cutover:** sync-failed folds into the combined cron alert, drift becomes **dashboard-only**, liveness moves to the CI sweep, orphan-cap stays its own alert |
 | 5a | **Data quality (the §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials); `browser_evidence_coverage` *Skipped* is normal on production until capture turns on there | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only. **`arrival_cf_coverage` (AECI-868, `error`) is the §0b telemetry precondition and is read differently from the rest**: it says the day's traffic numbers are unusable, not that a catalog row needs fixing. Triage it before anything else on this list. **`vendor_suspension_past_window` and `termination_refund_unsettled` (AECI-1623, both `warn`) are operator reminders, not catalog defects.** The first lists an open suspension whose applicable window has passed, or whose notice was never confirmed sent and so has no clock. Nothing terminates by itself, so a forgotten suspension would keep billing a locked-out vendor. Lift it, re-send the notice or Terminate (`docs/runbooks/subscriptions.md` "Vendor suspension and termination"). The second lists a termination refund still `pending` or `failed` a day after it was written, which is money the vendor is owed. Choose Retry refunds on the vendor page. **`landing_cf_coverage` (AECI-876, `warn`) is its lead-capture sibling and is the opposite case** — it is `warn` precisely because it invalidates nothing, so it lands in "dashboard + digest, no alert" above and will never wake anyone. Read it here or in the digest; a failing run means new `mailing_list` rows are losing their network metadata, not that today's traffic figures are suspect. **`browser_evidence_coverage` (AECI-1715, `warn`) watches the browser report path.** It fails when fewer than 80% of the previous UTC day's Turnstile-pass arrivals carry a browser report, over at least 20 rows. A failing run means the human floor for that day is low by the gap. Triage: `docs/runbooks/alerts.md` "Browser evidence coverage" |
-| 6 | **Scheduled-job health (29 cron jobs)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the `cron-job-failed-alert` email (AECI-1587) for a failed run; the CI liveness sweep for a run that never started |
+| 6 | **Scheduled-job health (30 cron jobs)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the `cron-job-failed-alert` email (AECI-1587) for a failed run; the CI liveness sweep for a run that never started |
 | 6a | **The CI liveness sweep itself** | GitHub Actions → `posthog-liveness-sweep` (every 3 h). Read the **latest run's conclusion**, not just the alert inbox | green | **exit 1** = a heartbeat MISSING or STALE, with a `::error::` naming the cron. **exit 2** = the sweep could not run — "UNCHECKED, **not** a pass". Expect exit 2 on every run until the `phx_` key is provisioned (§0a) |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` *(PostHog: "AECi — Vendor requests and their Linear issues")* | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews` +, since AECI-922, `pending_requests` and `pending_claims` — the open-correction (plus open product and early-unassign request; open listing requests from AECI-1293 until AECI-1705) and open-claim depths in the same call), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) — ⚠️ **this stops alerting at AECI-651** and becomes a dashboard read. **This row is why it is safe to drop the alert; do not skip it** |
@@ -224,10 +224,10 @@ data today, with the PostHog successor in brackets.
 > from **before** AECI-640 carry mixed tiers (demo was pointed at the prod key), so filter by `$host`
 > when reading history that far back.
 
-### 1a. The 29 scheduled cron jobs (row 6 detail)
+### 1a. The 30 scheduled cron jobs (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all twenty-eight fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all thirty fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -243,7 +243,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twenty-nine** (`gsc-inspect`, `claim-owner-fallback`, `traffic-classify`, `sitemap-rebuild`, `vendor-claim-nudge`, `brand-asset-removal`, `acceptance-evidence-removal`, `acceptance-chain` and `legal-retention-prune` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368, AECI-1345, AECI-1505, AECI-1305, AECI-1618, AECI-1636, AECI-1621, AECI-1680 and AECI-1638). It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **thirty** (`gsc-inspect`, `claim-owner-fallback`, `traffic-classify`, `sitemap-rebuild`, `vendor-claim-nudge`, `brand-asset-removal`, `acceptance-evidence-removal`, `acceptance-chain`, `legal-retention-prune` and `search-ingest` carry an `activeFrom` grace until their first production run, AECI-1236, AECI-1368, AECI-1345, AECI-1505, AECI-1305, AECI-1618, AECI-1636, AECI-1621, AECI-1680, AECI-1638 and AECI-820). It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -283,6 +283,7 @@ replaced the single combined PostHog alert; "sweep" means the CI liveness sweep,
 | `0 16 * * *` | Brand asset removal (AECI-1618 / `STAGE_2_5_SPEC.md` §11): removes the vendor-set logos of companies whose claim ended, within the 14 days Vendor Terms promise. A hold delays it and is overridden from day 13. Queue-backed on `BRAND_ASSETS_QUEUE` (`aeci-brand-assets-{env}`), 3 retries, batch size 1. A company stays due until its R2 cleanup succeeds, so a failed run retries | `brand-asset-removal` | **new with the job.** `aeci.brand_assets.removal.run{outcome}` on every run, `ok` or `failed`. Absence → sweep (26 h). `outcome:failed` → combined alert, and the queue retries. Counts (`due`, `completed`, `rowsCleared`, `objectsDeleted`, `raced`, `failed`) are in `job_runs.detail`. The pending set is `/admin/vendors`, "Pending logo removals". It carries an `activeFrom` until its first production heartbeat |
 | `0 17 * * *` | Acceptance evidence removal (AECI-1636 / `DATABASE_SCHEMA.md` §8.6d): nulls `ip` and `user_agent` on agreement acceptances more than 90 days old, the deletion the Privacy Policy "Retention" promises. Up to 10 batches of 80 a run, one `agreement.evidence_removed` audit row per batch. Rides `BRAND_ASSETS_QUEUE`, 3 retries, batch size 1. The guarded UPDATE makes a retry a no-op | `acceptance-evidence-removal` | **new with the job.** `aeci.agreement.evidence_removal.run{outcome}` on every run, `ok` or `failed`. Absence → sweep (26 h). A failed run sends the `cron-job-failed-alert` email, and the queue retries. `truncated: true` in `job_runs.detail` means rows wait for the next run. It carries an `activeFrom` until its first production heartbeat |
 | `0 18 * * *` | Acceptance chain export (AECI-1680 / ADR 0057, `DATABASE_SCHEMA.md` §9.17): writes the SHA-256 fingerprints of the new and changed `agreement_acceptances` and `license_grants` rows, and a tombstone per deleted row, to one hash-chained file in `UPLOADS` under `evidence/acceptance-chain/`, then asks DigiCert for an RFC 3161 timestamp. A file is written every night. Rides `RECONCILE_QUEUE`, 3 retries, batch size 1. A retry adopts a file already in R2 | `acceptance-chain` | **new with the job.** `aeci.acceptance_chain.run{outcome}` on every run, `ok`, `skipped` or `failed`. Absence → sweep (26 h). A failed run sends the `cron-job-failed-alert` email, and the queue retries. A failed DigiCert request is a `warn` log, `aeci.acceptance_chain.timestamp_failed`, not a failed run. It carries an `activeFrom` until its first production heartbeat |
+| `0 22 * * 1` | Search ingest, WEEKLY, Sundays 22:00 UTC (AECI-820 / `ADMIN_PANEL_SPEC.md` §5.24.10). Cloudflare's day-of-week is 1 = Sunday. Pulls Search Analytics and the Sitemaps list for the Google Domain property into `metrics_daily` under `SEARCH_INGEST_METRIC_KEYS`, filed under Google's Pacific dates. Six sequential requests on one token. Re-pulls 14 days, so one missed week leaves no gap. Queue-backed on the reconcile queue. Needs `GSC_SA_KEY_JSON` (production only). Since AECI-821 the same run has a Bing lane: three Bing Webmaster Tools reads, needing `BWT_API_KEY` and `BWT_SITE_URL` (production only, both unset today) | `search-ingest` | **new with the job.** `aeci.search_ingest.run{engine,outcome}` is emitted on every run, one point per engine, so absence means the job stopped → sweep (20520 min, the weekly value). `outcome:partial` means one call failed and the rest wrote, or a key failed under a call that succeeded: read `detail.google.calls` or `detail.bing.calls` on `/admin/system`. `engine:bing,outcome:throttled` is routine unless it repeats. `outcome:failed` (an engine refused the credential) → combined alert. See `docs/runbooks/alerts.md` "Search ingest partial or failed" |
 | `11-59/15 * * * *` | Plan-change snapshot sweep (AECI-1621 / ADR 0056): writes each due `plan_change_snapshots` row to R2 under `evidence/plan-snapshots/` in `UPLOADS`, the ranking evidence the Terms rely on. Every plan start or end on a product schedules two rows, one at once and one 30 days later. Up to 25 rows a run. Rides `RECONCILE_QUEUE`, 3 retries, batch size 1. A written row is no longer due and an object already in R2 is adopted, so a retry is safe. Most runs have nothing due | `plan-snapshot` | **new with the job.** `aeci.plan_snapshot.run{outcome}` on every run. Absence → sweep (90 min). A failed run sends the `cron-job-failed-alert` email, and the queue retries. A row failed this run counts in `job_runs.detail.failed` and is retried next run. A row unwritten 24 h after due is the `plan_snapshot_overdue` data-quality check (`error`). It carries an `activeFrom` until its first production heartbeat |
 | `45 0 * * *` | Traffic classification writer (AECI-1345 / `ADMIN_PANEL_SPEC.md` §13 D19, `DATABASE_SCHEMA.md` §9.7) — classifies every `page_views` row of the prior UTC day, internal rows included, and stores one `page_view_classifications` row per view for the current classifier version. Queue-backed (`aeci-traffic-classify-{env}`, 3 retries, batch size 1). The consumer classifies the day before the message's `enqueuedAt`, so a retry after the next midnight still writes the intended day. A backfill message names its day instead (`trafficClassify`, AECI-1444) and chains one day per invocation. 00:45, not 00:15, because the SPA follow-up evidence reads 30 minutes past the day's end. A re-run of the same version writes nothing. Sends nothing | `traffic-classify` | **new with AECI-1345.** `aeci.traffic_classify.run{trigger:cron\|manual, outcome:ok\|failed\|skipped}`, emitted on every run including failures → **sweep** (26 h, with an `activeFrom` grace until the first production heartbeat). The sweep counts only `trigger:cron`, so a backfill's `trigger:manual` heartbeats cannot hide a missed night. `skipped` is a refused backfill message and does not page. A `failed` outcome sends the `cron-job-failed-alert` email. Read it on `/admin/system`. A crash rethrows so the queue retries. Log lines `aeci.traffic_classify.stored`, `.crashed` and `.enqueue_failed` |
 | `15 1 * * *` | Stripe reconcile (AECI-1503 / `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2), the backstop for a missed Stripe webhook. One paged walk of Stripe's non-canceled subscriptions, plus one retrieve per Stripe subscription D1 still holds live subscriptions for that the walk did not return, then the webhook's own sync for each one that is ours. Queue-backed (`aeci-stripe-reconcile-{env}`, 3 retries, batch size 1). The sync converges, so a retry changes only what still differs. Any change emails `SUPPORT_EMAIL` (`stripe-reconcile-alert`). It also cancels a ban-dead Stripe subscription (live in Stripe while its subscriptions ended `banned`, AECI-1589; since AECI-1623 only for a terminated vendor, or a subscription a termination ended), counted as `banCancelsNow`. No `STRIPE_SECRET_KEY` means `skipped` | `stripe-reconcile` | **new with AECI-1503.** `aeci.stripe.reconcile.run{trigger, outcome:ok\|failed\|skipped}`, emitted on every run including failures → **sweep** (26 h, with an `activeFrom` grace until the first production heartbeat). `skipped` does not page. A `failed` outcome sends the `cron-job-failed-alert` email. Read it on `/admin/system`. Runbook: `docs/runbooks/subscriptions.md` "Stripe reconcile changed subscriptions" |
@@ -350,7 +351,7 @@ it, what type of property it was, or what to read.
 |---|---|
 | **Google Search Console** | **Live.** A **Domain** property on `aecintegrations.com`, owned by Chris. Domain properties are DNS-verified by definition, so the verification lives as a TXT record on the `aecintegrations.com` Cloudflare zone — deleting that record un-verifies the property |
 | **Sitemap submitted to GSC** | `https://www.aecintegrations.com/sitemap.xml`. The Sitemaps report was **empty** when AECI-799 checked it on 2026-09-09 — no sitemap had ever been successfully submitted, despite an assumption that one had. Submitted under that issue; the confirmation is a **Success** fetch with a discovered-URL count. The prod sitemap is a single `<urlset>`, not a `<sitemapindex>` (`apps/web/src/server/sitemap.ts` defers splitting until 50,000 URLs) |
-| **Bing Webmaster Tools** | **Registered 2026-09.** The Google Search Console import failed, so it was verified manually; sitemap submitted and reporting **1.5k URLs discovered**. Search performance needs ~48 h before it reports. This closes AECI-799 AC2 |
+| **Bing Webmaster Tools** | **Registered 2026-09.** The Google Search Console import failed, so it was verified manually; sitemap submitted and reporting **1.5k URLs discovered**. Search performance needs ~48 h before it reports. This closes AECI-799 AC2. **Ingest built, not yet live (AECI-821).** The weekly `search-ingest` run has a Bing lane that reports daily clicks, impressions, Bing's own index figure (`InIndex`, as reported by Bing), crawled pages, crawl errors, and the `www.` sitemap's URL count and last crawl. It stays `skipped` until the `BWT_API_KEY` secret and the `BWT_SITE_URL` var are set (`docs/environments.md` "Bing Webmaster Tools ingest per tier") |
 | **The Bing push channel** | **Rebuilt, unproven.** The IndexNow ping (AECI-236) is the only automated Bing/Yandex channel, and **every production submission failed with HTTP 429** across 2026-09-07..09 — 23 of 23. AECI-826 replaced the per-promote submit with a D1 buffer drained every 20 minutes, so a burst of promotes is now one request. **AECI-1136 made the drain daily (00:05 UTC) and tiered** after prod showed Bing refusing nearly every 20-minute tick and accepting the first one after 00:00 UTC. **It is fixed when `aeci.indexnow.submit{outcome:ok}` is non-zero in production (`source:cron` then, `source:runner` since AECI-1476), not when the code merges** — that needs a prod promote plus a real catalogue write. Two things stay open until then: the key value is still unverified (a 429 throttles before IndexNow fetches `<key>.txt`, so a wrong key looks identical), and IndexNow reports nothing back, so BWT is the only place the effect is visible. **Treat Bing discovery as sitemap-only until the `ok` series appears.** *(Update 2026-09-28: the `ok` series has appeared. Prod PostHog 2026-09-22..28 shows accepted submissions on the first tick after 00:00 UTC on 09-23, 09-25 and 09-27, one of them 1,287 URLs. So the key is accepted and the channel works once a day. AECI-1136 made the drain daily for that reason.)* *(Update 2026-10-27: from 2026-10-13 Bing refused most daily requests from the Worker, while a probe from a GitHub runner was accepted the same day. AECI-1476 moved the send to a GitHub Actions runner at 00:20 UTC; the Worker keeps every decision and ledger write.)* |
 
 **A Domain property spans every host in the zone, and that is the point.** It covers `www.`
@@ -369,6 +370,49 @@ baseline.
 3. **Sitemaps** → the last-read date and the fetch result. A sitemap that stops being read, or
    starts erroring, is silent — nothing else in our stack notices.
 4. The **tripwire** below.
+
+**`/admin/seo` now covers item 2 of this read, and items 1, 3 and 4 stay manual.**
+`ADMIN_PANEL_SPEC.md` §5.24 specifies the screen (epic AECI-816). Panel 1 lists the catalog pages
+Googlebot or Bingbot has not fetched, with a copy control per URL, beside a link to the re-index
+queue. Panel 2 shows, week by week, how many new pages each engine crawled within 7 days and
+whether the backlog is shrinking. Panel 3 (AECI-823) shows each engine's funnel over the trailing
+28 days: catalog, crawled, indexed, and clicked. Google's indexed stage is the lower bound, pages
+with at least one impression. Bing's is Bing's own figure. The clicked stage gives clicks,
+impressions, click-through and, for Google, average position. A table under the Google funnel puts
+the whole property's last 28 days beside the AECI-799 baseline. So read item 2 on `/admin/seo`.
+
+Three reads stay in the consoles:
+
+- **Item 1, Google's Page indexing count** and "Why pages aren't indexed". No Google API returns
+  them. Panel 3's lower bound never replaces them.
+- **Item 3, Sitemaps.** The screen does not show sitemap state. Read it in Search Console, or in
+  the `search-ingest` run's `job_runs.detail`.
+- **Item 4, the tripwire.**
+
+There is no weekly SEO email: Chris dropped it on 2026-11-24 (§5.24.9).
+
+**What the weekly ingest pulls automatically (AECI-820).** The Sunday 22:00 UTC `search-ingest`
+job stores items 2 and 3 in `metrics_daily`, so they gain a history:
+
+| Item | Pulled automatically | Stays manual |
+|---|---|---|
+| 1. Page indexing | A proxy only: `www.` pages with at least one impression in 28 days, all pages and catalog pages | The indexed count and "Why pages aren't indexed". No Google API returns them |
+| 2. Performance | Daily clicks, impressions and average position, for the `www_page` scope and the whole `property` | Nothing. Read it on `/admin/seo` Panel 3 |
+| 3. Sitemaps | The `www.` sitemap's last download, errors, warnings and URL count. The dates are in the run's `job_runs.detail` | The read itself. `/admin/seo` does not show sitemap state, so read it in Search Console or in the run's `job_runs.detail` |
+| 4. Tripwire | Nothing | All of it |
+
+So item 1 stays a manual read every week. The ingest's figure is a lower bound and never replaces
+it. Item 2 moved to `/admin/seo` Panel 3 with AECI-823. Item 3 is stored but not on the screen.
+
+**What the Bing lane pulls (AECI-821), once its key and site URL are set.** BWT has no weekly read
+list above, so this is new history rather than a replaced read.
+
+| BWT figure | Stored as | Note |
+|---|---|---|
+| Clicks and impressions, daily | `search.bing.www.clicks`, `.impressions` | Every vertical, Chat included. No position |
+| In index, daily | `search.bing.www.in_index` | Bing's own figure, as reported by Bing. Microsoft does not define it. Never add it to a Google figure |
+| Crawled pages and crawl errors, daily | `search.bing.www.crawled_pages`, `.crawl_errors` | |
+| The `www.` sitemap | `search.bing.www.sitemap_urls`, `.sitemap_crawl_age_days` | The dates are in the run's `job_runs.detail.bing.sitemap` |
 
 **The one-indexable-host tripwire.** Exactly **one** host may be indexable:
 `www.aecintegrations.com`. Canonicals are self-referential (ADR 0011 / `core/canonical.ts`) and
@@ -556,6 +600,24 @@ and the table's own bound is the `url` unique index.
 tier-1 or tier-2 row**. A standing tail of tier-4 rows is the design working. A week-old tier-1 row
 means a new product page has been invisible to Google for a week, which is the thing this whole
 mechanism exists to prevent.
+
+### Search console tunables (AECI-818 / `ADMIN_PANEL_SPEC.md` §5.24.12)
+
+The constants behind `GET /api/admin/seo/queue`, `/trend`, `/funnel` and the `seo.*` snapshot keys. They live
+in `apps/api/src/lib/seo-queue.ts` unless the table says otherwise. A change to any of the first
+three re-bases the `seo.*` series from the next snapshot. Stored days keep the value they were
+written with, so note the date of the change.
+
+| Constant | Where | Value | When to retune |
+|---|---|---|---|
+| `SEO_CRAWL_LOOKBACK_DAYS` | `lib/seo-queue.ts` | `28` | Search Console's own reports use 28 days. Shorten it only if Google revisits catalog pages more often than monthly and the lane fills with pages it already holds |
+| `SEO_UNCRAWLED_GRACE_DAYS` | `lib/seo-queue.ts` | `7` | A page younger than a week is not overdue. Keep it equal to `SEO_CRAWL_COHORT_DAYS`, so Panels 1 and 2 agree on "late" |
+| `SEO_CRAWL_COHORT_DAYS` | `lib/seo-queue.ts` | `7` | The "crawled within 7 days" window on Panel 2 |
+| `SEO_TREND_WEEKS_DEFAULT` | `packages/shared/src/api/admin-seo.ts` | `12` | A quarter of weeks. `?weeks=` accepts 1 to 26 (`SEO_TREND_WEEKS_MAX`) |
+| `SEO_QUEUE_PAGE_SIZE` | `packages/shared/src/api/admin-seo.ts` | `25` | The default `perPage` of the queue. The server caps `perPage` at 100 |
+| `CONCRETE_PATH_SINCE` | `lib/seo-queue.ts` | `2026-08-18T03:49:00.000Z` | A fact, not a tunable: the first production row with a `concrete_path`. Never move it |
+| `EDGE_VERIFIED_SINCE` | `lib/seo-queue.ts` | `2026-10-13T08:02:33.500Z` | A fact, not a tunable: the first production row with `cf_verified_bot_category`. Read from production on 2026-11-24 with `SELECT min(created_at) FROM page_views WHERE cf_verified_bot_category IS NOT NULL`. Never move it |
+| `SEO_FUNNEL_WINDOW_DAYS` | `lib/seo-funnel.ts` | `28` | The Panel 3 funnel window. Keep it equal to `SEO_CRAWL_LOOKBACK_DAYS` and to the ingest's 28-day counts, or stages 1 and 3 stop describing the same length of time |
 
 ### Trade publication floor (AECI-539 / AECI-546)
 

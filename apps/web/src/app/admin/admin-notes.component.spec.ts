@@ -54,6 +54,9 @@ const PARAMS_BY_CODE: Partial<Record<AdminNoteCode, AdminNote['params']>> = {
   series_spans_degraded_days: { degraded_days: 4, requested: 30 },
   // AECI-722 — the connector surface.
   stub_actions_never_fetched: { never_fetched: 90, total: 120 },
+  // AECI-818 — the search console.
+  crawler_label_unverified: { since: '2026-10-14T00:00:00.000Z' },
+  crawl_window_clamped: { from: '2026-08-18T03:49:00.000Z' },
 };
 
 const ALL_CODES: ReadonlyArray<{ code: AdminNoteCode; params?: AdminNote['params'] }> =

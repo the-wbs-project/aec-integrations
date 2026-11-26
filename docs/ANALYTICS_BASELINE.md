@@ -647,6 +647,21 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > per-host split, because none was taken. No sitemap fetch result, because the submission is what
 > produces the first one. Each of those is a named gap, not an omission — and a later number that
 > silently fixes one of them by changing the filter is not a comparison.
+>
+> **AECI-820 addendum (2026-11-24): what is now pulled automatically, and what stays manual.** The
+> weekly `search-ingest` job (Sundays 22:00 UTC) writes Search Console figures to `metrics_daily`
+> under the `search.google.*` keys, filed under Google's Pacific dates. Each key names its filter.
+>
+> | Figure | Automatic | Comparable to the numbers above |
+> |---|---|---|
+> | Clicks, impressions, average position, daily | Yes, `property` scope (whole zone, `byProperty`) and `www_page` scope (`www.` only, by page) | Only the `property` keys, and only as a reference: this baseline is a three-month total, the keys are daily |
+> | Pages with at least one impression in 28 days | Yes, `www_page` scope, all pages and catalog pages | No. It is a lower bound on indexed pages, not the Page indexing count |
+> | Distinct queries in 28 days | Yes, `www_page` scope | Not baselined above |
+> | The `www.` sitemap's last read, errors, warnings, URL count | Yes | Not baselined above |
+> | The Page indexing report: indexed, not indexed, the reasons | **No.** No Google API returns it | Yes, by the weekly manual read only (`POST_LAUNCH_MONITORING.md` §2a) |
+>
+> CTR is not stored. Derive it from summed clicks and impressions. Bing figures are not pulled yet
+> (AECI-821).
 
 > **AECI-868 addendum (2026-09-11) — arrivals lost their network metadata for four days, and those
 > days' bot/human splits are not comparable with any other day.** From **2026-09-07T00:44Z** (the
