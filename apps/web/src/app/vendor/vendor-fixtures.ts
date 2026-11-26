@@ -2729,6 +2729,7 @@ export const VENDOR_SYNC_OWNED_FIXTURE: readonly OwnedIntegration[] = [
         agreement: 'owner_confirmed',
         origin: 'aeci',
         answer: 'yes',
+        public: true,
       },
       {
         id: '00000000-0000-4000-8000-000000005265',
@@ -2738,6 +2739,7 @@ export const VENDOR_SYNC_OWNED_FIXTURE: readonly OwnedIntegration[] = [
         agreement: 'unverified',
         origin: 'aeci',
         answer: null,
+        public: true,
       },
     ],
   },

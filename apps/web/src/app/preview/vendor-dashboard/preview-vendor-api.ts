@@ -111,6 +111,8 @@ import type {
   DecidePairContestInput,
   OwnedFlow,
   OwnedIntegration,
+  OwnerFlowHistory,
+  OwnerFlowHistoryEvent,
   OwnerFlowsResponse,
   PairContest,
   PairContestResponse,
@@ -3027,6 +3029,9 @@ export class PreviewVendorApi extends VendorApi {
       for (const flow of holder.flows) {
         if (flow.id !== claimId) continue;
         flow.answer = answer;
+        // The server's rule (`isClaimPubliclyBacked`): the owner's answer decides,
+        // and an unanswered flow is public unless a vendor made it.
+        flow.public = answer === null ? flow.origin !== 'vendor' : answer === 'yes';
         flow.agreement =
           answer === 'yes'
             ? 'owner_confirmed'
@@ -3053,6 +3058,7 @@ export class PreviewVendorApi extends VendorApi {
       if (existing) {
         existing.answer = 'yes';
         existing.agreement = 'owner_confirmed';
+        existing.public = true;
       } else {
         holder.flows.push({
           id,
@@ -3062,6 +3068,7 @@ export class PreviewVendorApi extends VendorApi {
           agreement: 'owner_confirmed',
           origin: 'vendor',
           answer: 'yes',
+          public: true,
         });
       }
     }
@@ -3076,6 +3083,46 @@ export class PreviewVendorApi extends VendorApi {
 
   override async clearOwnerFlowAnswer(claimId: string): Promise<void> {
     this.answerFlow(claimId, null);
+  }
+
+  /**
+   * AECI-2213: one data type's history, derived from the flows the preview holds now.
+   * Each flow reads as listed or added, then its answer. The preview keeps no log.
+   */
+  override async getOwnerFlowHistory(
+    integrationId: string,
+    dataObject: string,
+  ): Promise<OwnerFlowHistory> {
+    const holder = this.ownerFlowHolders().find((h) => h.id === integrationId);
+    if (!holder) throw apiError(404, 'NOT_FOUND', 'Integration not found');
+    const flows = holder.flows.filter((f) => f.data_object_slug === dataObject);
+    const name = flows[0]?.data_object_name ?? dataObjectName(dataObject);
+    if (!name) {
+      throw apiError(400, 'VALIDATION_FAILED', `Unknown data object "${dataObject}"`, {
+        field: 'data_object',
+      });
+    }
+    const listedAt = '2026-09-01T09:00:00.000Z';
+    const answeredAt = '2026-10-14T15:30:00.000Z';
+    const events: OwnerFlowHistoryEvent[] = [];
+    for (const flow of flows) {
+      if (flow.answer !== null && !(flow.origin === 'vendor' && flow.answer === 'yes')) {
+        events.push({
+          at: answeredAt,
+          kind: flow.answer === 'yes' ? 'confirmed' : 'removed',
+          direction: flow.direction,
+          actor: 'you',
+        });
+      }
+      events.push(
+        flow.origin === 'vendor'
+          ? { at: listedAt, kind: 'added', direction: flow.direction, actor: 'you' }
+          : { at: listedAt, kind: 'listed', direction: flow.direction, actor: 'aeci' },
+      );
+    }
+    // Newest first. ISO timestamps, so a BINARY compare orders them.
+    events.sort((x, y) => (x.at < y.at ? 1 : x.at > y.at ? -1 : 0));
+    return { data_object_slug: dataObject, data_object_name: name, events };
   }
 
   /** The old flow is answered No and the flow in the new direction confirmed (§6.15.3). */

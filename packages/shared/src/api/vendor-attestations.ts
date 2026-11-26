@@ -290,6 +290,14 @@ export const OwnedFlowSchema = z.object({
   origin: ClaimOriginSchema,
   /** The owner's own live answer, or `null`. */
   answer: z.enum(OWNER_FLOW_ANSWERS).nullable(),
+  /**
+   * AECI-2213. Whether the public pair page shows this flow at all, by the pair read's
+   * own rule (`isClaimPubliclyBacked`, the owner's vote included). The server decides:
+   * a vendor-made flow can be public on a live AECi attestation or an endpoint
+   * vendor's Yes. `null` from an API older than the field (deploy skew); the portal
+   * then falls back to the origin rule.
+   */
+  public: z.boolean().nullable().default(null),
 });
 
 export type OwnedFlow = z.infer<typeof OwnedFlowSchema>;
@@ -730,3 +738,48 @@ export const OwnerFlowsResponseSchema = z.object({
 });
 
 export type OwnerFlowsResponse = z.infer<typeof OwnerFlowsResponseSchema>;
+
+/**
+ * What happened to one data type on an owned row (AECI-2213, `API_CONTRACTS.md`
+ * §6.15a). `listed` is AECi's seed. `added` is a vendor's own row. `confirmed` and
+ * `removed` are owner answers. `direction_changed` is a No on one direction and a Yes
+ * on another written in one batch. `cleared` is an answer withdrawn with nothing after it.
+ */
+export const OWNER_FLOW_HISTORY_KINDS = [
+  'listed',
+  'added',
+  'confirmed',
+  'removed',
+  'direction_changed',
+  'cleared',
+] as const;
+export type OwnerFlowHistoryKind = (typeof OWNER_FLOW_HISTORY_KINDS)[number];
+
+/**
+ * Who did it, always a company and never a person. `you` is the caller's vendor,
+ * `aeci` is AEC Integrations, `other_company` is any other vendor, a vendor since
+ * deleted included.
+ */
+export const OWNER_FLOW_HISTORY_ACTORS = ['you', 'aeci', 'other_company'] as const;
+export type OwnerFlowHistoryActor = (typeof OWNER_FLOW_HISTORY_ACTORS)[number];
+
+/** One event. Directions are framed against the row's `product_a`, as `OwnedFlow` is. */
+export const OwnerFlowHistoryEventSchema = z.object({
+  at: z.string(),
+  kind: z.enum(OWNER_FLOW_HISTORY_KINDS),
+  direction: ContextDirectionSchema,
+  /** Only on `direction_changed`: the direction it moved from. */
+  previous_direction: ContextDirectionSchema.optional(),
+  actor: z.enum(OWNER_FLOW_HISTORY_ACTORS),
+});
+
+export type OwnerFlowHistoryEvent = z.infer<typeof OwnerFlowHistoryEventSchema>;
+
+/** `GET /api/vendor/owned-integrations/:id/flows/history?data_object=`. Newest first. */
+export const OwnerFlowHistorySchema = z.object({
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  events: z.array(OwnerFlowHistoryEventSchema),
+});
+
+export type OwnerFlowHistory = z.infer<typeof OwnerFlowHistorySchema>;

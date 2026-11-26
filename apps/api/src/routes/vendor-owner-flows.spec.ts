@@ -45,7 +45,9 @@ import { createListVendorIntegrationsHandler } from './vendor-attestations';
 import {
   createAddOwnerFlowHandler,
   createChangeOwnerFlowHandler,
+  buildOwnerFlowHistory,
   createClearOwnerFlowAnswerHandler,
+  createOwnerFlowHistoryHandler,
   createSetOwnerFlowAnswerHandler,
 } from './vendor-owner-flows';
 
@@ -224,6 +226,10 @@ function app(auth: Auth) {
   a.put('/api/vendor/owned-flows/:claimId/answer', createSetOwnerFlowAnswerHandler(t.factory));
   a.delete('/api/vendor/owned-flows/:claimId/answer', createClearOwnerFlowAnswerHandler(t.factory));
   a.patch('/api/vendor/owned-flows/:claimId', createChangeOwnerFlowHandler(t.factory));
+  a.get(
+    '/api/vendor/owned-integrations/:id/flows/history',
+    createOwnerFlowHistoryHandler(t.factory),
+  );
   a.get('/api/vendor/integrations', createListVendorIntegrationsHandler(t.factory));
   a.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler(t.factory));
   a.get(
@@ -371,7 +377,11 @@ describe('the writes', () => {
     const no = await call(AUTH_C, `/api/vendor/owned-flows/${CLAIM_SEED}/answer`, 'PUT', {
       asserted: false,
     });
-    expect(no.body.flows[0]).toMatchObject({ answer: 'no', agreement: 'unverified' });
+    expect(no.body.flows[0]).toMatchObject({
+      answer: 'no',
+      agreement: 'unverified',
+      public: false,
+    });
     const rows = await t.db.select().from(claimOwnerAnswers);
     expect(rows).toHaveLength(2);
     expect(rows.filter((r) => r.retractedAt === null)).toHaveLength(1);
@@ -394,7 +404,12 @@ describe('the writes', () => {
     const res = await add(AUTH_C, E_SS, 'invoices', 'outbound');
     expect(res.status).toBe(201);
     const added = res.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices');
-    expect(added).toMatchObject({ origin: 'vendor', answer: 'yes', agreement: 'owner_confirmed' });
+    expect(added).toMatchObject({
+      origin: 'vendor',
+      answer: 'yes',
+      agreement: 'owner_confirmed',
+      public: true,
+    });
     const [claim] = await t.db.select().from(claims).where(eq(claims.id, added.id));
     expect(claim).toMatchObject({
       origin: 'vendor',
@@ -491,6 +506,30 @@ describe('claim, confirm a flow, read it on the pair page', () => {
       (c: JsonBody) => `${c.data_object_slug}:${c.agreement}`,
     );
     expect(unclaimed).toEqual(['rfis:unverified']);
+  });
+
+  // AECI-2213 review: the server says whether the pair page shows a flow, by the pair
+  // read's own rule, so a vendor-made flow backed by AECi reads as public.
+  it('reports public from isClaimPubliclyBacked, not from origin', async () => {
+    const added = await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    const flowId = added.body.flows.find((f: JsonBody) => f.data_object_slug === 'invoices').id;
+    // A new owner: C's Yes stops counting, so nobody stands behind C's add.
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ builtByVendorId: VENDOR_E })
+      .where(eq(connectorEvidencedPairs.id, E_SS));
+    const ownedFlow = async () =>
+      ((await call(AUTH_E, '/api/vendor/integrations', 'GET')).body.owned as JsonBody[])
+        .find((r) => r.id === E_SS)
+        ?.flows.find((f: JsonBody) => f.id === flowId);
+    expect(await ownedFlow()).toMatchObject({ origin: 'vendor', answer: null, public: false });
+    await t.db.insert(attestations).values({ id: uuid(90), claimId: flowId, source: 'aeci' });
+    expect(await ownedFlow()).toMatchObject({ origin: 'vendor', answer: null, public: true });
+    // The pair page agrees: the flow is listed.
+    const listed = mechanism((await pairPage()).body, E_SS).claims.map(
+      (c: JsonBody) => c.data_object_slug,
+    );
+    expect(listed).toContain('invoices');
   });
 
   it('ignores an answer from a previous owner', async () => {
@@ -665,5 +704,244 @@ describe('the owner that also makes an endpoint', () => {
     const a = await call(AUTH_A, '/api/vendor/integrations', 'GET');
     const theirs = (a.body.integrations as JsonBody[]).find((r) => r.id === I_SS);
     expect(theirs?.owner_flows).toBeNull();
+  });
+});
+
+// AECI-2213: one data type's history, from claims and every owner answer.
+describe('the history read', () => {
+  const history = (auth: Auth, id: string, dataObject = 'rfis') =>
+    call(
+      auth,
+      `/api/vendor/owned-integrations/${id}/flows/history?data_object=${dataObject}`,
+      'GET',
+    );
+  const answer = (claimId: string, asserted: boolean) =>
+    call(AUTH_C, `/api/vendor/owned-flows/${claimId}/answer`, 'PUT', { asserted });
+  const kinds = (body: JsonBody) =>
+    (body.events as JsonBody[]).map((e) =>
+      e.previous_direction
+        ? `${e.kind}:${e.previous_direction}>${e.direction}:${e.actor}`
+        : `${e.kind}:${e.direction}:${e.actor}`,
+    );
+
+  it('reads the seed, a confirm, a direction change and a clear, newest first', async () => {
+    await t.db.update(claims).set({ createdAt: '2026-08-01T00:00:00.000Z' });
+    await answer(CLAIM_SEED, true);
+    await call(AUTH_C, `/api/vendor/owned-flows/${CLAIM_SEED}`, 'PATCH', { direction: 'both' });
+    const both = (await t.db.select().from(claims)).find(
+      (c) => c.connectorEvidencedPairId === E_SS && c.direction === 'both',
+    );
+    await call(AUTH_C, `/api/vendor/owned-flows/${both!.id}/answer`, 'DELETE');
+
+    const res = await history(AUTH_C, E_SS);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ data_object_slug: 'rfis', data_object_name: 'RFIs' });
+    expect(kinds(res.body)).toEqual([
+      'cleared:both:you',
+      'direction_changed:outbound>both:you',
+      'confirmed:outbound:you',
+      'listed:outbound:aeci',
+    ]);
+    // The new direction's claim is part of the change, not an add of its own.
+    expect(kinds(res.body).some((k) => k.startsWith('added'))).toBe(false);
+  });
+
+  it('reads an owner add as one "added" event, not an add and a confirm', async () => {
+    await add(AUTH_C, E_SS, 'invoices', 'outbound');
+    const res = await history(AUTH_C, E_SS, 'invoices');
+    expect(kinds(res.body)).toEqual(['added:outbound:you']);
+  });
+
+  it('names another company for a previous owner and for a deleted vendor', async () => {
+    await answer(CLAIM_SEED, false);
+    await t.db.insert(claimOwnerAnswers).values({
+      id: uuid(80),
+      claimId: CLAIM_SEED,
+      vendorId: null,
+      asserted: true,
+      createdAt: '2026-08-15T00:00:00.000Z',
+      retractedAt: '2026-08-16T00:00:00.000Z',
+    });
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ builtByVendorId: VENDOR_E })
+      .where(eq(connectorEvidencedPairs.id, E_SS));
+    // E is the owner now, so C's answers and the NULL vendor's are another company's.
+    const res = await history(AUTH_E, E_SS);
+    expect(res.status).toBe(200);
+    const actors = (res.body.events as JsonBody[]).map((e) => `${e.kind}:${e.actor}`);
+    expect(actors).toContain('removed:other_company');
+    expect(actors).toContain('confirmed:other_company');
+    expect(actors).toContain('cleared:other_company');
+    expect(actors).not.toContain('removed:you');
+  });
+
+  // AECI-2213 review: the clearing actor is whoever retracted, not who answered.
+  it("reads the new owner's clear of the old owner's Yes as the new owner's", async () => {
+    await answer(CLAIM_SEED, true);
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ builtByVendorId: VENDOR_E })
+      .where(eq(connectorEvidencedPairs.id, E_SS));
+    const cleared = await call(AUTH_E, `/api/vendor/owned-flows/${CLAIM_SEED}/answer`, 'DELETE');
+    expect(cleared.status).toBe(204);
+    const res = await history(AUTH_E, E_SS);
+    expect(kinds(res.body)).toEqual([
+      'cleared:outbound:you',
+      'confirmed:outbound:other_company',
+      'listed:outbound:aeci',
+    ]);
+  });
+
+  // AECI-2213 review: promote's rule 4 makes a seed vendor-origin; AECi still listed it.
+  it('reads a claim promote converted to vendor origin as listed by AECi', async () => {
+    await t.db
+      .update(claims)
+      .set({ origin: 'vendor', createdByVendorId: VENDOR_C })
+      .where(eq(claims.id, CLAIM_SEED));
+    await t.db.insert(auditLog).values({
+      actorType: 'system',
+      action: 'claim.converted',
+      entityType: 'claim',
+      entityId: CLAIM_SEED,
+      beforeState: { origin: 'aeci', createdByVendorId: null },
+      afterState: { origin: 'vendor', createdByVendorId: VENDOR_C },
+    });
+    const res = await history(AUTH_C, E_SS);
+    expect(kinds(res.body)).toEqual(['listed:outbound:aeci']);
+  });
+
+  it('opens on an unclaimed and a retired row', async () => {
+    for (const id of [E_SS_UNCLAIMED, E_SS_RETIRED, I_SS_UNCLAIMED]) {
+      const res = await history(AUTH_C, id);
+      expect(res.status).toBe(200);
+      expect(res.body.events).toEqual([]);
+    }
+  });
+
+  it('keeps the gate before the claim step: endpoint 403, stranger 404, platform 403', async () => {
+    expect((await history(AUTH_A, E_SS)).body.error.code).toBe(ApiErrorCode.INTEGRATION_NOT_OWNER);
+    expect((await history(AUTH_E, E_SS)).status).toBe(404);
+    expect((await history(AUTH_C, E_PLATFORM)).body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('refuses a missing or unknown data object with 400', async () => {
+    expect(
+      (await call(AUTH_C, `/api/vendor/owned-integrations/${E_SS}/flows/history`, 'GET')).status,
+    ).toBe(400);
+    expect((await history(AUTH_C, E_SS, 'nope')).status).toBe(400);
+  });
+
+  // The mount carries no limiter: `vendor-owner-flows.registration.spec.ts`.
+  it('writes nothing', async () => {
+    const before = (await t.db.select().from(auditLog)).length;
+    await history(AUTH_C, E_SS);
+    expect(await t.db.select().from(auditLog)).toHaveLength(before);
+  });
+});
+
+describe('buildOwnerFlowHistory', () => {
+  const ME = 'me';
+  const T1 = '2026-10-01T00:00:00.000Z';
+  const T2 = '2026-10-02T00:00:00.000Z';
+  const seed = {
+    id: 'c1',
+    direction: 'a_to_b',
+    origin: 'aeci',
+    createdByVendorId: null,
+    createdAt: T1,
+    converted: false,
+  } as const;
+  const seed2 = { ...seed, id: 'c2', direction: 'b_to_a' } as const;
+
+  it('pairs a No and a Yes at the same instant into one change, even on two seeds', () => {
+    const events = buildOwnerFlowHistory(
+      [seed, seed2],
+      [
+        {
+          id: 'a1',
+          claimId: 'c1',
+          vendorId: ME,
+          asserted: false,
+          createdAt: T2,
+          retractedAt: null,
+        },
+        { id: 'a2', claimId: 'c2', vendorId: ME, asserted: true, createdAt: T2, retractedAt: null },
+      ],
+      ME,
+    );
+    expect(events[0]).toEqual({
+      at: T2,
+      kind: 'direction_changed',
+      direction: 'inbound',
+      previous_direction: 'outbound',
+      actor: 'you',
+    });
+    expect(events.map((e) => e.kind)).toEqual(['direction_changed', 'listed', 'listed']);
+  });
+
+  it('keeps a No and a Yes at different instants apart', () => {
+    const events = buildOwnerFlowHistory(
+      [seed, seed2],
+      [
+        {
+          id: 'a1',
+          claimId: 'c1',
+          vendorId: ME,
+          asserted: false,
+          createdAt: T1,
+          retractedAt: null,
+        },
+        { id: 'a2', claimId: 'c2', vendorId: ME, asserted: true, createdAt: T2, retractedAt: null },
+      ],
+      ME,
+    );
+    expect(events.map((e) => e.kind)).toEqual(['confirmed', 'removed', 'listed', 'listed']);
+  });
+
+  it('reads a vendor add by someone else, or by a deleted vendor, as another company', () => {
+    const events = buildOwnerFlowHistory(
+      [
+        { ...seed, origin: 'vendor', createdByVendorId: 'them' },
+        { ...seed2, origin: 'vendor', createdByVendorId: null },
+      ],
+      [],
+      ME,
+    );
+    expect(events.map((e) => e.actor)).toEqual(['other_company', 'other_company']);
+  });
+
+  it('reads a converted seed as listed by AECi, never as an add', () => {
+    const events = buildOwnerFlowHistory(
+      [{ ...seed, origin: 'vendor', createdByVendorId: ME, converted: true }],
+      [],
+      ME,
+    );
+    expect(events).toEqual([{ at: T1, kind: 'listed', direction: 'outbound', actor: 'aeci' }]);
+  });
+
+  it('names the clearing actor from the retraction, not the answer', () => {
+    const retracted = (
+      id: string,
+      retractedBy: { vendorId: string | null; actorType: string } | null,
+    ) => ({
+      id,
+      claimId: 'c1',
+      vendorId: 'old-owner',
+      asserted: true,
+      createdAt: T1,
+      retractedAt: T2,
+      retractedBy,
+    });
+    const actors = [
+      retracted('a1', { vendorId: ME, actorType: 'user' }),
+      retracted('a2', { vendorId: 'them', actorType: 'user' }),
+      retracted('a3', { vendorId: null, actorType: 'system' }),
+      retracted('a4', null),
+    ].map(
+      (answer) =>
+        buildOwnerFlowHistory([seed], [answer], ME).find((e) => e.kind === 'cleared')?.actor,
+    );
+    expect(actors).toEqual(['you', 'other_company', 'aeci', 'other_company']);
   });
 });

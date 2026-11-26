@@ -6,6 +6,11 @@
  *   PUT    /api/vendor/owned-flows/:claimId/answer    — Yes confirms, No removes it.
  *   DELETE /api/vendor/owned-flows/:claimId/answer    — clear the owner's answer (204).
  *   PATCH  /api/vendor/owned-flows/:claimId           — change its direction.
+ *   GET    /api/vendor/owned-integrations/:id/flows/history?data_object=
+ *                                                      — one data type's history (AECI-2213).
+ *
+ * The portal no longer calls `DELETE …/answer` (AECI-2213): a removed row comes back
+ * through Add a row. The route stays for API clients.
  *
  * ── THE GATE ────────────────────────────────────────────────────────────────
  * `requireVendor()` → `rateLimit('write')` at the mount, then
@@ -13,6 +18,10 @@
  * then Sync Service, then claimed, then live. A seat is the whole remaining gate, on
  * any plan (AECI-2038). Endpoint vendors get the owner gate's 403, so AECI-705 stands
  * for them. They still use `/api/vendor/claims` on rows no connector delivers.
+ *
+ * The history GET is a read: no `rateLimit('write')` at its mount (reads are never
+ * rate-limited), and the gate runs with `{ read: true }`, so it stops after the Sync
+ * Service step. An unclaimed or retired row may read its history.
  *
  * ── ONE BATCH ───────────────────────────────────────────────────────────────
  * Every write is one `db.batch`:
@@ -38,11 +47,15 @@ import {
   AddOwnerFlowSchema,
   ApiErrorCode,
   ChangeOwnerFlowSchema,
+  OwnerFlowHistorySchema,
   OwnerFlowsResponseSchema,
   SetOwnerFlowAnswerSchema,
   claimDirectionForContext,
   claimDirectionFromContext,
   type ClaimDirection,
+  type OwnerFlowHistory,
+  type OwnerFlowHistoryActor,
+  type OwnerFlowHistoryEvent,
   type OwnerFlowsResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -75,9 +88,12 @@ import {
 import {
   liveOwnerAnswerId,
   loadOwnedFlows,
+  loadOwnerFlowHistoryRows,
   ownerFlowContextOf,
   resolveOwnerFlowClaim,
   resolveOwnerFlowTarget,
+  type OwnerFlowHistoryAnswer,
+  type OwnerFlowHistoryClaim,
   type OwnerFlowTarget,
 } from '../lib/owner-flows';
 import { publicSiteBase } from '../lib/public-urls';
@@ -552,5 +568,185 @@ export async function planOwnerFlowChange(
   return {
     changes: [removeOld, { claimId, retractId: null, asserted: true }],
     extras: { newClaim: { id: claimId, dataObject: term, direction } },
+  };
+}
+
+// ─── The history of one data type (AECI-2213) ────────────────────────────────
+
+/** Same-instant events keep a fixed order: the change, then answers, then rows. */
+const KIND_RANK: Record<OwnerFlowHistoryEvent['kind'], number> = {
+  direction_changed: 0,
+  removed: 1,
+  confirmed: 2,
+  cleared: 3,
+  added: 4,
+  listed: 5,
+};
+
+/**
+ * One data type's events, newest first, from its claims and every owner answer on
+ * them. Pure, so the pairing rules are unit-tested without a database.
+ *
+ * - A claim is `listed` (AECi's seed, actor `aeci`) or `added` (a vendor's own row).
+ *   Provenance decides, not today's `origin`: a seed promote converted to vendor
+ *   origin (`claim.converted`, `promote-claims.ts` rule 4) is still `listed`. The
+ *   conversion itself is not an event.
+ * - An answer is `confirmed` (Yes) or `removed` (No).
+ * - A No and a Yes on two directions with the SAME `created_at` are one write: every
+ *   owner flow write stamps one `now` on each insert and retraction. They read as one
+ *   `direction_changed`. A claim that write created is part of the change, not an add.
+ * - The Yes an add writes with its new claim is part of the `added` event.
+ * - A retraction with no answer on the same claim at the same instant is `cleared`.
+ *   A retraction an answer superseded is not an event of its own.
+ *
+ * The actor is a company: the caller's vendor reads `you`, AECi's seed `aeci`, any
+ * other vendor, or a NULL vendor (deleted, `schema.ts` SET NULL), `other_company`.
+ * A `cleared` event's actor is whoever retracted, from the retraction's audit row
+ * (`retractedBy`), never the answer's author: after an ownership change the new
+ * owner can clear the old owner's answer. No vendor on that row and an admin,
+ * system or workflow actor reads `aeci`. No audit row at all reads `other_company`.
+ */
+export function buildOwnerFlowHistory(
+  claimRows: readonly OwnerFlowHistoryClaim[],
+  answers: readonly OwnerFlowHistoryAnswer[],
+  callerVendorId: string,
+): OwnerFlowHistoryEvent[] {
+  const claimById = new Map(claimRows.map((c) => [c.id, c]));
+  const dir = (claimId: string) => {
+    const claim = claimById.get(claimId);
+    return claim ? claimDirectionForContext(claim.direction, true) : null;
+  };
+  const actorOf = (vendorId: string | null): OwnerFlowHistoryActor =>
+    vendorId !== null && vendorId === callerVendorId ? 'you' : 'other_company';
+  const clearedBy = (answer: OwnerFlowHistoryAnswer): OwnerFlowHistoryActor => {
+    const by = answer.retractedBy;
+    if (!by) return 'other_company';
+    if (by.vendorId !== null) return actorOf(by.vendorId);
+    return by.actorType === 'user' ? 'other_company' : 'aeci';
+  };
+  // A vendor's own row, by provenance: a converted AECi seed is not one.
+  const vendorMade = (claim: OwnerFlowHistoryClaim) =>
+    claim.origin === 'vendor' && !claim.converted;
+  const events: OwnerFlowHistoryEvent[] = [];
+  // Claims whose creation a change or an add already tells.
+  const createdInChange = new Set<string>();
+  const live = answers.filter((a) => claimById.has(a.claimId));
+
+  // Answers, grouped by the instant one write stamped on them.
+  const byInstant = new Map<string, OwnerFlowHistoryAnswer[]>();
+  for (const answer of live) {
+    const group = byInstant.get(answer.createdAt) ?? [];
+    group.push(answer);
+    byInstant.set(answer.createdAt, group);
+  }
+  for (const [at, group] of byInstant) {
+    const yeses = group.filter((a) => a.asserted);
+    const nos = group.filter((a) => !a.asserted);
+    const pairedYes = new Set<OwnerFlowHistoryAnswer>();
+    for (const no of nos) {
+      const yes = yeses.find((y) => !pairedYes.has(y) && y.claimId !== no.claimId);
+      const from = dir(no.claimId);
+      if (yes && from) {
+        pairedYes.add(yes);
+        const to = dir(yes.claimId);
+        if (!to) continue;
+        const created = claimById.get(yes.claimId);
+        if (created && created.createdAt === at && vendorMade(created)) {
+          createdInChange.add(created.id);
+        }
+        events.push({
+          at,
+          kind: 'direction_changed',
+          direction: to,
+          previous_direction: from,
+          actor: actorOf(yes.vendorId),
+        });
+        continue;
+      }
+      if (from) events.push({ at, kind: 'removed', direction: from, actor: actorOf(no.vendorId) });
+    }
+    for (const yes of yeses) {
+      if (pairedYes.has(yes)) continue;
+      const to = dir(yes.claimId);
+      if (!to) continue;
+      const created = claimById.get(yes.claimId);
+      // The Yes an add writes with its new claim: the `added` event tells it.
+      if (created && created.createdAt === at && vendorMade(created)) continue;
+      events.push({ at, kind: 'confirmed', direction: to, actor: actorOf(yes.vendorId) });
+    }
+  }
+
+  // Retractions nothing superseded.
+  for (const answer of live) {
+    if (answer.retractedAt === null) continue;
+    const superseded = live.some(
+      (other) =>
+        other !== answer &&
+        other.claimId === answer.claimId &&
+        other.createdAt === answer.retractedAt,
+    );
+    if (superseded) continue;
+    const from = dir(answer.claimId);
+    if (from) {
+      events.push({
+        at: answer.retractedAt,
+        kind: 'cleared',
+        direction: from,
+        actor: clearedBy(answer),
+      });
+    }
+  }
+
+  for (const claim of claimRows) {
+    if (createdInChange.has(claim.id)) continue;
+    const direction = claimDirectionForContext(claim.direction, true);
+    events.push(
+      vendorMade(claim)
+        ? { at: claim.createdAt, kind: 'added', direction, actor: actorOf(claim.createdByVendorId) }
+        : { at: claim.createdAt, kind: 'listed', direction, actor: 'aeci' },
+    );
+  }
+
+  // Newest first. Timestamps are ISO strings, so a BINARY compare orders them.
+  return events.sort(
+    (a, b) =>
+      (a.at < b.at ? 1 : a.at > b.at ? -1 : 0) ||
+      KIND_RANK[a.kind] - KIND_RANK[b.kind] ||
+      (a.direction < b.direction ? -1 : a.direction > b.direction ? 1 : 0),
+  );
+}
+
+/**
+ * `GET /api/vendor/owned-integrations/:id/flows/history?data_object={slug}`. A read:
+ * the gate stops after the Sync Service step, and no write limiter sits at its mount.
+ * A known data type the row never carried answers `200` with no events.
+ */
+export function createOwnerFlowHistoryHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const vendorId = sessionVendorId(c);
+    const { db } = dbFor(c.env);
+    const target = await resolveOwnerFlowTarget(db, vendorId, param(c, 'id'), { read: true });
+    const slug = c.req.query('data_object');
+    if (!slug) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing data_object', {
+        field: 'data_object',
+      });
+    }
+    const term = (await loadDataObjectResolver(db))(slug);
+    if (!term) {
+      throw new ApiError(400, 'VALIDATION_FAILED', `Unknown data object "${slug}"`, {
+        field: 'data_object',
+      });
+    }
+    const rows = await loadOwnerFlowHistoryRows(db, target.id, term.id);
+    const body: OwnerFlowHistory = {
+      data_object_slug: term.slug,
+      data_object_name: term.name,
+      events: buildOwnerFlowHistory(rows.claims, rows.answers, vendorId),
+    };
+    validateResponseInDev(c.env, () => OwnerFlowHistorySchema.parse(body));
+    return json(body);
   };
 }

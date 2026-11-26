@@ -63,13 +63,18 @@ The integration goes live without review. Your company owns it and has claimed i
 
 ### The data rows on a Sync Service integration
 
-When the connector is a Sync Service, your company built and runs the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan:
+When the connector is a Sync Service, your company built and runs the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan. The table lists each type of data once, with what is true now. Its **On the public page** column says what the public page shows for the row.
 
-- **Yes** confirms a row. The public page then reads "Confirmed by (your company), which offers this integration".
-- **No** removes a row from the public page. It does not mark the row as disputed, because you maintain the listing.
-- Pressing the answer you already gave clears it. The row then reads "Listed by AEC Integrations" again.
-- **Change** moves a row to another direction. The old direction is removed and the new one confirmed.
-- **Add a row** adds a type of data and confirms it. The vendors of both products are told in Messages.
+Each row has an **Actions** menu:
+
+- **Confirm** appears on a row AEC Integrations listed that you have not confirmed yet. The public page then reads "Confirmed by (your company), which offers this integration". Until you confirm it, it reads "Listed by AEC Integrations".
+- **Change direction** moves a row to another direction. The old direction is removed and the new one confirmed.
+- **View history** lists what happened to that type of data, newest first: who listed, added, confirmed, removed or changed it, and when. It names companies, not people.
+- **Remove row** takes a row off the public page, after you confirm in a dialog. It does not mark the row as disputed, because you maintain the listing. The row leaves the table.
+
+**Add a row** adds a type of data and confirms it. The vendors of both products are told in Messages. To bring back a row you removed, add it again. If the type of data is already in the table, use **Change direction** on its row instead.
+
+Before you claim the integration, or while it is retired, each row's menu has **View history** only.
 
 If your company also makes one of the two products, the integration is on your product's Integrations tab instead. Open it, and the same controls are under **Data that's shared** on its page.
 

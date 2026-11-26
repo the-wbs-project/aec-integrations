@@ -3389,14 +3389,17 @@ an in-memory entry with `source = 'owner'` (`OWNER_ANSWER_SOURCE`, never stored)
 - `integrationAgreement` ranks `owner_confirmed` between `single_source` and `confirmed`.
 
 **No public "disputed" state.** The owner maintains the listing, so its No is a correction: the
-flow leaves the page. The owner can clear the answer to bring it back, or change the direction.
+flow leaves the page. The owner can add the row again to bring it back, or change the direction.
+_Since AECI-2213 (2026-11-26) the portal shows a removed flow nowhere in the owner's table and
+never clears an answer. Add a row confirms the existing claim (`200`). `DELETE …/answer` stays for
+API clients (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.15.3)._
 
 **Public wording.** Badge: "Confirmed by {vendor}, which offers this integration", the vendor
 being the mechanism's `built_by_vendor`. Its accessible name is the same sentence with a full stop.
 The provenance popover adds "{vendor} confirms this" and closes "{vendor} offers and runs this
 integration, so it confirms what moves." (`@@pair.claim.provenance.closing.ownerConfirmed.runs`).
 The owner's flows panel opens "Your company offers and runs this integration, so you confirm
-what it moves." (`@@vendor.ownedFlows.intro.claimed.runs`). Until the legal read of 2026-11-25
+what it moves." (`@@vendor.ownedFlows.intro.claimed.actions`). Until the legal read of 2026-11-25
 both said the Sync Service "runs both sides of it". That was wrong: a Sync Service built and
 runs the integration, not the two products at its ends. An unanswered flow on a Sync
 Service pair keeps "Listed by AEC Integrations", and its accessible name and closing line say
