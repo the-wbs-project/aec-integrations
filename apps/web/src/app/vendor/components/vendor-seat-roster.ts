@@ -618,10 +618,13 @@ export class VendorSeatRoster {
       try {
         await this.api.removeSeat(seat.user_id);
       } catch {
-        this.refuse($localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`);
+        this.refuse(
+          { kind: 'seat', id: seat.user_id },
+          $localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`,
+        );
         return;
       }
-      this.confirming.set(null);
+      this.closeConfirm({ kind: 'seat', id: seat.user_id });
       const name = this.seatName(seat);
       this.settle($localize`:@@vendor.seats.remove.done:Seat removed for ${name}:name:.`);
       await this.store.reload('seats');
@@ -643,11 +646,12 @@ export class VendorSeatRoster {
         await this.api.revokeInvite(invite.id);
       } catch {
         this.refuse(
+          { kind: 'invite', id: invite.id },
           $localize`:@@vendor.seats.revoke.error:Could not revoke that invite. Try again.`,
         );
         return;
       }
-      this.confirming.set(null);
+      this.closeConfirm({ kind: 'invite', id: invite.id });
       this.settle($localize`:@@vendor.seats.revoke.done:Invite to ${invite.email}:email: revoked.`);
       await this.store.reload('seats');
       this.focusAfterRemoval('invite', invite.id, before);
@@ -689,6 +693,12 @@ export class VendorSeatRoster {
     return `${this.actCellClass}${edge}`;
   }
 
+  /** Close this confirm only. While a request runs, another row's opener is still
+   *  live, so the confirm open now may not be the one that was submitted. */
+  private closeConfirm(which: Confirming): void {
+    if (this.isConfirming(which.kind, which.id)) this.confirming.set(null);
+  }
+
   private openConfirm(next: Confirming): void {
     this.actionError.set(null);
     this.actionStatus.set(null);
@@ -698,8 +708,8 @@ export class VendorSeatRoster {
   /** A refused remove or revoke: close the confirm, show the alert, move focus to
    *  it. The confirm that held focus is gone, so focus would otherwise drop to
    *  the page. */
-  private refuse(message: string): void {
-    this.confirming.set(null);
+  private refuse(which: Confirming, message: string): void {
+    this.closeConfirm(which);
     this.actionError.set(message);
     this.focusAfterRender('vendor-seats-action-error');
   }

@@ -798,6 +798,29 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     release();
     await settle(fixture);
   });
+
+  it('a finished removal leaves a confirm opened on another row in the meantime', async () => {
+    setup({ seats: VENDOR_SEATS_FIXTURE, pending_invites: [], can_manage_seats: true });
+    const fixture = await render();
+    let release: () => void = () => {};
+    removeSeat.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`)!.click();
+    await settle(fixture);
+    buttonStartingWith(fixture, 'Remove seat').click();
+    fixture.detectChanges();
+    q(fixture, `#vendor-seat-remove-start-${BANNED.user_id}`)!.click();
+    fixture.detectChanges();
+
+    release();
+    await settle(fixture);
+
+    expect(q(fixture, `[data-seat-confirm="${BANNED.user_id}"]`)).not.toBeNull();
+  });
 });
 
 /**
