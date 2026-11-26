@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 19, 2026
+last_updated: November 24, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -119,7 +119,7 @@ The version shown applies to that grant for its whole term, even if we publish a
 
 ### Put a subscription on a product
 
-On a subscription in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign subscription**. The list offers only products that hold no live subscription. Once assigned, the product is on Managed. The subscription stays on that product until renewal. If a subscription from a grant is still in the pool a week after it was accepted, and a product of yours is on Free, each owner gets one email reminder.
+On a subscription in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign subscription**. The list offers only products that hold no live subscription and can hold one. An integration platform cannot. See [Which products can hold a subscription](/docs/vendors/plans#which-products-can-hold-a-subscription). Once assigned, the product is on Managed. The subscription stays on that product until renewal. If a subscription from a grant is still in the pool a week after it was accepted, and a product of yours is on Free, each owner gets one email reminder.
 
 ### Free a product's subscription
 

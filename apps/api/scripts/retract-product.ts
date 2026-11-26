@@ -36,6 +36,11 @@
  *   - Refuses a vendor-held integration or connector-evidenced pair (claimed, or
  *     `origin = 'vendor'`) ALWAYS, `--force` or `--delete-evidenced-pairs` or not
  *     (AECI-1005 for integrations, AECI-1088 for pairs; ADR 0035).
+ *   - `--withdraw-connector` (AECI-2047) withdraws a connector product with the pairs
+ *     it delivers. It implies `--delete-evidenced-pairs` and lifts the vendor-held
+ *     refusal for one class only: a pair this product delivers that its own vendor
+ *     holds. The dry run lists every pair the run would delete, with its hold. Every
+ *     other vendor-held row, and a connector catalogue, still refuses.
  *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
@@ -49,6 +54,8 @@
  *   pnpm --filter @aeci/api ops:retract-product -- --slug box-2 --env production
  *   # apply (production requires the extra guard flag):
  *   pnpm --filter @aeci/api ops:retract-product -- --slug box-2 --env production --apply --allow-production
+ *   # withdraw a connector and the pairs it delivers (dry run lists them):
+ *   pnpm --filter @aeci/api ops:retract-product -- --slug rivets-sync --env production --withdraw-connector
  *   # by id, against the local seeded D1:
  *   pnpm --filter @aeci/api ops:retract-product -- --id <uuid> --local --apply
  *
@@ -81,6 +88,7 @@ import {
   REVIEW_RESPONSES_TABLE_SQL,
   REVIEW_UPDATES_TABLE_SQL,
   CLAIM_THREADS_TABLE_SQL,
+  CLAIM_OWNER_ANSWERS_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
   PAGE_VIEWS_DDL_SQL,
   ddlHasPageViewPairColumns,
@@ -88,10 +96,14 @@ import {
   INTEGRATIONS_DDL_SQL,
   LICENSES_TABLE_SQL,
   buildProductLookupSql,
+  buildConnectorPairListingSql,
   classifyRetraction,
   DELETE_EVIDENCED_PAIRS_FLAG,
   describeEvidencedPairs,
+  formatConnectorPairListing,
   formatFootprintReport,
+  WITHDRAW_CONNECTOR_FLAG,
+  type ConnectorPairListingRow,
   parseFootprint,
   type ProductRow,
   type RawFootprintRow,
@@ -288,7 +300,9 @@ function markSitemapDirty(target: RetractCliTarget): boolean {
 export async function main(argv: string[]): Promise<number> {
   const apply = argv.includes('--apply');
   const force = argv.includes('--force');
-  const deleteEvidencedPairs = argv.includes(DELETE_EVIDENCED_PAIRS_FLAG);
+  // AECI-2047: a withdrawal deletes the connector's pairs, so it implies the pair flag.
+  const withdrawConnector = argv.includes(WITHDRAW_CONNECTOR_FLAG);
+  const deleteEvidencedPairs = argv.includes(DELETE_EVIDENCED_PAIRS_FLAG) || withdrawConnector;
   const target = resolveTarget(argv);
   const productTarget = resolveProductTarget(argv);
 
@@ -344,6 +358,9 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1536: the same for migration 0100's private-thread table.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-2039: the same for migration 0131's owner-answer table.
+  const claimOwnerAnswersTable =
+    (runD1<{ name: string }>(target, CLAIM_OWNER_ANSWERS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1350: the same for migration 0073's `licenses` table.
   const licensesTable =
     (runD1<{ name: string }>(target, LICENSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
@@ -378,9 +395,18 @@ export async function main(argv: string[]): Promise<number> {
   const footprint = parseFootprint(rawFootprint);
   console.log(formatFootprintReport(product, footprint));
   console.log('');
+  // AECI-2047: a withdrawal lists exactly which pairs it would delete, before any gate.
+  if (withdrawConnector) {
+    const listing = runD1<ConnectorPairListingRow>(
+      target,
+      buildConnectorPairListingSql(product.id),
+    )[0]?.results;
+    console.log(formatConnectorPairListing(listing ?? []));
+    console.log('');
+  }
 
   // 3. Safety gate.
-  const classification = classifyRetraction(footprint, { deleteEvidencedPairs });
+  const classification = classifyRetraction(footprint, { deleteEvidencedPairs, withdrawConnector });
   if (classification.refusals.length > 0) {
     console.error('✗ This product cannot be retracted by this tool, --force or not:');
     for (const r of classification.refusals) console.error(`     • ${r}`);
@@ -444,6 +470,7 @@ export async function main(argv: string[]): Promise<number> {
     operator: readValueFlag(argv, '--operator'),
     force,
     deleteEvidencedPairs,
+    withdrawConnector,
     vendorLinksTable,
     reviewResponsesTable,
     reviewUpdatesTable,
@@ -454,6 +481,7 @@ export async function main(argv: string[]): Promise<number> {
     auditVendorColumns,
     licensesTable,
     claimThreadsTable,
+    claimOwnerAnswersTable,
   }).join('\n');
   let results: D1ExecResult<unknown>[];
   try {
@@ -486,6 +514,17 @@ export async function main(argv: string[]): Promise<number> {
   console.log(
     formatFollowUps(productRetractFollowUps({ target, tags, cacheSkipped, sitemapMarked })),
   );
+  // AECI-2047: a withdrawn pair a vendor held was listed in that vendor's ownership
+  // record (§4d `deliveredPairs[]`). The record is whole state, so re-send it.
+  if (withdrawConnector && footprint.vendorHeldOwnConnectorPairs > 0) {
+    console.log('');
+    console.log(
+      "Then re-send the connector vendor's ownership record so the review app drops the withdrawn\n" +
+        'pairs. Put the vendor id in place of VENDOR_UUID:\n' +
+        `  pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env ${target.label} --vendor VENDOR_UUID\n` +
+        '(docs/runbooks/catalog.md "Withdrawing a connector").',
+    );
+  }
   return 0;
 }
 

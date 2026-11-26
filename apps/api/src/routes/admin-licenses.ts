@@ -41,10 +41,14 @@
  * mirror (`lib/pair-version-diff.ts`). So the handler purges the vendor tag set
  * (`vendorPurgeTags`) when the builder predicts a flip, and not otherwise.
  *
- * ── CONNECTOR VENDORS WARN, NEVER GATE ──────────────────────────────────────────
- * A vendor whose every product is a connector gets a `warnings[]` entry and the
- * grant still writes (the AECI-738 rule, the predicate `isPureConnectorVendor`).
- * Connector vendors and licenses are parked (AECI-1343).
+ * ── NO PRODUCT THAT CAN HOLD ONE IS REFUSED (AECI-2044, ruling 6) ───────────────
+ * After the replay and ban checks, a vendor that owns products and none that can hold
+ * a subscription answers 409 `NO_SUBSCRIBABLE_PRODUCT` and nothing is written. An
+ * Integration platform, or a connector with no kind, holds none. A Sync Service, an
+ * application and a hybrid do (`lib/subscribable-products.ts`). This replaces the
+ * `pure_connector_vendor` warning, which `warnings[]` no longer carries. A vendor with
+ * no product at all stays grantable. The ban-term grant below is unchanged: it restores
+ * an assignment a termination cut, and an existing assignment is never refused.
  *
  * ── THE EMAIL ───────────────────────────────────────────────────────────────────
  * Post-commit in `waitUntil`, `licenses-granted` to every unbanned seat and to the
@@ -136,6 +140,10 @@ import {
 } from '../lib/license-grants';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
 import { forwardAuditBatch } from '../lib/moderation-forward';
+import {
+  noSubscribableProductError,
+  ownsOnlyUnsubscribableProducts,
+} from '../lib/subscribable-products';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
 import {
@@ -145,13 +153,6 @@ import {
   unbannedSeatExistsSentinel,
   vendorFullyBanned,
 } from '../lib/vendor-handback';
-import {
-  EMPTY_PRODUCT_ROLES,
-  foldProductRoleGroups,
-  isPureConnectorVendor,
-  productRolesForVendor,
-  selectProductRoleGroups,
-} from '../lib/vendor-product-roles';
 import {
   loadVendorOwnerRecipients,
   loadVendorSeatRecipients,
@@ -368,23 +369,18 @@ export function createGrantLicensesHandler(
     if (!account) throw notFoundError('billing_account', { id: vendor.id });
 
     const licenseIds = await grantLicenseIds(payload.grant_id, payload.quantity);
-    const [vendorLicenses, { stored, legacy }, roleGroups, fullyBanned] = await Promise.all([
-      loadVendorLicenses(db, vendor.id),
-      loadStoredGrant(db, payload.grant_id, licenseIds),
-      selectProductRoleGroups(db, productRolesForVendor(vendor.id)),
-      vendorFullyBanned(db, vendor.id),
-    ]);
+    const [vendorLicenses, { stored, legacy }, onlyUnsubscribable, fullyBanned] = await Promise.all(
+      [
+        loadVendorLicenses(db, vendor.id),
+        loadStoredGrant(db, payload.grant_id, licenseIds),
+        ownsOnlyUnsubscribableProducts(db, vendor.id),
+        vendorFullyBanned(db, vendor.id),
+      ],
+    );
 
-    const roles = foldProductRoleGroups(roleGroups).get(vendor.id) ?? { ...EMPTY_PRODUCT_ROLES };
-    const warnings: GrantLicensesWarning[] = isPureConnectorVendor(roles)
-      ? [
-          {
-            code: 'pure_connector_vendor',
-            message:
-              'Every product this vendor owns is a connector. Connector vendors and licenses are not settled yet (AECI-1343). The grant was made anyway.',
-          },
-        ]
-      : [];
+    // AECI-2044 retired the `pure_connector_vendor` warning: the rule it parked is ruled
+    // (ruling 6), and the refusal below replaces it. The field stays for the wire.
+    const warnings: GrantLicensesWarning[] = [];
 
     const respond = (
       grant: LicenseGrantRow,
@@ -435,6 +431,10 @@ export function createGrantLicensesHandler(
         'Every owner seat on this vendor is banned. Unban a seat first. Nothing was granted.',
       );
     }
+    // AECI-2044 (ruling 6): after the replay, so a retry of an earlier grant still
+    // answers 200. A vendor whose every product is an Integration platform, or a
+    // connector with no kind, has nothing the grant's subscriptions could go on.
+    if (onlyUnsubscribable) throw noSubscribableProductError();
 
     const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
     const created = createLicenseGrantStatements(db, {

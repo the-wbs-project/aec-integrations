@@ -69,7 +69,8 @@ On every plan, including Free, you can:
 - add your own links to an integration at either end,
 - see the reviews of your products and reply to them in public ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - request a change to a detail on an integration your company does not own ([Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals)),
-- maintain the catalog of a connector product your company makes, on that product's **Catalog** tab, once we have handed the catalog to you ([For connector vendors](/docs/vendors/connector-vendors)).
+- maintain the catalog of a connector product your company makes, on that product's **Catalog** tab, once we have handed the catalog to you ([For connector vendors](/docs/vendors/connector-vendors)),
+- on a Sync Service your company makes, ask us to record your company as the owner of a pair it delivers that is recorded under another company ([For connector vendors](/docs/vendors/connector-vendors)).
 
 On a product with Managed, you can also:
 

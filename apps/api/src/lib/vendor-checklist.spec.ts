@@ -145,20 +145,35 @@ describe('productChecklistSteps', () => {
       });
     });
 
-    it('is optional on Free while a claim is unanswered', () => {
+    // AECI-2038: Free holds attestation.author, so the step counts on every plan.
+    it('counts on Free and is todo while a claim is unanswered', () => {
       const steps = productChecklistSteps(CHECKED, { unclaimedRows: 0, unattestedClaims: 1 }, FREE);
       expect(stepOf(steps, 'confirm_data_flows')).toEqual({
         key: 'confirm_data_flows',
-        status: 'optional',
-        counts: false,
+        status: 'todo',
+        counts: true,
       });
     });
 
-    it('reads done on Free when there is nothing to confirm, but still does not count', () => {
+    it('is done on Free with no claims, and counts', () => {
       const steps = productChecklistSteps(CHECKED, NOTHING_OUTSTANDING, FREE);
       expect(stepOf(steps, 'confirm_data_flows')).toEqual({
         key: 'confirm_data_flows',
         status: 'done',
+        counts: true,
+      });
+    });
+
+    it('is optional only on a plan block without the capability, a tier the build does not know', () => {
+      const unknown = { ...FREE, capabilities: [] };
+      const steps = productChecklistSteps(
+        CHECKED,
+        { unclaimedRows: 0, unattestedClaims: 1 },
+        unknown,
+      );
+      expect(stepOf(steps, 'confirm_data_flows')).toEqual({
+        key: 'confirm_data_flows',
+        status: 'optional',
         counts: false,
       });
     });
@@ -176,10 +191,62 @@ describe('productChecklistSteps', () => {
   });
 });
 
-describe('checklistScore', () => {
-  it('reads "3 of 3" on a finished Free product, with data flows outstanding', () => {
-    const steps = productChecklistSteps(CHECKED, { unclaimedRows: 0, unattestedClaims: 5 }, FREE);
+describe('confirm data flows by product role (AECI-2045)', () => {
+  it('leaves the step out on an Integration platform, so it is neither done nor to do', () => {
+    const steps = productChecklistSteps(
+      { ...CHECKED, productRole: 'connector', connectorKind: 'integration_platform' },
+      NOTHING_OUTSTANDING,
+      FREE,
+    );
+    expect(steps.map((s) => s.key)).not.toContain('confirm_data_flows');
     expect(checklistScore(steps)).toEqual({ done: 3, total: 3, complete: true });
+  });
+
+  it('leaves the step out on a connector with no kind', () => {
+    const steps = productChecklistSteps(
+      { ...CHECKED, productRole: 'connector', connectorKind: null },
+      { ...NOTHING_OUTSTANDING, unattestedClaims: 3 },
+      FREE,
+    );
+    expect(steps.map((s) => s.key)).not.toContain('confirm_data_flows');
+  });
+
+  it("counts a Sync Service owner's unanswered flows, not endpoint claims", () => {
+    const sync = { ...CHECKED, productRole: 'connector', connectorKind: 'sync_service' };
+    const todo = productChecklistSteps(
+      sync,
+      { unclaimedRows: 0, unattestedClaims: 0, unansweredOwnerFlows: 2 },
+      FREE,
+    );
+    expect(stepOf(todo, 'confirm_data_flows')).toEqual({
+      key: 'confirm_data_flows',
+      status: 'todo',
+      counts: true,
+    });
+    const done = productChecklistSteps(
+      sync,
+      { unclaimedRows: 0, unattestedClaims: 5, unansweredOwnerFlows: 0 },
+      FREE,
+    );
+    expect(stepOf(done, 'confirm_data_flows').status).toBe('done');
+  });
+
+  it('keeps the endpoint rule on a hybrid Sync Service and on an application', () => {
+    for (const role of ['hybrid', 'application']) {
+      const steps = productChecklistSteps(
+        { ...CHECKED, productRole: role, connectorKind: 'sync_service' },
+        { unclaimedRows: 0, unattestedClaims: 1, unansweredOwnerFlows: 0 },
+        FREE,
+      );
+      expect(stepOf(steps, 'confirm_data_flows').status).toBe('todo');
+    }
+  });
+});
+
+describe('checklistScore', () => {
+  it('reads "3 of 4" on a Free product with data flows outstanding (AECI-2038)', () => {
+    const steps = productChecklistSteps(CHECKED, { unclaimedRows: 0, unattestedClaims: 5 }, FREE);
+    expect(checklistScore(steps)).toEqual({ done: 3, total: 4, complete: false });
   });
 
   it('reads "3 of 4" on the same Managed product', () => {
@@ -199,7 +266,7 @@ describe('checklistScore', () => {
     });
   });
 
-  it('reads "0 of 3" on an untouched Free product', () => {
+  it('reads "0 of 4" on an untouched Free product', () => {
     const untouched: ChecklistProductFacts = {
       maintainedBy: 'aeci',
       lastReviewedAt: null,
@@ -209,7 +276,7 @@ describe('checklistScore', () => {
       checklistScore(
         productChecklistSteps(untouched, { unclaimedRows: 1, unattestedClaims: 1 }, FREE),
       ),
-    ).toEqual({ done: 0, total: 3, complete: false });
+    ).toEqual({ done: 0, total: 4, complete: false });
   });
 
   it('is complete with no counted steps at all', () => {

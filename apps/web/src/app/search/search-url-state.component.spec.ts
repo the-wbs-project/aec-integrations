@@ -34,6 +34,23 @@ describe('search URL filter state', () => {
     expect(sameFilters(filters, emptyFilters())).toBe(true);
   });
 
+  // AECI-1662 — the kind filter takes the stored values only, like /products.
+  it('reads ?connector_kind values, sorted, and ignores one outside the vocabulary', () => {
+    const filters = filtersFromParams(
+      convertToParamMap({ connector_kind: ['sync_service', 'junk', 'integration_platform'] }),
+    );
+    expect(filters.products.refinementList).toEqual({
+      connector_kind: ['integration_platform', 'sync_service'],
+    });
+    expect(
+      sameFilters(
+        filtersFromParams(convertToParamMap({ connector_kind: 'Sync Service' })),
+        emptyFilters(),
+      ),
+    ).toBe(true);
+    expect(filtersToParams(emptyFilters())['connector_kind']).toBeNull();
+  });
+
   it('drops a stale has_api_docs refinement from an old link (AECI-534)', () => {
     const filters = filtersFromParams(convertToParamMap({ has_api_docs: 'true' }));
     expect(sameFilters(filters, emptyFilters())).toBe(true);

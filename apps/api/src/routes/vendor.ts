@@ -89,6 +89,7 @@ import {
   VENDOR_OVERRIDE_FIELDS,
   isFacetOverrideField,
   isFieldOverrideField,
+  connectorKindFor,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -167,6 +168,7 @@ import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import { productEditRecrawl, symmetricDifference, vendorProfileRecrawl } from './vendor-recrawl';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
+import { connectorCatalogProductIds } from '../lib/vendor-connector-catalog';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
@@ -388,6 +390,7 @@ function toVendorProduct(
   lockedFields: LockedField[] = [],
   hidden: VendorListingHidden | null = null,
   hiddenFields: HiddenField[] = [],
+  catalogProductIds: ReadonlySet<string> = new Set(),
 ): VendorProduct {
   return {
     // AECI-1237: as on the vendor, the product fields AECi locked.
@@ -414,6 +417,11 @@ function toVendorProduct(
     phase_slugs: tax.phases,
     trade_slugs: tax.trades,
     product_role: row.productRole,
+    // AECI-2036: AECi's classification, read-only here.
+    connector_kind: connectorKindFor(row.productRole, row.connectorKind),
+    // AECI-2044: the Catalog tab has a catalogue to show. Only then is a connector the
+    // §8.9 catalogue seat's product in the portal.
+    has_connector_catalog: row.productRole === 'connector' && catalogProductIds.has(row.id),
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     updated_at: row.updatedAt,
@@ -837,6 +845,7 @@ export function createVendorMeHandler(
       productLocks,
       vendorHides,
       productHides,
+      catalogProductIds,
     ] = await Promise.all([
       productIds.length
         ? db.query.products.findMany({
@@ -878,6 +887,8 @@ export function createVendorMeHandler(
       // A shared product's hide shows its reason only to the holder (§11d.7).
       hiddenFieldsByEntity(db, 'vendor', [vendorId], vendorId),
       hiddenFieldsByEntity(db, 'product', productIds, vendorId),
+      // AECI-2044: which connector products have a catalogue, for the plan panel.
+      connectorCatalogProductIds(db, vendorId),
     ]);
 
     // AECI-1238: the hide banner. Reads nothing unless something is hidden.
@@ -901,6 +912,7 @@ export function createVendorMeHandler(
           productLocks.get(row.id),
           hidden.get(row.id) ?? null,
           productHides.get(row.id),
+          catalogProductIds,
         ),
       ),
       requests: requestRows.map(
@@ -1367,6 +1379,7 @@ export function createUpdateVendorProductHandler(
           locks,
           (await vendorListingHiddenMap(db, [before])).get(productId) ?? null,
           hides,
+          await connectorCatalogProductIds(db, vendorId),
         ),
       };
       validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
@@ -1590,6 +1603,7 @@ export function createUpdateVendorProductHandler(
         locks,
         (await vendorListingHiddenMap(db, [after])).get(productId) ?? null,
         withoutCleared(hides, hideClear.hides),
+        await connectorCatalogProductIds(db, vendorId),
       ),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));

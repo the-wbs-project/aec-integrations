@@ -286,7 +286,7 @@ There is no separate marketing page: the app home **is** the marketing page. It 
 
 One page on `DetailLayout`'s band shell (`shell="bands"`), in this order:
 
-1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the integrations wheel (AECI-2018, which replaced ruling R3's category hub and pair finder): "All integrations" and then one slide per category, the products A to Z, dots past what fits (`DESIGN.md` §5 "The hero diagram").
+1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the integrations wheel (AECI-2018, which replaced ruling R3's category hub and pair finder): "All integrations" and then one slide per category, the products A to Z, dots past what fits. On a connector, the products its pairs reach on one slide (`STAGE_1_5_SPEC.md` §13.13 "Connector page QA pass") (`DESIGN.md` §5 "The hero diagram").
 2. **Facts card** (`product-facts-card.ts`): one elevated card pulled up over the hero's lower edge. It holds the integration count as a figure, the vendor, the categories, the resources, and the "Claim Vendor" and "Suggest a correction" buttons (AECI-1779, AECI-1925).
 3. **Section nav** (`aec-section-nav`), sticky, when the page has two sections or more. It carries no "Unclaimed" tag: the ruling 41 trial tag was removed on 2026-11-23 (AECI-2012). The hero keeps the Unclaimed note.
 4. **About** (`#about`), the page's one Bone band: the description and "Who it is for" (AECI-1780).
@@ -730,7 +730,7 @@ Three indexes, each denormalized for zero-join search:
 
 ### 7.2 Faceting
 
-- `products`: categories, audiences, phases, trades, vendor_name, integration_count (range buckets: 0, 1–10, 11–50, 51+)
+- `products`: categories, audiences, phases, trades, vendor_name, integration_count (range buckets: 0, 1–10, 11–50, 51+), connector_kind (AECI-1662: "Connector type", two options, "Integration platform" and "Sync Service"; the same group on `/products` and the browse pages through `?connector_kind=`, `SEARCH_RANKING.md` §3.1)
   *(`has_api_docs` was faceted here until AECI-534, 2026-11-09. Current list: `SEARCH_RANKING.md` §3.1.)*
   (`trade_aliases` is deliberately **not** faceted — see §7.1)
 - `vendors`: founded_year (range), product_count (range), integration_count (range buckets)
@@ -2133,7 +2133,7 @@ These are observable through `job_runs` and the emitted metrics instead, not thr
 | action | `entity_type` | written by | granularity |
 |---|---|---|---|
 | `product.deleted` | `product` | `ops:retract-product` (`lib/retract-product.ts`) | one per product; `before_state.removed` counts the facet rows and edges that went with it |
-| `integration.deleted` | `integration` | `ops:retract-product`, the retraction consumer (`scripts/ops/2026-09-retraction-consumer/`), and the 2026-09 one-off retraction lanes | one per edge. **`metadata.table` says which table** — `integrations` or `connector_evidenced_pairs` — because both are integrations to a reader. Claim, attestation and field-contest counts ride in `before_state.cascade`. From `ops:retract-product`, a `connector_evidenced_pairs` tombstone is written only under `--delete-evidenced-pairs` (AECI-904) |
+| `integration.deleted` | `integration` | `ops:retract-product`, the retraction consumer (`scripts/ops/2026-09-retraction-consumer/`), and the 2026-09 one-off retraction lanes | one per edge. **`metadata.table` says which table** — `integrations` or `connector_evidenced_pairs` — because both are integrations to a reader. Claim, attestation and field-contest counts ride in `before_state.cascade`. From `ops:retract-product`, a `connector_evidenced_pairs` tombstone is written only under `--delete-evidenced-pairs` (AECI-904) or `--withdraw-connector`, which adds the pair's hold to `before_state.row` and `metadata.withdraw_connector: true` (AECI-2047) |
 | `integration.updated` | `integration` | `ops:retract-product` | one per edge whose `powered_by_product_id` was NULLed because its connector was retracted |
 | `license.unassigned` | `billing_account` | `ops:retract-product` (AECI-1350; a live subscription needs `--force`) | not a tombstone: the subscription survives. One row per subscription whose `assigned_product_id` the retraction NULLs, live or ended, in `lib/license.ts`'s shape (`entity_id` is the billing account, `metadata.license_id`, `vendor_id` filled). Never left to the FK's `ON DELETE SET NULL` |
 | `review.deleted` | `review` | `ops:retract-product` (`--force` only) | one per review. `before_state` omits the body and the reviewer's firm, since this table keeps rows four years (§26.6). **As built 2026-10-02 (AECI-1175):** the review's vendor replies are deleted explicitly just before it, with no tombstone of their own. Their count rides in `before_state.cascade.review_responses`, and no reply body is kept, for the same retention reason |

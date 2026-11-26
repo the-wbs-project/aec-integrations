@@ -21,7 +21,10 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * a description and taxonomy chips, which made the two pages read differently.
  * The connector / hybrid role chip is the grid tile's too: the record has carried
  * `product_role` since AECI-1086. A record indexed before then has no role and
- * shows no chip until the sync rewrites it.
+ * shows no chip until the sync rewrites it. Since AECI-1662 the record carries
+ * `connector_kind` too, so a connector's chip reads "Integration platform" or
+ * "Sync Service" as on `/products`. A record indexed before then has no kind and
+ * reads "Connector" until it is rewritten.
  */
 @Component({
   selector: 'aec-search-product-card',
@@ -36,7 +39,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           [name]="record().name"
           size="sm"
         />
-        <aec-integration-stat [count]="record().integration_count" variant="badge" />
+        <aec-integration-stat
+          [count]="record().integration_count"
+          [role]="record().product_role"
+          [kind]="record().connector_kind"
+          variant="badge"
+        />
       </div>
       <div class="min-w-0 flex-1">
         <p class="truncate font-display text-t-20 leading-tight font-semibold">
@@ -57,11 +65,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       <!-- Role chip row, as the /products tile: connector / hybrid only. The row
            itself is gated so an application's card carries no empty flex gap.
            A record indexed before AECI-1086 has no role, so it is gated on the
-           field being present too. -->
+           field being present too. AECI-1662: the chip reads the record's kind. A
+           record indexed before then has none, and a connector reads "Connector". -->
       @if (record().product_role; as role) {
         @if (role !== 'application') {
           <div class="flex flex-wrap items-center gap-2">
-            <aec-role-badge [role]="role" />
+            <aec-role-badge [role]="role" [kind]="record().connector_kind" />
           </div>
         }
       }

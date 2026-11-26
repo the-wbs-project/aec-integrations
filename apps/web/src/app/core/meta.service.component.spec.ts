@@ -400,6 +400,7 @@ function pairProduct(overrides: Partial<PairSubjectLd> = {}): PairSubjectLd {
     name: 'Revit',
     logo_url: null,
     product_role: 'application',
+    connector_kind: null,
     vendor: null,
     integration_count: 3,
     review_count: 0,

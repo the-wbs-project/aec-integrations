@@ -174,3 +174,79 @@ describe('GET /api/products/facets — audience order (AECI-1242)', () => {
     ]);
   });
 });
+
+describe('GET /api/products/facets — connector kinds (AECI-1662)', () => {
+  const connector = (
+    n: number,
+    slug: string,
+    productRole: 'application' | 'connector' | 'hybrid',
+    connectorKind: 'integration_platform' | 'sync_service' | null,
+    hiddenAt: string | null = null,
+  ) => ({
+    id: u(n),
+    slug,
+    name: slug,
+    promotionStatus: 'promoted' as const,
+    productRole,
+    connectorKind,
+    hiddenAt,
+  });
+
+  beforeEach(async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(11), slug: 'cat-a', name: 'Cat A', displayOrder: 10 },
+      { id: u(12), slug: 'cat-b', name: 'Cat B', displayOrder: 20 },
+    ]);
+    await t.db.insert(products).values([
+      // Two Integration platforms, one Sync Service and one hybrid Sync Service.
+      connector(1, 'ip-1', 'connector', 'integration_platform'),
+      connector(2, 'ip-2', 'connector', 'integration_platform'),
+      connector(3, 'ss-1', 'connector', 'sync_service'),
+      connector(4, 'hy-1', 'hybrid', 'sync_service'),
+      // An unclassified connector, and an application left holding a stale kind
+      // (a promote moved it off `connector`). Neither has a kind to count.
+      connector(5, 'cx', 'connector', null),
+      connector(6, 'app', 'application', 'sync_service'),
+      // A hidden product is in no facet tally.
+      connector(7, 'hidden', 'connector', 'sync_service', '2026-11-01T00:00:00.000Z'),
+    ]);
+    await t.db.insert(productCategories).values([
+      { productId: u(1), categoryId: u(11) },
+      { productId: u(3), categoryId: u(11) },
+      { productId: u(4), categoryId: u(12) },
+      { productId: u(6), categoryId: u(11) },
+    ]);
+  });
+
+  const facets = async (qs = '') =>
+    ProductFacetsResponseSchema.parse(await (await get(`/api/products/facets${qs}`)).json());
+
+  it('lists both kinds in vocabulary order, counting only a connector or hybrid', async () => {
+    expect((await facets()).connector_kinds).toEqual([
+      { kind: 'integration_platform', product_count: 2 },
+      { kind: 'sync_service', product_count: 2 },
+    ]);
+  });
+
+  it('a kind filter scopes the taxonomy counts but not its own', async () => {
+    const body = await facets('?connector_kind=sync_service');
+    expect(body.connector_kinds).toEqual([
+      { kind: 'integration_platform', product_count: 2 },
+      { kind: 'sync_service', product_count: 2 },
+    ]);
+    // Sync Services: ss-1 in cat A, hy-1 in cat B. The application is not one.
+    expect(body.categories.find((c) => c.slug === 'cat-a')?.product_count).toBe(1);
+    expect(body.categories.find((c) => c.slug === 'cat-b')?.product_count).toBe(1);
+  });
+
+  it('a taxonomy filter scopes the kind counts', async () => {
+    expect((await facets(`?category_id=${u(11)}`)).connector_kinds).toEqual([
+      { kind: 'integration_platform', product_count: 1 },
+      { kind: 'sync_service', product_count: 1 },
+    ]);
+  });
+
+  it('refuses an unknown kind with a 400', async () => {
+    expect((await get('/api/products/facets?connector_kind=ipaas')).status).toBe(400);
+  });
+});

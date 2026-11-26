@@ -667,7 +667,7 @@ The empty pair page is the first place this module ships. **Ruling 2026-11-14 (C
 - The mock-up orders by data objects in common, then shared categories, then product quality, then review count. That order must not ship (PLAN.md §7.3).
 - The "How these are ordered" disclosure is required. It must say the list is A to Z by name. The mock-up's wording must not be copied.
 - The same text goes on the "How ranking works" help page before the code ships (PLAN.md §8.3). Since AECI-1894 (the legal agent's verdict of 2026-11-20, ranking page version 1.2) the disclosure carries the page's search sentence and its three sentences about plans, word for word, in place of the absolute "Plan or license status has no effect on who appears or the order.". The legal agent's second pass that day changed the disclosure's heading "No paid places" to "No paid positions" and its sentence "No vendor pays for a place here." to "No vendor pays for a position in this list.".
-- Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs.
+- Existing orders stay as they are. That covers the pair page's own list, which keeps integrations first, then evidenced pairs. Since AECI-2043 (ruling 14 on AECI-2035) a Sync Service's cards come after both, A to Z by the offering vendor (§13.13).
 - "Confirmed by both companies" is a label on a card or row only. There is no filter or sort on it.
 - The ordering is algorithmic. No pay-for-placement, ever. The legal verdict for the ordered lists is `none`.
 
@@ -954,6 +954,9 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   a host, and the §13.7 reach line. The test is the page's powered view having at least one pair
   (the post-§13.4(2) pair count), passed to the section as `poweredPairCount`. A product with no
   rows of either kind keeps its empty state.
+  ⚠️ **Amended by AECI-2046 (ruled 2026-11-24):** with no host and no reach line either, the
+  section left only a bare heading. It is now hidden, with its nav link (§13.13 "Connector page
+  fixes").
 - **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
   phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
   connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
@@ -1185,16 +1188,18 @@ production edges carried the dropped FK (Zapier 23, Workato 16). The same guard 
 
 Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
-cards). **AECI-1086 (2026-11-09) landed the record field and the search-card chip.** The
-Connectors facet is AECI-1662, on `/search` and `/products` together.
+cards). **AECI-1086 (2026-11-09) landed the record field and the search-card chip.**
+**AECI-1662 (2026-11-24) closed the facet**, re-scoped by the AECI-2035 rulings: a "Connector
+type" filter with two options, "Integration platform" and "Sync Service", on `/search`,
+`/products` and the browse pages together (§13.13, `SEARCH_RANKING.md` §3.1).
 
 **Which numbers live where (reconciled 2026-09-02, AECI-750).** The figures above are the
 **production app-DB** state — measured against `aeci-app-production`, and current as of the AECI-706
 / AECI-730 dates on each block. §13.9's figures are the **review-catalogue** state (what the
 curation app holds, promoted or not), which is why the two sets do not add up to each other and
 neither supersedes the other. Read §13.9 for connector-lane coverage, this section for what prod
-actually serves. Of the discovery follow-ups named above, only the Connectors facet is still
-open (AECI-1662).
+actually serves. The discovery follow-ups named above are all closed: the Connectors facet
+shipped as the "Connector type" filter (AECI-1662).
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -1873,6 +1878,13 @@ mid-flight will make a local decision about a cross-cutting contract.
 
 ### 13.5 Count invariants
 
+> **Liveness includes the endpoint veto (AECI-2042, 2026-11-24).** Both tables carry `vetoed_at`.
+> A row an endpoint vendor vetoed is not live, exactly as a retired row is not: every count, id
+> set and public read below that drops a retired row drops a vetoed one, through the same
+> predicates (`liveIntegrationOn` / `liveEvidencedPairOn`, `liveIntegrationSql` /
+> `liveEvidencedPairSql`). `vetoed-public-reads.spec.ts` covers the readers.
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2.
+
 - **The section count** is §13.3's: rows rendered across both lanes, delivered tier only.
 - **`integration_count` semantics do not change — and that is a requirement, not an observation.**
   It is endpoint-only and entirely unfiltered (`apps/api/src/lib/recompute-counts.ts`: "integrations
@@ -2261,7 +2273,12 @@ For the same seat, the overview's "Editing is paused" row and the profile, produ
 notices say that profile and product details stay with the AECi team. They no longer say access
 comes "back on" or point at a renewal path. The rule is one function, `isCatalogueSeat` in
 `apps/web/src/app/vendor/vendor-capabilities.ts`, which the plan panel reads too. An ordinary
-never-arranged or lapsed vendor keeps the paused copy.
+never-arranged or lapsed vendor keeps the paused copy. **Narrowed by AECI-2044 (2026-11-24).**
+Since AECI-1367 every Free vendor has no license, so "a `connector`-role product" alone matched
+every Free vendor with one, a mixed vendor such as Rivets included. The seat's product is now
+`isCatalogueProduct`: a `connector` that is not a Sync Service AND that AECi holds a catalogue for
+(`VendorProduct.has_connector_catalog`). A Sync Service gets the ordinary panel and may buy Managed
+(ruling 6 on AECI-2035, `STAGE_2_PAID_TIERS_SPEC.md` §13.14).
 
 **The seat's screen landed (AECI-1083, 2026-09-24).** A Catalogue tab on the connector product in the
 vendor portal lists the catalogue's listings through a new read,
@@ -2322,6 +2339,12 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     The two figures answer different questions about the same edges — _how many products does this
     reach_ (hero) versus _how many pairs does it sit in the middle of_ (section heading, §12.3) —
     and on a Convention-A connector the honest answers are 43 and 0.
+  - **AECI-2046:** the hero has no pair finder on a `connector`, and its category hub reads the
+    categories of the products the connector reaches (§13.13 "Connector page fixes"). AECI-2018
+    later replaced the hub and the finder with the integrations wheel. A Sync
+    Service page also gains the "What it syncs" block (§13.13).
+  - **The wheel on a `connector` shows this bullet's `N` products** (QA pass on AECI-2035,
+    §13.13 "Connector page QA pass"): the hero line and the wheel's count line are one number.
   - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
     literally: a mis-roled `application` that powers edges is described just as accurately by the
     line, which is the same data-driven reading §12.3's render condition already takes. Contrast the
@@ -2358,7 +2381,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
   forking the entity breaks all four. §12.3's compatibility-matrix archetype remains a possible
   later evolution, and §12.6's discovery follow-up is half closed. **AECI-1086 (2026-11-09) put
   `product_role` on the Algolia product record**, display only, and the search card now carries
-  the `RoleBadge`. A Connectors facet is still unbuilt (AECI-1662).
+  the `RoleBadge`. **AECI-1662 (2026-11-24) built the facet** as the "Connector type" filter,
+  by kind rather than by role (§13.13).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
 
@@ -2719,6 +2743,276 @@ argument.
 **Still nothing counts it.** §13.5 holds unchanged: the screen reports pair-page counts per
 `surface` under a `reachable_never_counted` advisory, and no reachable figure reaches a heading,
 `integration_count`, a facet or the home stats.
+
+### 13.13 Connector kind: Integration platform and Sync Service (AECI-2036, 2026-11-24)
+
+**Status:** the field is built (AECI-2036), and the public labels read it (AECI-2037, below).
+Every other child of the epic AECI-2035 reads this field too.
+
+**Why it exists.** Nothing could tell a Sync Service from an Integration platform.
+`products.product_role` was the only marker, and both kinds are `connector`. Catalogue existence
+fails as a marker too: Agave has a catalogue and Workato has none.
+
+**The two kinds.** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 1.** Two public kinds under the one `connector` role. The labels are "Integration
+> platform" and "Sync Service".
+>
+> **Ruling 3.** The kind is a new field on products, set by an AECi admin. Trimble AppXchange is
+> undecided and stays blank.
+
+| Stored value | Label | What it is | Examples |
+|---|---|---|---|
+| `integration_platform` | Integration platform | The customer builds the connection from a catalogue of apps | Zapier, Workato, MindCloud |
+| `sync_service` | Sync Service | The vendor sells, runs and supports a fixed list of finished pairs | Rivets Sync, Agave, SyncEzy |
+| NULL | Connector | Unclassified. Trimble AppXchange stays here until Chris rules | |
+
+**The contract.**
+
+- **Column.** `products.connector_kind`, nullable text, no table-level CHECK, added by a bare
+  `ADD COLUMN` (migration `0130`, `DATABASE_SCHEMA.md` §4.2). A CHECK would recreate `products`, and
+  the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` validates the value.
+- **Role stays single.** `product_role` keeps its three values. The kind refines `connector`
+  and `hybrid` only. An `application` never carries one.
+- **One writer.** `PATCH /api/admin/products/:id/connector-kind`, from the Products tab of
+  `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7, `API_CONTRACTS.md` §6.10). It refuses an
+  `application` with `409 CONNECTOR_KIND_NOT_CONNECTOR`, writes its `product.updated` audit row
+  in the same batch and purges `product:{slug}` and `index:products`.
+- **Promote never writes or clears it.** The promote payload has no field for it, and the review
+  app does not carry it. A role change by promote leaves the stored value, and readers then show
+  NULL (next bullet). `promote.spec.ts` pins this.
+- **Promote reads it for one decision (AECI-2041, ruling 7 on AECI-2035).** A pair whose
+  connector is a Sync Service may be written on an owned endpoint (`REVIEW_APP_PROMOTE_API.md`
+  §4a). So setting Sync Service on a connector opens that exception, and clearing it closes it
+  for the next promote. A promote in flight when the kind changes aborts with
+  `VENDOR_OWNED_DURING_PROMOTE`.
+- **Readers.** `ProductListItem` (so `ProductDetail` too), the admin roster row and the vendor
+  portal's `VendorProduct` carry `connector_kind`. Each maps through `connectorKindFor`, which
+  returns NULL on an `application` and on a value outside the vocabulary.
+- **One helper for later issues.** `isSyncService(role, kind)` in the zod-free
+  `packages/shared/src/api/connector-kind.ts` is true for role `connector` or `hybrid` with kind
+  `sync_service`. Public pages may import it without loading zod.
+- **On the Algolia record since AECI-1662 (2026-11-24).** The product record carries
+  `connector_kind`, read through `connectorKindFor`, for the "Connector type" filter and the
+  search card chip. It is faceted only, never searched or ranked (`SEARCH_RANKING.md` §3.1). The
+  admin write re-indexes the product by id after commit. A record indexed before then has no key
+  and reads NULL until it is rewritten (`docs/runbooks/catalog.md`).
+
+**The public labels (AECI-2037, 2026-11-24).** One helper,
+`apps/web/src/app/products/connector-kind-labels.ts`, holds every word that varies by kind. Each
+variant is a whole message with its own id. Callers resolve the kind with `connectorKindFor`.
+
+| Surface | Integration platform | Sync Service | NULL |
+|---|---|---|---|
+| Role chip (hero, browse tile) | "Integration platform" | "Sync Service" | "Connector" |
+| Search card chip (AECI-1662) | "Integration platform" | "Sync Service" | "Connector" |
+| "Connector type" filter option (AECI-1662) | "Integration platform" | "Sync Service" | no option |
+| Powered section heading and nav (§12.3) | "Integrations it powers" | "Integrations it delivers" | "Integrations it powers" |
+| Powered section empty state | "…running on this integration platform yet." | "…recorded for this Sync Service yet." | "…running on this connector yet." |
+| Hero reach line (§13.6) | "Connects N products…" | "Syncs N products…" | "Connects N products…" |
+| Meta description variant (§13.6) | "{name} is an integration platform for N…" | "{name} is a Sync Service that syncs N…" | unchanged |
+
+- **`hybrid` keeps "Hybrid"** on the chip whatever its kind. Its powered section reads the kind.
+- **No anchor id changes.** `#powered-integrations` stays, so there is no link or sitemap churn.
+- **Not varied, on purpose.** These sentences use "connector" as the noun for every kind, and
+  stay true for both: the "Via {name}" and "Via a connector" lane headings (§13.3, order
+  unchanged), "N more pairs reachable via connectors" (§13.7, whose catalogues include a
+  Sync Service's and an unclassified one's), "delivered through a connector", and the Vendor
+  Terms term "connector vendor". The lane's connector carries no kind on `ProductLink`.
+- **JSON-LD is not varied.** `SoftwareApplication` names no role.
+- **Portal.** "a connector service" became "a connector product", so the generic noun cannot be
+  read as "Sync Service". The Connectors section intro says "Connectors that list this
+  product", because a Sync Service with a catalogue lists products there too.
+- **Admin.** The kind select reads the same two labels. The role column and the payer-test role
+  counts keep the data role.
+
+**The filter (AECI-1662, 2026-11-24).** One "Connector type" checkbox group, last in the
+filter panel, on `/search`, `/products` and every taxonomy browse page. It filters by what a
+product is and orders nothing.
+
+- **Two options:** "Integration platform" and "Sync Service", always in that order. A product
+  matches when `connectorKindFor` reads that kind, so a hybrid Sync Service matches "Sync
+  Service" while its chip keeps "Hybrid". No "Application" option: it would select almost the
+  whole catalog. No unclassified "Connector" option: it would need a sentinel on the record and
+  would hold one real product.
+- **The same behaviour on every page** (`DESIGN.md` "The Same-Behavior Rule"): multi-select, OR
+  within the group, counts under the other filters, a zero-count option hidden unless checked,
+  counted in the active-filter badge, and cleared by "Clear filters". `/products` and the browse
+  pages write `?connector_kind=` as a sorted comma-separated list, as the taxonomy ids are.
+  `/search` writes one repeated param per value, as its other groups do. An unknown value is a
+  400 from the API, as a bad taxonomy id is, and is ignored on `/search`.
+- **Sources.** `/search` facets the Algolia record's `connector_kind`. The others read
+  `GET /api/products?connector_kind=` and the `connector_kinds` group of `/api/products/facets`
+  (`API_CONTRACTS.md` §6.1). `connector_kind` is in the listing cache key (`CACHE_STRATEGY.md`
+  §4a).
+- **Out of scope.** "Sync Services for Procore and Acumatica", that is, finding a Sync Service by
+  the products it connects. A record does not link a service to its endpoints. It needs its own
+  issue.
+
+**Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
+`integration_platform` and the Agave fixture to `sync_service`. Since AECI-2043 a second Sync
+Service, `fx-aardvark-sync` (vendor "aardvark Systems (fixture)"), shares the
+`fx-procore` and `fx-viewpoint-vista` pair with Agave, so that pair page shows two Sync Service
+cards. Every other fixture connector stays NULL.
+
+**The pair page (AECI-2043, 2026-11-24).** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 12.** Every Sync Service pair page says it is not offered or endorsed by the two
+> endpoint vendors.
+>
+> **Ruling 14.** Two Sync Services on one pair order A to Z by vendor.
+
+- **The payload.** `ProductPairMechanism.connector_kind` carries the kind of the card's
+  connector (`powered_by_product` or `via`) on both arms of the pair read (`API_CONTRACTS.md`).
+- **The line.** Every card whose connector is a Sync Service shows one plain sentence under its
+  heading, for example "Offered by Rivets. Not offered or endorsed by Procore Technologies or
+  Acumatica." The offering vendor is the card's "Offered by" vendor, `built_by_vendor`.
+  `syncServiceEndorsementLine` in `connector-kind-labels.ts` builds it:
+  - one vendor behind both endpoints is named once;
+  - an endpoint with no vendor on record reads "the vendor of {product}";
+  - an unknown offering vendor drops the "Offered by" sentence;
+  - an endpoint vendor that offers the card, or owns the Sync Service, is left out;
+  - no line when the Sync Service is itself an endpoint, or no endpoint vendor is left to name.
+  It never shows on a native card, an Integration platform or an unclassified connector.
+- **The order.** The read's order stays for every other card: integrations A to Z by name then id,
+  then evidenced pairs the same way (ruling R1). Sync Service cards from either table come last,
+  A to Z by the offering vendor's name, case folded, an unknown vendor last, then id
+  (`apps/api/src/lib/pair-mechanism-order.ts`). The kind is admin-set and a vendor cannot rename
+  itself, so no plan moves a card. `on-page-ordering-firewall.spec.ts` covers it under
+  `pair-page-mechanisms`. `how-ranking-works` 1.2 states the rule (edited in place: 1.2 is
+  provisional).
+- **Not on endpoint pages.** The "Via {name}" lane groups an endpoint's rows by connector. Its
+  connector is a bare `ProductLink` with no kind, and the sentence would repeat on every row of a
+  group. The lane keeps no line for now. Adding one needs the kind on
+  `ProductIntegrationItem` and a group-level wording Chris has not ruled on.
+- **Legal impact: text.** The line applies the Terms of Service sentence "we are not affiliated
+  with, endorsed by, or acting on behalf of the vendors we list" to a card. No `/legal` page
+  changes. The ranking page gains the order rule.
+
+**The "What it syncs" block (AECI-2046, 2026-11-24).** Chris ruled on 2026-11-24 (AECI-2035):
+
+> **Ruling 15.** A "What it syncs" block is added, with frequency, support and setup. AECi
+> curates it at first.
+
+- **Where.** On a Sync Service's product page (`isSyncService`), as `#what-it-syncs`, after
+  About and "How teams use it" and before "Integrations it delivers". It has a section-nav
+  entry, "What it syncs", on the same render test. Component:
+  `apps/web/src/app/products/product-what-it-syncs.ts`.
+- **What it syncs.** `ProductDetail.what_it_syncs`, rolled up by the API
+  (`apps/api/src/lib/what-it-syncs.ts`) from the pairs the product delivers, both tables.
+  The pair set is the one "Integrations it delivers" counts: a row with the Sync Service as
+  an endpoint is left out (§13.4(2)), and two rows for one pair are one pair. The flows are
+  the public ones, after the owner's answers and `publicClaims`, minus refuted flows
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). So a flow the owner removed is named nowhere.
+  Each record type reads its `data_object` vocabulary name, which way it moves, and on how
+  many pairs: "Both ways, on all 8 integrations", "One way, on 3 of 8 integrations", or
+  "Both ways on 5 and one way on 3 of 8 integrations". Per pair a record type is both ways
+  when a flow says `both`, or both one-way flows are there. A note says how many pairs list
+  no record type yet, so partial data never reads as "does not sync". The confirmed badge
+  is not repeated here: the block summarises, and the pair page carries each flow's state.
+- **The order.** A new list, so ruling R1: A to Z by name through `compareText`, the slug
+  breaking a tie. Nothing is cut. The counts describe and never order. No plan input reaches
+  it. `on-page-ordering-firewall.spec.ts` covers it as `product-page-what-it-syncs`.
+- **Three curated facts.** `ProductDetail.sync_facts`: how often it syncs, who supports it,
+  how setup works. Three nullable text columns on `products` (`sync_frequency`,
+  `sync_support`, `sync_setup`), plain `ADD COLUMN`s with no CHECK (`DATABASE_SCHEMA.md`
+  §4.2). Zod caps them at 120, 160 and 280 characters. One writer:
+  `PATCH /api/admin/products/:id/sync-facts`, from the Products tab of `/admin/vendors/:id`
+  (`ADMIN_PANEL_SPEC.md` §5.7, `API_CONTRACTS.md`). It refuses any product that is not a
+  Sync Service with `409 SYNC_FACTS_NOT_SYNC_SERVICE`, writes its `product.updated` audit
+  row in the same batch and purges `product:{slug}`. The vendor cannot write them: a
+  vendor-editable version is a legal `decision` nobody has ruled on. Promote never writes or
+  clears them (`promote.spec.ts`).
+- **Marked as ours, with its source and date.** The Terms say "Where we write or correct
+  text on a listing a vendor maintains, that text is marked as ours, with its source and
+  date." A claimed Sync Service is such a listing. So the write takes a required https
+  `source_url` while any fact is set, stamps `sync_facts_recorded_at`, and the block prints
+  "Recorded by AEC Integrations on {date}." with a Source link under the facts. Both clear
+  with the last fact. Columns `sync_facts_source_url` and `sync_facts_recorded_at`.
+- **A blank renders nothing.** A blank fact is not shown. A block with no record type and no
+  fact is not rendered, and has no nav entry.
+- **A kind change keeps the facts.** The columns keep their values, and readers show them,
+  and the roll-up, only while the product is a Sync Service. Both are `null` on any other
+  product, as `connectorKindFor` hides a stale kind.
+- **Cache.** Visitor-neutral: product data only. The page's tags already cover it: every
+  delivered row adds `integration:{id}` and both endpoint `product:` tags (§12.4), an owner
+  flow write purges the connector's `product:` tag (§14.10), and the facts write purges it
+  too. `Vary` stays `Accept-Language`.
+- **SEO.** The meta description and JSON-LD are unchanged (§13.6). The block claims nothing
+  for the endpoint vendors.
+- **Legal impact: text.** The facts are AECi's statements, not a vendor's, so no new
+  vendor-published field. No `/legal` page changes. The help pages say AEC Integrations
+  records these facts and how a vendor asks for a correction. The provisional ranking page
+  1.2 gains the block's order rule, edited in place (`apps/web/src/content/legal/README.md`).
+
+**Connector page fixes (AECI-2046, 2026-11-24).**
+
+- **No bare "Integrations" heading** (ruled by Chris 2026-11-24, after AECI-2050). A page
+  that lists pairs under "Integrations it powers" or "Integrations it delivers" hides
+  `#integrations` and its nav link when that section has no endpoint row, no §13.3b
+  "runs inside {host}" sentence and no §13.7 reach line. The test is data-driven, like the
+  powered section's own render rule, so it holds for any role. A product with no
+  integrations of any kind keeps the section and its empty state.
+- **No hero pair finder on a `connector`.** "Does {product} connect to...?" routed to a pair
+  page with the connector as an endpoint, which is almost always an empty `noindex` page.
+  The smaller of the two options was taken: the finder is not rendered on a `connector`
+  product. A `hybrid` keeps it, because it is an endpoint too. With no category hub either,
+  the hero has no panel. *Since AECI-2018 no product page has a pair finder: the
+  integrations wheel replaced the finder and the hub.*
+- **The category hub reads the products it reaches.** On a connector page the hub also
+  counts the pairs the product powers: each pair once under each category either endpoint
+  carries (`PoweredIntegrationItem.endpoint_categories`), with the §13.4(2) rows left out.
+  The order stays A to Z. *Superseded by AECI-2018:* the hub is gone. *Superseded again by
+  the QA pass below:* a connector's wheel shows the products its pairs reach, and
+  `endpoint_categories` is removed from the payload.
+- **The pair page shows the Sync Service's rating.** A Sync Service card prints the Sync
+  Service product's rating beside the two endpoint cards' ratings, with the same accessible
+  name, from `ProductPairMechanism.connector_rating`. Like theirs, it shows only above the
+  five-review floor. The page already carries the connector's `product:` tag, so a review
+  decision on it purges the page.
+
+**Connector page QA pass (epic AECI-2035, 2026-11-24).** A screenshot pass after the epic
+merged main's redesign found four defects on the public side. The fixes, and the definitions
+they rest on:
+
+- **Every count on a connector page means one stated thing.**
+  - The facts card's "N integrations" is the stored `integration_count` (§13.5 option B): the
+    integrations the product is part of, as an endpoint or as the connector. Fixture Agave: 3.
+  - The hero reach line "Syncs N products" is §13.6's `N`: distinct products the raw
+    `integrations_as_connector` list reaches, minus the page product. Fixture Agave: 3.
+  - The wheel's count line on a `connector` is the same `N` from the same function
+    (`connectedProducts`). Its dots, shown only when there are too many products for tiles,
+    are one per product.
+  - "Integrations it delivers (N)" and "Integrations (N)" are §12.3's and §13.3's row counts.
+    Fixture Agave: 2 and 1, which sum to the facts card's 3.
+- **The hero wheel on a connector** (`heroWheelSource`, `integration-wheel.ts`). A
+  `connector` shows the products its pairs reach, A to Z by name, id on a tie, on one slide
+  titled "Products it syncs" (Sync Service) or "Products it connects" (the other kinds). A
+  tile links to that product's page, because the connector is not one of the pair's two
+  products. With no pair it falls back to its endpoint rows. A `hybrid` or an `application`
+  shows its endpoint rows and falls back to the products it reaches. A `connector` with
+  neither shows the panel with the powered section's empty sentence, so its right half is
+  never blank. Logos come from `wheel_marks`, which now carries every endpoint of the powered
+  rows (ruling 64's rule, `wheelLogoOf`).
+- **A powered row's `direction` is claims-aware.** It is the public flows' direction when the
+  row has any, else the stored one (`effectiveContextDirection`, read from the row's source).
+  The pair page and the endpoint rows already used this rule. The connector page used the
+  stored direction alone, so fixture Agave read "Sends to Viewpoint Vista" beside a pair page
+  that said "Syncs both ways". The connector's list now names both products in each sentence:
+  "Procore sends to Viewpoint Vista", "Procore and Viewpoint Vista sync both ways"
+  (`pairFlowSentence`). The page is read from neither product, so "Sends to {B}" had no subject.
+- **The pair page's card title** is one rule for every card (`products-pair.ts`): the
+  mechanism name, else the kind label, else "Integration". Both fixture Sync Services carry a
+  mechanism name ("Unified API" on Agave, "Job cost sync" on Aardvark Sync), so both cards are
+  titled by it, and "Offered by {vendor}, through {product}" names the product under it. No
+  change.
+- **A connector card's zero** reads "No integrations delivered yet" (Sync Service) or "No
+  integrations powered yet" (the other kinds), never "Not yet connected".
+- **The local seed.** `connector-fixtures.sql` inserted its products at `integration_count = 0`
+  and never recomputed, so `/products` showed the three fixture connectors at zero. It now
+  recomputes by the §13.5 rule, and `seed-data-quality.spec.ts` checks every seeded product
+  against `findProductCountDrift`. The live write paths (the AECI-2040 create, the AECI-2042
+  veto, promote) already recompute all three products of a pair.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 

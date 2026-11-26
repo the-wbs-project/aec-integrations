@@ -542,10 +542,10 @@ export class IntegrationOverview {
             control: 'select',
             clamp: false,
             tip: [
-              $localize`:@@vendor.im.tip.how:How customers get it: built into a product, a marketplace app, a direct connection, or through a connector service.`,
+              $localize`:@@vendor.im.tip.how.v2:How customers get it: built into a product, a marketplace app, a direct connection, or through a connector product.`,
               $localize`:@@vendor.im.tip.how.public:Shows as a label on the integration's card on the public page.`,
               frozenKind
-                ? $localize`:@@vendor.im.tip.how.frozen:It runs through a connector service, so this cannot be changed here. Request a change if it is wrong.`
+                ? $localize`:@@vendor.im.tip.how.frozen.v2:It runs through a connector product, so this cannot be changed here. Request a change if it is wrong.`
                 : who,
             ],
           },

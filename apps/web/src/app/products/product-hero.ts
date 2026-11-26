@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 import { RouterLink } from '@angular/router';
 
 import type { ProductDetail } from '@aeci/shared';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 
 import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -19,6 +20,8 @@ import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initia
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 
+import { heroConnectsLabel, poweredEmptyLead } from './connector-kind-labels';
+import { heroWheelSource } from './integration-wheel';
 import { descriptionParagraphs } from './product-about';
 import { connectedProductCount } from './powered-hub-grouping';
 import { ProductIntegrationWheel } from './product-integration-wheel';
@@ -48,8 +51,12 @@ import { RoleBadge } from './role-badge';
  *
  * The `heroPanel` slot holds the integrations wheel (`aec-product-integration-wheel`,
  * AECI-2018), which replaced ruling R3 decision 1's category hub and pair finder. It
- * shows the products this one has an integration with, A to Z by name (ruling R1). With
- * no integration on record there is no wheel and no panel: the facts card says so.
+ * shows the products this one has an integration with, A to Z by name (ruling R1). On a
+ * `connector` it shows the products its pairs reach, the set the reach line counts
+ * (`heroWheelSource`, QA pass on AECI-2035), so the right half is never blank at desktop
+ * width. A connector with nothing on record gets the panel with the powered section's
+ * empty sentence. Any other product with no integration on record has no panel: the
+ * facts card says so.
  *
  * Nothing else here orders anything. No paid-plan input is read.
  */
@@ -87,7 +94,7 @@ import { RoleBadge } from './role-badge';
            listing". -->
       @if (p.product_role !== 'application') {
         <div heroKicker class="mt-4 flex flex-wrap items-center gap-2">
-          <aec-role-badge [role]="p.product_role" />
+          <aec-role-badge [role]="p.product_role" [kind]="p.connector_kind" />
         </div>
       }
 
@@ -274,9 +281,21 @@ import { RoleBadge } from './role-badge';
       }
       <aec-review-cta heroActions [slug]="p.slug" [productId]="p.id" variant="on-brand-secondary" />
 
-      <!-- AECI-2018: the integrations wheel. Its first slide is in the server HTML. With
-           no integration on record it is not rendered, and the band draws no panel. -->
-      @if (hasWheel()) {
+      <!-- AECI-2018: the integrations wheel. Its first slide is in the server HTML. A
+           connector shows the products its pairs reach. A connector with nothing on
+           record says so in the panel, so its right half is never blank. Any other
+           product with no integration on record draws no panel. -->
+      @if (wheelSource() === 'empty') {
+        <div
+          heroPanel
+          class="flex min-h-48 items-center justify-center text-center"
+          data-testid="product-hero-visual-empty"
+        >
+          <p class="max-w-[24em] text-t-16 text-(--text-on-brand-secondary)">
+            {{ emptyLead() }}
+          </p>
+        </div>
+      } @else if (wheelSource() !== 'none') {
         <div heroPanel data-testid="product-hero-visual">
           <aec-product-integration-wheel [product]="p" />
         </div>
@@ -299,10 +318,13 @@ export class ProductHero {
     return first ? first.join(' ') : null;
   });
 
-  /** The wheel shows when the page has an endpoint row: every row has a partner. */
-  protected readonly hasWheel = computed(() => {
+  /** Which set the wheel shows, or the connector's empty panel, or no panel. */
+  protected readonly wheelSource = computed(() => heroWheelSource(this.product()));
+
+  /** The connector's empty panel: the powered section's own first sentence, by kind. */
+  protected readonly emptyLead = computed(() => {
     const p = this.product();
-    return p.integrations_as_source.length + p.integrations_as_target.length > 0;
+    return poweredEmptyLead(connectorKindFor(p.product_role, p.connector_kind));
   });
   protected readonly websiteLabel = correctionLabel('website');
 
@@ -351,14 +373,12 @@ export class ProductHero {
    * "Connects N products in the AEC Integrations catalog" (§13.6), or `null` at 0: a
    * connector with nothing to count says nothing rather than zero. Not gated on
    * `product_role`, the same data-driven reading the powered section takes.
+   * A Sync Service reads "Syncs N products" (AECI-2037, `connector-kind-labels.ts`).
    */
   protected readonly connectsLabel = computed<string | null>(() => {
     const p = this.product();
     const count = connectedProductCount(p.integrations_as_connector, p.slug);
     if (count === 0) return null;
-    if (count === 1) {
-      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AEC Integrations catalog`;
-    }
-    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
+    return heroConnectsLabel(connectorKindFor(p.product_role, p.connector_kind), count);
   });
 }

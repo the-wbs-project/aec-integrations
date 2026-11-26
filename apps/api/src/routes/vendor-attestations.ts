@@ -127,6 +127,7 @@ import {
   type VendorClaim,
   type VendorClaimResponse,
   type OwnedIntegration,
+  type ProductLink,
   type VendorIntegration,
   type VendorOwnAttestation,
   effectiveRetiredBy,
@@ -139,6 +140,14 @@ import { hiddenFieldsByEntity } from '../lib/field-hides';
 import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
+import {
+  loadOwnedFlows,
+  ownerAnswersRelationConfig,
+  ownerFlowContextOf,
+  ownerMaintainsFlows,
+  ownerVote,
+  type OwnerFlowContext,
+} from '../lib/owner-flows';
 import { assertIntegrationLive } from '../lib/live-integration';
 import { toSideLinks } from '../lib/integration-vendor-links';
 import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
@@ -227,6 +236,12 @@ function endpointProductFor(authority: AttestationAuthority, slot: AttestationSl
  *
  * Refused: `403 ENTITLEMENT_REQUIRED`, `details.tier` = the caller's endpoint
  * product's tier (endpoint A first when it owns both, both being unlicensed).
+ *
+ * **Every live tier passes since AECI-2038** (ruled 2026-11-24, ruling 5 on epic
+ * AECI-2035): `TIER_CAPABILITIES.unclaimed` holds `attestation.author`, so a Free
+ * endpoint product confirms like a Managed one. The call stays, as the
+ * `review.reply` gate did after AECI-1590, so a tier the build does not know
+ * still fails closed.
  */
 function requireAttestationCapability(c: VendorContext, authority: AttestationAuthority): void {
   const owned = authority.slots.map((slot) => endpointProductFor(authority, slot));
@@ -426,9 +441,14 @@ function toVendorClaim(
   /** AECI-1153. When the claim's agreement last became `conflict`, from
    *  {@link conflictStarts}. Read only when the agreement is `conflict`. */
   raisedAt: string | null = null,
+  /** AECI-2039. The counting owner answer on a Sync Service pair, from
+   *  `ownerVote`. It decides `agreement` only: it is nobody's `mine` or
+   *  `counterparty`, because an endpoint vendor never answers there. */
+  ownerAnswer: AgreementAttestation | null = null,
 ): VendorClaim {
   const slots = authority.slots;
-  const agreement = computeAgreement(live.map(toAgreementVote));
+  const votes = live.map(toAgreementVote);
+  const agreement = computeAgreement(ownerAnswer ? [...votes, ownerAnswer] : votes);
   return {
     id: claim.id,
     integration_id: integrationId,
@@ -453,6 +473,7 @@ function toVendorClaim(
       agreement === 'conflict'
         ? { id: claim.id, raised_at: raisedAt ?? new Date().toISOString() }
         : null,
+    owner_answer: ownerAnswer === null ? null : ownerAnswer.asserted ? 'yes' : 'no',
   };
 }
 
@@ -632,7 +653,9 @@ function assertAttestableEdge(authority: AttestationAuthority): void {
   throw new ApiError(
     403,
     'FORBIDDEN',
-    'This integration is delivered through a connector, so neither product vendor can attest to it. AEC Integrations maintains what it moves.',
+    // AECI-2039: the second sentence ("AEC Integrations maintains what it moves") was
+    // false on a claimed row, and on a Sync Service row the owner maintains the flows.
+    'This integration is delivered through a connector, so neither product vendor can attest to it.',
   );
 }
 
@@ -1070,14 +1093,19 @@ const vendorIntegrationConfig = {
       with: {
         dataObject: { columns: { slug: true, name: true, displayOrder: true } },
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
+        // AECI-2039: the owner's answer on a Sync Service pair.
+        ownerAnswers: ownerAnswersRelationConfig,
       },
     },
     // AECI-705: the connector delivering this edge, for the read-only
     // explanation. `poweredByProductId` rides in the column list too — the
     // predicate is the union, so the relation being null does NOT mean the edge
     // is attestable (53 of 132 powered edges in production have no promoted
-    // connector product to link to).
-    poweredByProduct: { columns: productLinkColumns },
+    // connector product to link to). AECI-2039: its role and kind say whether the
+    // row's owner maintains the flows.
+    poweredByProduct: {
+      columns: { ...productLinkColumns, productRole: true, connectorKind: true },
+    },
     // AECI-1007: per-side links. The mapper keeps only the entry's own side.
     vendorLinks: { columns: { productId: true, kind: true, url: true } },
   },
@@ -1138,12 +1166,29 @@ export function createListVendorIntegrationsHandler(
     const raisedAt = await conflictStarts(db, [...conflictIds]);
 
     const surface: VendorIntegration[] = [];
+    // AECI-2039: the rows this caller OWNS and maintains the flows of, though it also
+    // makes an endpoint, so the row is here and not in `owned`. One flow read for all.
+    const ownerFlowRows = new Map<
+      string,
+      { ctx: OwnerFlowContext; productA: ProductLink; productB: ProductLink; live: boolean }
+    >();
     for (const row of rows) {
       // The authority map is the authority, not the `where` above — a row it does
       // not know about is not the caller's to see.
       const authority = authorities.get(row.id);
       if (!authority) continue;
       const attestable = !isConnectorPoweredEdge(row);
+      // AECI-2039: on a claimed Sync Service row the owner maintains the flows.
+      const ownerCtx = ownerFlowContextOf(row, attestable ? null : row.poweredByProduct);
+      const callerKeepsFlows = row.builtByVendorId === vendorId && ownerMaintainsFlows(ownerCtx);
+      if (callerKeepsFlows) {
+        ownerFlowRows.set(row.id, {
+          ctx: ownerCtx,
+          productA: toOwnedProductLink(row.sourceProduct),
+          productB: toOwnedProductLink(row.targetProduct),
+          live: row.retiredAt === null,
+        });
+      }
 
       // ── ONE ENTRY PER OWNED ENDPOINT, NOT PER INTEGRATION (AECI-666) ───────
       // The portal files integrations under the product they touch, so an
@@ -1255,9 +1300,29 @@ export function createListVendorIntegrationsHandler(
                 authority,
                 contextIsSource,
                 raisedAt.get(claim.id) ?? null,
+                ownerVote(ownerCtx, claim.ownerAnswers),
               ),
             ),
+          flows_maintained_by_owner: ownerMaintainsFlows(ownerCtx),
+          // Filled below, after one flow read for every such row.
+          owner_flows: null,
         });
+      }
+    }
+    if (ownerFlowRows.size > 0) {
+      const flows = await loadOwnedFlows(
+        db,
+        [...ownerFlowRows].map(([id, entry]) => ({ id, anchor: 'integration', ctx: entry.ctx })),
+      );
+      for (const entry of surface) {
+        const held = ownerFlowRows.get(entry.id);
+        if (!held) continue;
+        entry.owner_flows = {
+          product_a: held.productA,
+          product_b: held.productB,
+          editable: held.live,
+          flows: flows.get(entry.id) ?? [],
+        };
       }
     }
     // Context product first, so the per-product tab's slice is contiguous, then the

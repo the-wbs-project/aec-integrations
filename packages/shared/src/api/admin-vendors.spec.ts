@@ -394,6 +394,7 @@ describe('AdminVendorProductRowSchema', () => {
     slug: 'revit',
     name: 'Revit',
     product_role: 'application',
+    connector_kind: null,
     is_primary: true,
     promotion_status: 'promoted',
     integration_count: 12,

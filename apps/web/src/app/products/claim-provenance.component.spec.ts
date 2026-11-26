@@ -41,12 +41,15 @@ const claim = (
 function open(
   c: ProductPairClaim,
   vendors: { context?: string | null; other?: string | null } = {},
+  offer: { syncService?: boolean; offeredBy?: string | null } = {},
 ): { host: HTMLElement; popoverText: string } {
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
   const fixture = TestBed.createComponent(ClaimProvenance);
   fixture.componentRef.setInput('claim', c);
   fixture.componentRef.setInput('contextVendorName', vendors.context ?? null);
   fixture.componentRef.setInput('otherVendorName', vendors.other ?? null);
+  fixture.componentRef.setInput('syncService', offer.syncService ?? false);
+  fixture.componentRef.setInput('offeredByName', offer.offeredBy ?? null);
   fixture.detectChanges();
   const host = fixture.nativeElement as HTMLElement;
   host.querySelector('button')!.click();
@@ -175,5 +178,35 @@ describe('ClaimProvenance', () => {
   it('renders no history section', () => {
     const { popoverText } = open(claim('unverified', [att('aeci', true)]));
     expect(popoverText).not.toContain('History');
+  });
+
+  // AECI-2039: on a Sync Service pair the company that offers it answers.
+  it('names the offering company as the confirmer of an owner_confirmed flow', () => {
+    const { popoverText } = open(
+      claim('owner_confirmed', [att('aeci', true)]),
+      { context: 'Procore', other: 'Acumatica' },
+      { syncService: true, offeredBy: 'Rivets' },
+    );
+    expect(popoverText).toContain('Rivets');
+    expect(popoverText).toContain('confirms this');
+    expect(popoverText).toContain(
+      'Rivets offers and runs this integration, so it confirms what moves.',
+    );
+    // Legal read 2026-11-25: a Sync Service built and runs the integration. It does
+    // not run the two endpoint products, so the line never says "both sides".
+    expect(popoverText).not.toContain('both sides');
+    expect(popoverText).not.toContain('Both companies');
+  });
+
+  it('says who has not answered on a Sync Service pair, never "Neither company"', () => {
+    const { popoverText } = open(
+      claim('unverified', [att('aeci', true)]),
+      {},
+      { syncService: true, offeredBy: null },
+    );
+    expect(popoverText).toContain(
+      'The company that offers this integration has not confirmed this yet.',
+    );
+    expect(popoverText).not.toContain('Neither company');
   });
 });

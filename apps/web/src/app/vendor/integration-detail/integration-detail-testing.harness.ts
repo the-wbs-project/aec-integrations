@@ -39,7 +39,13 @@ export type MockApi = Record<
   | 'getThread'
   | 'postThreadMessage'
   | 'deleteThreadMessage'
-  | 'requestThreadHelp',
+  | 'requestThreadHelp'
+  | 'setOwnerFlowAnswer'
+  | 'clearOwnerFlowAnswer'
+  | 'addOwnerFlow'
+  | 'changeOwnerFlow'
+  | 'listVetoes'
+  | 'listPairContests',
   ReturnType<typeof vi.fn>
 >;
 
@@ -84,6 +90,14 @@ export function makeApi(
     postThreadMessage: vi.fn(),
     deleteThreadMessage: vi.fn(),
     requestThreadHelp: vi.fn(),
+    // AECI-2039: the owner flow routes, for a Sync Service row the caller owns.
+    setOwnerFlowAnswer: vi.fn().mockResolvedValue({ integration_id: '', flows: [] }),
+    clearOwnerFlowAnswer: vi.fn().mockResolvedValue(undefined),
+    addOwnerFlow: vi.fn().mockResolvedValue({ integration_id: '', flows: [] }),
+    changeOwnerFlow: vi.fn().mockResolvedValue({ integration_id: '', flows: [] }),
+    // AECI-2045: an owned Sync Service pair's page reads the owner's reports and removals.
+    listVetoes: vi.fn().mockResolvedValue({ filed: [], received: [] }),
+    listPairContests: vi.fn().mockResolvedValue({ submitted: [], received: [] }),
   };
 }
 

@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: November 5, 2026
+last_updated: November 24, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -22,7 +22,9 @@ Your company's tabs are:
 - **Billing**, your subscriptions, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
 - **Proposed products**, new products AEC Integrations found for your company, waiting for an owner to accept or decline them. Only owners see it. See [Products we propose](/docs/vendors/editing-profile-and-products#products-we-propose).
 
-Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
+Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product we hold a catalog for also has **Catalog**. A Sync Service with no catalog does not. The **Back to** link above the product name returns you to your company's tabs.
+
+On a Sync Service, the **Integrations** tab opens with the integrations it delivers. A line under the heading counts them, their rows of data, and the rows that still need your answer. One **Add an integration** button adds a new pair. If your Sync Service is also one of the two products in other integrations, those are listed below it under their own heading. Then each of the two buttons says what it adds.
 
 Every page has a **View public page** link, which opens the listing as buyers see it.
 
@@ -55,7 +57,7 @@ A list of what is outstanding, in two groups. When nothing is, it reads "Nothing
 
 **Worth doing** holds the items that would make your listings more complete:
 
-- data flows with no answer from you yet. This needs Managed.
+- data flows with no answer from you yet, including the flows on the integrations your Sync Service delivers,
 - reviews with no reply from you yet,
 - products missing a description, website, logo or categories,
 - a company profile missing a description, website, logo or headquarters,
@@ -76,8 +78,8 @@ The product's name at the top of each product page also carries its plan, "Free"
 
 If your Managed plan ends, a banner reads "Your Managed plan has ended" above the tabs on every page, with the date it ended. It stays until the plan is turned back on, and you cannot dismiss it. It lists:
 
-- **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, and you can claim and add integrations.
-- **Read-only now.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, and your data flow answers. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags and data flow answers are not part of that.
+- **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, you can claim and add integrations, and you can answer data flows.
+- **Read-only now.** "How teams use it", the integrations page and API documentation links, and trades, audiences and phases. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags are not part of that.
 
 Account owners see a **Go to Billing** button. Other colleagues see **Talk to us about Managed**, which opens the contact page.
 

@@ -13,10 +13,22 @@
  *  2. **"Ever checked" is enough.** A set `last_reviewed_at` or
  *     `integrations_reviewed_at` completes its step however old it is.
  *  3. **The plan decides only whether "Confirm data flows" counts.** It counts
- *     when the product's plan holds `attestation.author`, which is Managed today.
- *     It is optional otherwise. It reads the product's own plan block (§13.7),
- *     never the vendor-wide one, so nothing changes here when per-product plans
- *     land.
+ *     when the product's plan holds `attestation.author`, which every live plan
+ *     does since AECI-2038 (Free included), so a product reads "x of 4" on every
+ *     plan. It is optional only on a tier the build does not know. It reads the
+ *     product's own plan block (§13.7), never the vendor-wide one.
+ *
+ * AECI-2045: what "Confirm data flows" means depends on the product's role.
+ *
+ *  - **An endpoint** (`application`, `hybrid`): the vendor's unanswered claims on
+ *    the product's attestable integrations, as before.
+ *  - **A Sync Service** (`connector`, kind `sync_service`): its owner confirms the
+ *    flows on the pairs it delivers (AECI-2039). So the step counts the flows the
+ *    vendor has not answered on the pairs it owns and has claimed, delivered through
+ *    this product. Done when there are none.
+ *  - **Any other connector** (Integration platform, or no kind): an endpoint of
+ *    nothing, whose flows nobody confirms. The step is left out, so it is never
+ *    shown as done or as something to do. Such a product reads "x of 3".
  */
 
 import type {
@@ -34,6 +46,10 @@ export interface ChecklistProductFacts {
   maintainedBy: string;
   lastReviewedAt: string | null;
   integrationsReviewedAt: string | null;
+  /** AECI-2045. `products.product_role`; absent reads as an endpoint. */
+  productRole?: string | null;
+  /** AECI-2045. `products.connector_kind`. */
+  connectorKind?: string | null;
 }
 
 /** What the route counted for one product. */
@@ -45,6 +61,19 @@ export interface ChecklistProductCounts {
   /** Claims on this product's attestable integrations with no live attestation
    *  by the vendor. */
   unattestedClaims: number;
+  /** AECI-2045. On a Sync Service: flows with no live owner answer by the vendor, on
+   *  live, claimed pairs it owns and delivers through this product. */
+  unansweredOwnerFlows?: number;
+}
+
+/** AECI-2045: which data-flows rule a product takes. */
+export type DataFlowsMode = 'endpoint' | 'owner' | 'none';
+
+export function dataFlowsMode(
+  product: Pick<ChecklistProductFacts, 'productRole' | 'connectorKind'>,
+): DataFlowsMode {
+  if (product.productRole !== 'connector') return 'endpoint';
+  return product.connectorKind === 'sync_service' ? 'owner' : 'none';
 }
 
 /** The vendor columns and counts the vendor steps read. */
@@ -81,14 +110,17 @@ export function dataFlowsCount(plan: VendorEntitlementBlock): boolean {
   return plan.capabilities.includes(DATA_FLOWS_CAPABILITY);
 }
 
-/** The four product steps, in display order. */
+/** The product steps, in display order: four, or three on a connector with no flows. */
 export function productChecklistSteps(
   product: ChecklistProductFacts,
   counts: ChecklistProductCounts,
   plan: VendorEntitlementBlock,
 ): ProductChecklistStep[] {
   const flowsCount = dataFlowsCount(plan);
-  return [
+  const mode = dataFlowsMode(product);
+  const unanswered =
+    mode === 'owner' ? (counts.unansweredOwnerFlows ?? 0) : counts.unattestedClaims;
+  const steps: ProductChecklistStep[] = [
     { key: 'product_details', status: statusOf(isChecked(product), true), counts: true },
     {
       key: 'integration_list',
@@ -100,12 +132,16 @@ export function productChecklistSteps(
       status: statusOf(counts.unclaimedRows === 0, true),
       counts: true,
     },
-    {
-      key: 'confirm_data_flows',
-      status: statusOf(counts.unattestedClaims === 0, flowsCount),
-      counts: flowsCount,
-    },
   ];
+  // AECI-2045: a connector that is not a Sync Service has no flows to confirm.
+  if (mode !== 'none') {
+    steps.push({
+      key: 'confirm_data_flows',
+      status: statusOf(unanswered === 0, flowsCount),
+      counts: flowsCount,
+    });
+  }
+  return steps;
 }
 
 /** The score over the counted steps. */

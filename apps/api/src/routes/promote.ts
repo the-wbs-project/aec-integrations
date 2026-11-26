@@ -65,6 +65,7 @@
 
 import {
   CACHE_PURGE_QUEUE_MAX_TAGS,
+  isSyncService,
   type PromotePayload,
   type EntityRef,
   type PromoteEntityResult,
@@ -125,7 +126,9 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import {
   loadOwnedProductIds,
   loadOwnedVendorIds,
+  loadSyncServiceProductIds,
   promoteOwnershipSentinels,
+  promoteSyncServiceSentinels,
 } from '../lib/claimed-vendors';
 import { loadHiddenVendorIds } from '../lib/listing-hide';
 import { PROPOSAL_REF_RE, proposalVendorOwnedSentinel } from '../lib/product-proposals';
@@ -141,7 +144,9 @@ import {
   anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
   findStrongMatches,
+  findOpenVetoOnPairKey,
   findVendorHeldEvidencedTwin,
+  openVetoOnPairKeySentinel,
   VENDOR_OWNED_TWIN,
   vendorOwnedEvidencedTwinSentinel,
   vendorOwnedTwinSentinel,
@@ -755,6 +760,8 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   poweredByProductId: string | null;
   /** The AECI-1005 ownership fence's input — see {@link claimFenceRefuses}. */
   claimedAt: string | null;
+  /** AECI-2042: an endpoint vendor's veto fences the row too. */
+  vetoedAt: string | null;
   /** AECI-1011: `'vendor'` fences the row too — see {@link claimFenceRefuses}. */
   origin: string;
   /** AECI-1011: the stored owner and kind, for the UPDATE twin guard. */
@@ -778,6 +785,8 @@ type LocatedEvidencedRow = LocatedMaintenance & {
    *  {@link claimFenceRefuses}. */
   claimedAt: string | null;
   origin: string;
+  /** AECI-2042: an endpoint veto fences the pair. */
+  vetoedAt: string | null;
 };
 
 /**
@@ -823,23 +832,26 @@ async function locateEdge(
       createdAt: integrations.createdAt,
       claimedAt: integrations.claimedAt,
       origin: integrations.origin,
+      vetoedAt: integrations.vetoedAt,
       builtByVendorId: integrations.builtByVendorId,
       mechanismKind: integrations.mechanismKind,
       pairClaimedAt: connectorEvidencedPairs.claimedAt,
       pairOrigin: connectorEvidencedPairs.origin,
+      pairVetoedAt: connectorEvidencedPairs.vetoedAt,
     })
     .from(integrations)
     .leftJoin(connectorEvidencedPairs, eq(connectorEvidencedPairs.id, integrations.id))
     .where(eq(integrations.id, supabaseId))
     .limit(1);
   if (intg) {
-    const { pairClaimedAt, pairOrigin, ...row } = intg;
+    const { pairClaimedAt, pairOrigin, pairVetoedAt, ...row } = intg;
     return {
       id: supabaseId,
       table: 'integrations',
       row: {
         ...row,
-        evidencedTwinVendorHeld: pairClaimedAt !== null || pairOrigin === 'vendor',
+        evidencedTwinVendorHeld:
+          pairClaimedAt !== null || pairOrigin === 'vendor' || (pairVetoedAt ?? null) !== null,
       },
     };
   }
@@ -855,6 +867,7 @@ async function locateEdge(
       createdAt: true,
       claimedAt: true,
       origin: true,
+      vetoedAt: true,
     },
     where: eq(connectorEvidencedPairs.id, supabaseId),
   });
@@ -1223,6 +1236,13 @@ const REFUSED_REVIEW_SIGNAL_INTEGRATION =
 // because the whole edge is refused, not one field of it.
 export const REFUSED_CLAIMED_INTEGRATION =
   'integration is claimed by its owner; promote writes nothing to a vendor-owned integration';
+
+// ─── Endpoint-veto fence (AECI-2042) ─────────────────────────────────────────
+// A row an endpoint vendor vetoed is fenced like a vendor-held one: promote writes
+// nothing to it (no content, no re-point, no move, no claims), so it can never revive
+// or overwrite it. Its own reason, so the review app can tell the two apart.
+export const REFUSED_VETOED_INTEGRATION =
+  'integration was removed from the site by an endpoint vendor; promote writes nothing to a vetoed integration';
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
 
@@ -3120,6 +3140,11 @@ export async function runPromoteIngest(
   // product is only the `poweredByProduct` connector still writes: the connector
   // vendor does not own the pair it delivers. The AECI-1005 claim fence below still
   // applies to every edge this one lets through.
+  //
+  // One exception (AECI-2041, ruling 7 on AECI-2035, `syncServiceExceptionApplies`
+  // below): a pair a Sync Service delivers between two other products writes even when
+  // an endpoint is owned. It goes to `connector_evidenced_pairs` and writes nothing to
+  // the owned product's own record.
   const ownedEndpointIds = await loadOwnedProductIds(
     db,
     payload.integrations.flatMap((intg) =>
@@ -3147,6 +3172,66 @@ export async function runPromoteIngest(
       if ((await loadOwnedProductIds(db, [id])).has(id)) ownedEndpointIds.add(id);
     }
     return ownedEndpointIds.has(id);
+  };
+
+  // ── The Sync Service exception (AECI-2041, ruling 7 on AECI-2035) ──────────
+  // Every connector this promote let past the owned-endpoint fence as a Sync Service.
+  // `promoteSyncServiceSentinels` re-checks them at commit.
+  const syncServiceConnectorIds = new Set<string>();
+  // The ids of the edges written under the exception. Their endpoints are owned by
+  // design, so they stay out of the commit-time ownership guard below.
+  const syncServiceEdgeIds = new Set<string>();
+  const syncServiceByProduct = new Map<string, boolean>();
+  /**
+   * Is this product a Sync Service as the batch will leave it? The kind is AECi's,
+   * set by an admin and never by promote (AECI-2036), so it is read from D1. The role
+   * is promote's: when the product is this payload's own written product, the role it
+   * is about to receive counts, because the commit-time sentinel reads it after that
+   * write.
+   */
+  const isSyncServiceConnector = async (id: string): Promise<boolean> => {
+    const cached = syncServiceByProduct.get(id);
+    if (cached !== undefined) return cached;
+    const row = await db.query.products.findFirst({
+      columns: { productRole: true, connectorKind: true },
+      where: eq(products.id, id),
+    });
+    const role =
+      p && productId !== undefined && id === productId ? p.productRole : row?.productRole;
+    const answer = row !== undefined && isSyncService(role, row.connectorKind);
+    syncServiceByProduct.set(id, answer);
+    return answer;
+  };
+  /**
+   * May an edge with an owned endpoint be written anyway, because a Sync Service
+   * delivers it (`REVIEW_APP_PROMOTE_API.md` §4a)? Yes only when ALL hold:
+   *
+   * 1. It routes to `connector_evidenced_pairs`: a resolved (or inherited) connector
+   *    that is neither endpoint. A direct edge, a Convention-A self-reference and an
+   *    edge whose connector did not resolve all land in `integrations`, and stay fenced.
+   * 2. It does not move an `integrations` row into the pair tier. That row is a direct
+   *    edge of the owned product, and a move deletes it.
+   * 3. The connector is a Sync Service: role `connector` or `hybrid`, kind
+   *    `sync_service`. An Integration platform or an unclassified connector stays fenced.
+   * 4. On an update of a stored pair, the stored connector is a Sync Service too. A pair
+   *    an Integration platform delivered is not opened by re-pointing it.
+   *
+   * The caller has already found an owned endpoint. The §4b claim fence runs after this.
+   */
+  const syncServiceExceptionApplies = async (edge: {
+    routesToEvidencedPair: boolean;
+    connectorId: string | null;
+    locatedTable: 'integrations' | 'evidenced' | null;
+    storedConnectorId: string | null;
+  }): Promise<boolean> => {
+    if (!edge.routesToEvidencedPair || edge.connectorId === null) return false;
+    if (edge.locatedTable === 'integrations') return false;
+    if (!(await isSyncServiceConnector(edge.connectorId))) return false;
+    if (edge.locatedTable === 'evidenced') {
+      if (edge.storedConnectorId === null) return false;
+      if (!(await isSyncServiceConnector(edge.storedConnectorId))) return false;
+    }
+    return true;
   };
 
   for (const intg of payload.integrations) {
@@ -3239,6 +3324,35 @@ export async function runPromoteIngest(
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
+
+    // ── Which table does this edge belong in, given BOTH inputs? ─────────────
+    //
+    // The payload alone cannot answer it. §3.6's absent-means-untouched rule says an
+    // OMITTED `poweredByProduct` is "no opinion", and AECI-730 says an UNRESOLVABLE one
+    // leaves the stored value alone — so in both cases the edge stays wherever it already
+    // is, which for a migrated edge is `connector_evidenced_pairs`. Routing those to
+    // `integrations` on the strength of a key nobody stated is inference from absence,
+    // which is exactly what ADR 0030 refuses.
+    //
+    // So: a RESOLVED third-party connector routes to the evidenced tier, as before. An
+    // unstated one routes by WHERE THE ROW LIVES. Only an EXPLICIT `null` moves an edge
+    // back out of the evidenced tier, because only an explicit null is a statement.
+    //
+    // Computed here, before any fence, because the AECI-2041 exception below needs it.
+    // It reads nothing and writes nothing.
+    const connectorStated = poweredBy.value !== undefined;
+    const storedConnectorId =
+      located?.table === 'evidenced' ? located.row.connectorProductId : null;
+    // An unstated key inherits the stored connector. Convention A (§13.2a) still applies
+    // to the inherited value: if an endpoint has since MOVED onto the connector, the
+    // destination's `connector_evidenced_pairs_distinct_connector` CHECK would reject the
+    // row and fail the whole batch — an outage on a routine re-promote. That edge belongs
+    // in `integrations` by the same rule that keeps ~60 production self-references there,
+    // so let it fall through and carry the connector in `powered_by_product_id` instead.
+    const connectorId = connectorStated ? payloadConnectorId : storedConnectorId;
+    const routesToEvidencedPair =
+      connectorId !== null && connectorId !== sourceId && connectorId !== targetId;
+
     // ── AECI-1415: the owned-endpoint fence (see `isOwnedEndpoint` above). ─────
     const storedEndpoints =
       located === null
@@ -3253,7 +3367,21 @@ export async function runPromoteIngest(
         break;
       }
     }
-    if (ownedEndpoint) {
+    // ── AECI-2041: the Sync Service exception (ruling 7 on AECI-2035). ─────────
+    // A pair a Sync Service delivers between two other companies' products is not the
+    // endpoint vendor's record, so an owned endpoint does not fence it. The exception
+    // is exactly the cases `syncServiceException` allows; every other edge with an
+    // owned endpoint is still skipped below. The §4b claim fence still runs after it,
+    // so a pair the Sync Service claimed, or created, is never written.
+    const syncServiceException =
+      ownedEndpoint &&
+      (await syncServiceExceptionApplies({
+        routesToEvidencedPair,
+        connectorId,
+        locatedTable: located?.table ?? null,
+        storedConnectorId,
+      }));
+    if (ownedEndpoint && !syncServiceException) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_OWNED_ENDPOINT_REASON });
       audit({
         actorType: 'system',
@@ -3271,6 +3399,19 @@ export async function runPromoteIngest(
     // `promote.blocked` row is the same audit trail AECI-520 leaves for a blocked
     // vendor or product, and `catalogWrites` excludes it, so an all-fenced promote
     // still reports `wrote: false`.
+    // AECI-2042: a vetoed row, in either table, before the ownership fence, so the
+    // receipt names the veto even when the row is also claimed.
+    if (located && located.row.vetoedAt !== null) {
+      skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: located.table === 'integrations' ? 'integration' : 'connector_evidenced_pair',
+        entityId: located.id,
+        metadata: { reason: REFUSED_VETOED_INTEGRATION },
+      });
+      continue;
+    }
     if (claimFenceRefuses(located)) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
       // AECI-1088: name the table the vendor-held row actually sits in. A fenced pair,
@@ -3327,30 +3468,7 @@ export async function runPromoteIngest(
     // table with the column.
     const existing = located?.table === 'integrations' ? located.row : undefined;
 
-    // ── Which table does this edge belong in, given BOTH inputs? ─────────────
-    //
-    // The payload alone cannot answer it. §3.6's absent-means-untouched rule says an
-    // OMITTED `poweredByProduct` is "no opinion", and AECI-730 says an UNRESOLVABLE one
-    // leaves the stored value alone — so in both cases the edge stays wherever it already
-    // is, which for a migrated edge is `connector_evidenced_pairs`. Routing those to
-    // `integrations` on the strength of a key nobody stated is inference from absence,
-    // which is exactly what ADR 0030 refuses.
-    //
-    // So: a RESOLVED third-party connector routes to the evidenced tier, as before. An
-    // unstated one routes by WHERE THE ROW LIVES. Only an EXPLICIT `null` moves an edge
-    // back out of the evidenced tier, because only an explicit null is a statement.
-    const connectorStated = poweredBy.value !== undefined;
-    const storedConnectorId =
-      located?.table === 'evidenced' ? located.row.connectorProductId : null;
-    // An unstated key inherits the stored connector. Convention A (§13.2a) still applies
-    // to the inherited value: if an endpoint has since MOVED onto the connector, the
-    // destination's `connector_evidenced_pairs_distinct_connector` CHECK would reject the
-    // row and fail the whole batch — an outage on a routine re-promote. That edge belongs
-    // in `integrations` by the same rule that keeps ~60 production self-references there,
-    // so let it fall through and carry the connector in `powered_by_product_id` instead.
-    const connectorId = connectorStated ? payloadConnectorId : storedConnectorId;
-    const routesToEvidencedPair =
-      connectorId !== null && connectorId !== sourceId && connectorId !== targetId;
+    // Routing (`connectorId`, `routesToEvidencedPair`) is computed above the fences.
 
     // An unstated key that inherits its connector must not CLEAR the stored column on the
     // way past. `compact()` already drops `poweredByProductId` when it is `undefined`, so
@@ -3423,6 +3541,22 @@ export async function runPromoteIngest(
           });
           continue;
         }
+        // AECI-2042: an endpoint veto in force on the key whose vetoed row is gone. A
+        // vetoed row still on the key is caught by the twin guard just above (it is
+        // fenced), so this is the deleted-row case. Skip, never revive.
+        const veto = await findOpenVetoOnPairKey(db, evidencedTwinCandidate);
+        if (veto) {
+          skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+          audit({
+            actorType: 'system',
+            action: 'promote.blocked',
+            entityType: 'connector_evidenced_pair',
+            entityId: located?.id ?? veto.id,
+            metadata: { reason: REFUSED_VETOED_INTEGRATION, ref: intg.ref, vetoId: veto.id },
+          });
+          continue;
+        }
+        stmts.push(openVetoOnPairKeySentinel(db, evidencedTwinCandidate));
         // The commit-time half: a claim that lands on the key's holder between this
         // read and the batch aborts the whole promote with the twin race code, rather
         // than letting the write fail on the unique index.
@@ -3494,6 +3628,14 @@ export async function runPromoteIngest(
         to: [sourceId, targetId],
       });
       result = { ref: intg.ref, id: evidenced.id, operation: evidenced.operation };
+      // AECI-2041: the write went past an owned endpoint as a Sync Service pair. Its
+      // connector (and the stored one) are re-checked at commit, and its endpoints stay
+      // out of the ownership guard, because they are owned by design.
+      if (syncServiceException) {
+        syncServiceConnectorIds.add(connectorId);
+        if (storedConnectorId !== null) syncServiceConnectorIds.add(storedConnectorId);
+        syncServiceEdgeIds.add(evidenced.id);
+      }
       audit({
         actorType: 'system',
         action:
@@ -3507,6 +3649,11 @@ export async function runPromoteIngest(
         // without this the move leaves no trace anyone can search for.
         ...(located?.table === 'integrations'
           ? { metadata: { movedFrom: 'integrations' as const } }
+          : {}),
+        // AECI-2041: searchable trace of every write the exception allowed. The two
+        // never meet: the exception refuses a move in from `integrations`.
+        ...(syncServiceException
+          ? { metadata: { ownedEndpointException: 'sync_service' as const } }
           : {}),
       });
       // Recompute the OLD endpoints too when this edge already existed — its
@@ -3701,6 +3848,30 @@ export async function runPromoteIngest(
           },
         });
         continue;
+      }
+      // AECI-2042: an endpoint veto in force on the pair key, through this connector.
+      // A vetoed row is fenced above. This covers a key whose vetoed row is gone, so a
+      // new upstream id cannot bring the pair back. Never deletes or revives anything.
+      if (finalConnectorId !== null) {
+        const [vetoA, vetoB] = sourceId < targetId ? [sourceId, targetId] : [targetId, sourceId];
+        const vetoKey = {
+          connectorProductId: finalConnectorId,
+          productAId: vetoA,
+          productBId: vetoB,
+        };
+        const veto = await findOpenVetoOnPairKey(db, vetoKey);
+        if (veto) {
+          skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_VETOED_INTEGRATION });
+          audit({
+            actorType: 'system',
+            action: 'promote.blocked',
+            entityType: 'integration',
+            entityId: located?.id ?? veto.id,
+            metadata: { reason: REFUSED_VETOED_INTEGRATION, ref: intg.ref, vetoId: veto.id },
+          });
+          continue;
+        }
+        stmts.push(openVetoOnPairKeySentinel(db, vetoKey));
       }
       // The commit-time half: a vendor create (or claim) that lands between this
       // read and the batch aborts the whole promote, as the AECI-1005 fence does.
@@ -4024,6 +4195,14 @@ export async function runPromoteIngest(
   // ── Audit rows (appended last; same atomic batch as the writes above) ─────
   for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
 
+  // ── AECI-2041: the commit-time half of the Sync Service exception ──────────
+  // At the very END, after the product write, so a role this batch sets is the one
+  // read. After `catalogWrites`, so `wrote` does not count it. The ledger row is
+  // unshifted below, so it stays the first statement.
+  if (syncServiceConnectorIds.size > 0) {
+    stmts.push(...promoteSyncServiceSentinels(db, [...syncServiceConnectorIds]));
+  }
+
   // ── AECI-1415: the commit-time half of the ownership fence ─────────────────
   // Every vendor and endpoint product the plan treated as unowned and writes. A claim
   // approval that commits between the plan reads and this batch aborts it whole, and
@@ -4035,9 +4214,14 @@ export async function runPromoteIngest(
     ...vendorResults.filter((r) => r.operation === 'updated').map((r) => r.id),
     ...(productResult?.operation === 'updated' ? existingProductVendorIds : []),
   ];
-  const ownershipGuardProductIds = integrationEndpoints.flatMap((e) =>
-    [e.sourceId, e.targetId, ...(e.movedFromIds ?? [])].filter((id) => id !== productId),
-  );
+  // AECI-2041: a Sync Service pair written past an owned endpoint is not guarded on
+  // ownership, because its endpoints are owned by design. Its connector kind is
+  // guarded instead (`promoteSyncServiceSentinels`, at the end of the batch).
+  const ownershipGuardProductIds = integrationEndpoints
+    .filter((e) => !syncServiceEdgeIds.has(e.result.id))
+    .flatMap((e) =>
+      [e.sourceId, e.targetId, ...(e.movedFromIds ?? [])].filter((id) => id !== productId),
+    );
   if (catalogWrites > 0) {
     stmts.unshift(
       ...promoteOwnershipSentinels(db, ownershipGuardVendorIds, ownershipGuardProductIds),
@@ -4144,9 +4328,15 @@ export async function runPromoteIngest(
         // AECI-1415: the ownership sentinel raises the same SQLite error. The batch
         // rolled back, so a re-read that finds a guarded vendor or endpoint owned now
         // is the one that fired.
+        // AECI-2041: so does the Sync Service sentinel, with the same remedy. A connector
+        // the plan let past an owned endpoint as a Sync Service that is no longer one
+        // means the owned endpoint fences the edge now, so the re-push skips it.
         if (
           (await loadOwnedVendorIds(db, ownershipGuardVendorIds)).size > 0 ||
-          (await loadOwnedProductIds(db, ownershipGuardProductIds)).size > 0
+          (await loadOwnedProductIds(db, ownershipGuardProductIds)).size > 0 ||
+          (syncServiceConnectorIds.size > 0 &&
+            (await loadSyncServiceProductIds(db, [...syncServiceConnectorIds])).size <
+              syncServiceConnectorIds.size)
         ) {
           throw new ApiError(
             409,

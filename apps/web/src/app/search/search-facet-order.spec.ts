@@ -56,6 +56,15 @@ describe('orderFacetItems', () => {
     expect(out).not.toBe(input);
   });
 
+  // AECI-1662 — the /products order, not the counts. A value outside the
+  // vocabulary can only come from a hand-edited URL, and is dropped.
+  it('orders connector_kind in vocabulary order and drops an unknown value', () => {
+    const input = [item('sync_service', 9), item('junk', 3), item('integration_platform', 1)];
+    const out = orderFacetItems('connector_kind', input);
+    expect(out.map((i) => i.value)).toEqual(['integration_platform', 'sync_service']);
+    expect(input.map((i) => i.value)).toEqual(['sync_service', 'junk', 'integration_platform']);
+  });
+
   it('does not mutate the phases input', () => {
     const input = [item('Design'), item('Concept & Planning')];
     orderFacetItems('phases', input);

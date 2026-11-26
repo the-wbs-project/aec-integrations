@@ -273,3 +273,61 @@ export function promoteOwnershipSentinels(
   }
   return stmts;
 }
+
+// ── The Sync Service exception (AECI-2041, ruling 7 on AECI-2035) ──────────────
+//
+// Promote may write a connector-delivered pair on an owned endpoint when its connector
+// is a Sync Service (`REVIEW_APP_PROMOTE_API.md` §4a, ADR 0042's 2026-11-24 amendment).
+// The plan reads the kind before the batch, so the batch must re-check it at commit.
+
+/** The roles a Sync Service sits on. The same list as `CONNECTOR_KIND_ROLES` in
+ *  `@aeci/shared`, spelled here as SQL so the sentinel and the reader agree. */
+const SYNC_SERVICE_ROLES = ['connector', 'hybrid'] as const;
+
+/**
+ * Narrow `productIds` to the Sync Services: role `connector` or `hybrid`, kind
+ * `sync_service` (`isSyncService` in `@aeci/shared`). Read after a rolled-back batch
+ * to tell {@link promoteSyncServiceSentinels} apart from the other sentinels.
+ */
+export async function loadSyncServiceProductIds(
+  db: Db,
+  productIds: readonly string[],
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const ids of chunk(unique(productIds))) {
+    const rows = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(
+        and(
+          inArray(products.id, ids),
+          inArray(products.productRole, [...SYNC_SERVICE_ROLES]),
+          eq(products.connectorKind, 'sync_service'),
+        ),
+      );
+    for (const row of rows) found.add(row.id);
+  }
+  return found;
+}
+
+/**
+ * The commit-time half of the Sync Service exception. The plan let a pair on an owned
+ * endpoint through because its connector (and, on an update, its stored connector) was
+ * a Sync Service. These statements abort the batch when any of `connectorIds` is no
+ * longer one at commit: an admin cleared the kind, or a promote changed the role.
+ *
+ * Pushed at the END of the promote batch, after the product write, so a role this same
+ * batch writes is the one it reads. Raises the same malformed-JSON token as the
+ * ownership sentinel, because the remedy is the same: the edge's owned endpoint now
+ * fences it, and a re-push under a new `jobId` skips it. The caller re-reads with
+ * {@link loadSyncServiceProductIds} to tell which sentinel fired.
+ */
+export function promoteSyncServiceSentinels(db: Db, connectorIds: readonly string[]): BatchStmt[] {
+  return chunk(unique(connectorIds)).map((ids) =>
+    db
+      .select({
+        guard: sql`CASE WHEN (SELECT count(*) FROM ${products} WHERE ${inArray(products.id, ids)} AND ${products.productRole} IN ('connector', 'hybrid') AND ${products.connectorKind} = 'sync_service') < ${ids.length} THEN json(${VENDOR_OWNED_DURING_PROMOTE_TOKEN}) END`,
+      })
+      .from(sql`(SELECT 1)`),
+  );
+}

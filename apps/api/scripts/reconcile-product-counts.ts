@@ -37,6 +37,7 @@ import { spawnSync } from 'node:child_process';
 
 import {
   ddlHasRetiredColumn,
+  ddlHasVetoedColumn,
   EVIDENCED_PAIRS_DDL_QUERY,
   evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
@@ -87,12 +88,13 @@ const EVIDENCED_COUNT_SQL = (
   productIdExpr: string,
   pairsRetiredColumn: boolean,
   hiddenColumn: boolean,
+  vetoedColumn: boolean,
 ) => `(SELECT COUNT(*)
      FROM "connector_evidenced_pairs" cep
      WHERE (cep."product_a_id" = ${productIdExpr}
         OR cep."product_b_id" = ${productIdExpr}
         OR cep."connector_product_id" = ${productIdExpr})
-       AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, hiddenColumn)})`;
+       AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, hiddenColumn, vetoedColumn)})`;
 
 /** Which of the two tables carry `retired_at` on the target (migrations `0044` and
  *  `0049`). Both default to true: the exported constants are the migrated form.
@@ -107,12 +109,16 @@ export interface RetiredColumns {
   /** Whether `products.hidden_at` exists yet (migration `0113`, AECI-1238). Optional,
    *  read as true when absent. A row touching a hidden product is not live. */
   productsHidden?: boolean;
+  /** Whether `vetoed_at` exists yet on both edge tables (migration `0132`, AECI-2042).
+   *  Optional, read as true when absent. A vetoed row is not live. */
+  vetoed?: boolean;
 }
 const MIGRATED: RetiredColumns = {
   integrations: true,
   evidencedPairs: true,
   reviewUpdates: true,
   productsHidden: true,
+  vetoed: true,
 };
 
 /** The rating one approved review `r` contributes to an average: its effective
@@ -136,8 +142,8 @@ export function driftQuery(columns: RetiredColumns = MIGRATED): string {
   p."integration_count" AS stored_integration_count,
   ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = p."id" OR i."target_product_id" = p."id")
-       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)})
-   + ${EVIDENCED_COUNT_SQL('p."id"', columns.evidencedPairs, columns.productsHidden ?? true)}) AS expected_integration_count,
+       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true, columns.vetoed ?? true)})
+   + ${EVIDENCED_COUNT_SQL('p."id"', columns.evidencedPairs, columns.productsHidden ?? true, columns.vetoed ?? true)}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
@@ -158,8 +164,8 @@ export function recomputeSql(columns: RetiredColumns = MIGRATED): string {
   return `UPDATE "products" SET
   "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
-       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)})
-   + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs, columns.productsHidden ?? true)}),
+       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true, columns.vetoed ?? true)})
+   + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs, columns.productsHidden ?? true, columns.vetoed ?? true)}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
   "rating_overall_avg" = (SELECT ROUND(AVG(${averagedRatingSql('rating_overall', columns)}), 2) FROM "reviews" r
@@ -287,6 +293,10 @@ function retiredColumnsOf(target: Target): RetiredColumns {
     // AECI-1613: an absent table reads as no row, so the averages use each review's
     // own rating until `0108` reaches the tier. A failed read still throws.
     reviewUpdates: readDdl(target, REVIEW_UPDATES_DDL_QUERY, 'review_updates') !== undefined,
+    // AECI-2042: `vetoed_at` (`0132`) on both edge tables. Without it no row is vetoed.
+    vetoed: ddlHasVetoedColumn(
+      integrationsDdlOrThrow(readDdl(target, INTEGRATIONS_DDL_QUERY, 'integrations')),
+    ),
     integrations: ddlHasRetiredColumn(
       integrationsDdlOrThrow(readDdl(target, INTEGRATIONS_DDL_QUERY, 'integrations')),
     ),

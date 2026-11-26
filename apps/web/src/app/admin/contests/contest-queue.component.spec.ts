@@ -700,7 +700,12 @@ describe('ContestQueue', () => {
     }
     expect(el.querySelectorAll('[aria-live]')).toHaveLength(1);
     // AECI-2102: one table, its region named by the caption; each record a row header.
-    expect(el.querySelector('h3, h4')).toBeNull();
+    // AECI-2042's Sync Service section below the table is a separate section with its
+    // own h3 and h4 headings, so no heading may sit anywhere else: none per record.
+    const pairRights = el.querySelector('aec-admin-pair-rights') as HTMLElement;
+    const headings = [...el.querySelectorAll('h3, h4')];
+    expect(headings.filter((h) => !pairRights.contains(h))).toEqual([]);
+    expect(headings.map((h) => h.tagName)).toEqual(['H3', 'H4', 'H4', 'H4']);
     const region = el.querySelector('[role="region"]') as HTMLElement;
     expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
     expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(1);

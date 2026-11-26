@@ -229,8 +229,8 @@ Per-detail hydration rules:
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs` + `data_objects` + `partner_categories` + `agreement`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
-| `ProductDetail` | `wheel_marks` | `WheelMark[]` (= `product_id` + `logo_url` + `claim_status`), optional (AECI-2018, ruling 64). One entry per partner of the two endpoint arrays above, in no order, read off the same rows by `wheelMarksOf` (`apps/api/src/lib/drizzle-helpers.ts`). One more entry is the page product itself, for the wheel's centre. `logo_url` is a logo the wheel may show, claimed or not (ruling 64), decided by `wheelLogoOf`: a claimed product's stored `products.logo_url`, the vendor's upload included; an unclaimed product's stored logo unless it is the vendor's upload (`logo_source = 'vendor'`), in which case `sourced_logo_url` or `null`, so an upload never outlives the claim (Vendor Terms 1.3). An unclaimed row read without `logo_source` gets `null`. **The wheel only.** The rows' own `source` / `target` links still go through `toProductLink`, which withholds an unclaimed logo, and no list, card, row, search record or other route carries this shape (`claim-end.spec.ts` pins both halves). A removal on objection nulls both columns, and its `product:{partner}` purge reaches the page, which carries that tag for every partner. `claim_status` drives only the wheel card's "Unclaimed" label. Absent from an older payload, which the wheel reads as no logo. |
-| `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (Stage 1.5 Addendum B), whether or not it is also an endpoint. There is no `context_direction`: this bucket serves the powered view, whose pair rows exclude the page product. **The list is raw (Stage 1.5 §13.4(2), AECI-2051).** A Convention-A self-reference, a row whose `powered_by` is one of its own endpoints, is in this list AND in `integrations_as_source` or `integrations_as_target`, with the same `id`. The server does not drop it. A reader that renders or counts pairs drops rows where the page product is an endpoint (`groupPoweredIntegrations`, `countListedIntegrationRows`). A reader that counts reach keeps them (`connectedProductCount`). `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
+| `ProductDetail` | `wheel_marks` | `WheelMark[]` (= `product_id` + `logo_url` + `claim_status`), optional (AECI-2018, ruling 64). One entry per partner of the two endpoint arrays above, and one per endpoint of every row in `integrations_as_connector` (a connector's wheel shows those, QA pass on AECI-2035), in no order, read off the same rows by `wheelMarksOf` (`apps/api/src/lib/drizzle-helpers.ts`). One more entry is the page product itself, for the wheel's centre. `logo_url` is a logo the wheel may show, claimed or not (ruling 64), decided by `wheelLogoOf`: a claimed product's stored `products.logo_url`, the vendor's upload included; an unclaimed product's stored logo unless it is the vendor's upload (`logo_source = 'vendor'`), in which case `sourced_logo_url` or `null`, so an upload never outlives the claim (Vendor Terms 1.3). An unclaimed row read without `logo_source` gets `null`. **The wheel only.** The rows' own `source` / `target` links still go through `toProductLink`, which withholds an unclaimed logo, and no list, card, row, search record or other route carries this shape (`claim-end.spec.ts` pins both halves). A removal on objection nulls both columns, and its `product:{partner}` purge reaches the page, which carries that tag for every partner and for both endpoints of every powered row. `claim_status` drives only the wheel card's "Unclaimed" label. Absent from an older payload, which the wheel reads as no logo. |
+| `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (Stage 1.5 Addendum B), whether or not it is also an endpoint. There is no `context_direction`: this bucket serves the powered view, whose pair rows exclude the page product. **The list is raw (Stage 1.5 §13.4(2), AECI-2051).** A Convention-A self-reference, a row whose `powered_by` is one of its own endpoints, is in this list AND in `integrations_as_source` or `integrations_as_target`, with the same `id`. The server does not drop it. A reader that renders or counts pairs drops rows where the page product is an endpoint (`groupPoweredIntegrations`, `countListedIntegrationRows`). A reader that counts reach keeps them (`connectedProductCount`, and the connector hero wheel, which shows the same set through `connectedProducts`). `direction` is claims-aware (QA pass on AECI-2035): the public flows' direction, else the stored one. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
 | `VendorDetail` | `products` | `ProductListItem[]`, sorted A to Z by name (`compareText`, case-insensitive) then `id`, in `toVendorDetail` (AECI-1242). The junction relation cannot `ORDER BY` the product name. |
@@ -276,16 +276,20 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
+| `CONNECTOR_KIND_NOT_CONNECTOR` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2036) named an `application` product. Only a `connector` or `hybrid` product carries a kind. `details.product_role` names the product's role. Nothing is written. Also answered when a promote moved the product to `application` between the read and the batch: a sentinel aborts the batch |
+| `SYNC_FACTS_NOT_SYNC_SERVICE` | 409 | `PATCH /api/admin/products/:id/sync-facts` (AECI-2046) named a product that is not a Sync Service (`isSyncService`): an `application`, an Integration platform or a connector with no kind. `details` carries `product_role` and `connector_kind`. Nothing is written. Also answered when the kind or role changed between the read and the batch: a sentinel aborts the batch |
+| `CONNECTOR_KIND_SUBSCRIBED` | 409 | `PATCH /api/admin/products/:id/connector-kind` (AECI-2044) would take a product that holds a live subscription (any vendor's) from a kind that can hold one to a kind that cannot: a Sync Service to Integration platform or blank. Nothing is written. Move or end the subscription first. A sentinel in the batch answers the same when a subscription lands after the read. |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). Also `PATCH /api/admin/license-grants/:id` on a grant that is not `pending_acceptance` (AECI-1615, `details.state`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
+| `CONTEST_CONNECTOR_OWNER_ONLY` | 403 | AECI-2045 (§11b.2): the vendor holding a Sync Service pair's connector product, and not its owner, filed a contest on a field other than `owner`. It may only ask to be recorded as the owner. |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CLAIM_ALREADY_DECIDED` | 409 | A claim decision lost a race: `PATCH /api/admin/claims/:id` (approve or reject), or an owner's `POST /api/vendor/seats/claims/:id/accept` or `/decline`. The claim was decided, or for an owner decision the 7-day fallback took it back to AECi, between the handler's read and its batch. The batch's first statement is a sentinel (`claimUndecidedSentinel`) that rolls the whole batch back: no seat, invite, workflow, transition, billing or audit row, and no email. `details.status` is the claim's status on a re-read. Reload (AECI-1333). **Also the answer to an owner's accept that the account guard turned into a system reject (AECI-1420, 2026-10-19):** the claimant's address already holds a seat on another vendor, or is a staff account, so the claim was rejected by the system and the reasoned `claim-rejected` was sent. `details.status` is `'rejected'`. No invite is written and the 409 names no other vendor |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
-| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it, or (AECI-1661) a private thread on the row was opened or closed while deciding an accept that makes it connector-powered; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). *Until AECI-1663 (ruling 14, 2026-11-09) also `PATCH /api/admin/licenses/:id` `revoke` of the vendor's last live subscription, when its contests or live subscriptions changed twice mid-revoke. A revoke moves no contest now, and its second lost race answers `422 INVALID_STATE_TRANSITION` (`details.state: 'changed'`).* |
+| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it, or (AECI-1661) a private thread on the row was opened or closed while deciding an accept that makes it connector-powered; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). *Until AECI-1663 (ruling 14, 2026-11-09) also `PATCH /api/admin/licenses/:id` `revoke` of the vendor's last live subscription, when its contests or live subscriptions changed twice mid-revoke. A revoke moves no contest now, and its second lost race answers `422 INVALID_STATE_TRANSITION` (`details.state: 'changed'`).* Since the AECI-2042 review also `POST /api/vendor/integrations/:id/contests` by a Sync Service connector holder (AECI-2045), when between the authority read and the commit the row's connector changed, the connector stopped being a Sync Service, or the caller's vendor stopped holding it. Nothing filed. |
 | `CONTEST_VALUE_STALE` | 409 | `PATCH /api/admin/contests/:id` accept of a **content** contest on a **claimed** row, when the column no longer holds the value recorded at submit (almost always the owner's own edit, AECI-1006). Accepting would overwrite that change, so nothing is written. Checked on the handler's read and again inside the batch. The admin declines, or the submitter withdraws and re-files against the current value |
 | `PROTEST_NOT_AVAILABLE` | 409 | `POST /api/vendor/contests/:id/protest` when the contest cannot be protested now. `details.reason` is `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`), `window_closed`, `contest_open` (the caller has another open contest on the same integration and field; checked on the read and inside the batch), or `contest_changed` for a lost race (AECI-1009, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12) |
 | `PROTEST_NOT_OPEN` | 409 | A protest reply, withdraw or decision on a protest that is absent, already decided or withdrawn, or that lost a race (AECI-1009) |
@@ -305,6 +309,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
 | `INTEGRATION_CONNECTOR_POWERED` | 403 | `PUT /api/vendor/integrations/:id/links/…` on a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`), after the side check (AECI-1007). **Retire and restore no longer raise it (AECI-1091):** a claimed owner retires such a row in either table. **`PATCH /api/vendor/integrations/:id` no longer raises it (AECI-1090):** a claimed owner edits such a row. **The claim no longer raises it (AECI-1089):** the owner of a connector-powered row claims it. Since AECI-1663 (ruling 14, 2026-11-09) all three need only a seat, on any plan. On the link `PUT` a `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
 | ~~`INTEGRATION_ENTITLEMENT_REQUIRED`~~ | 403 | **Retired 2026-11-09 (ruling 14, AECI-1663).** Removed from `ApiErrorCode` with its raisers. From AECI-1089 it refused an owner write on a connector-powered row (claim, edit, retire, restore, contest decision) from a vendor with no live subscription, with `details: { tier, status }`. A seat is now the whole gate on those writes, as on every integration route. No route raises it. |
+| `INTEGRATION_CONNECTOR_UNRESOLVED` | 409 | AECI-2047. The owner's claim (`POST /api/vendor/integrations/:id/claim`) of an `integrations` row typed `iPaaS` with no `powered_by_product_id`: a connector delivers it, and AECi has not promoted that connector yet. Promote would move the row to `connector_evidenced_pairs` once the connector is recorded, and a claimed row never moves. Answered after the ownership answers, so a non-owner never sees it. The guarded UPDATE carries the same predicate. Nothing is written |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
@@ -317,6 +322,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
 | `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor that has never been claimed has no billing account, so the grant answers `404` and is not grantable (ruled 2026-11-20, AECI-1975). A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
+| `INTEGRATION_NOT_CONNECTOR_DELIVERED` | 409 | AECI-2045: `PUT /api/admin/integrations/:id/owner` named an `integrations` row no connector delivers. Its owner changes through an `owner` contest instead. |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -334,10 +340,23 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `FIELD_HIDE_CLEARED` | 409 | `POST /api/admin/field-hides/:id/restore` or `/status-reply` on a hide already cleared, by a restore, a correction or the vendor's own edit, including a lost race. Nothing was written (AECI-1238) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
+| `CONNECTOR_NOT_SYNC_SERVICE` | 422 | `POST /api/vendor/sync-service-pairs` (AECI-2040): the named connector product is the caller's, but it is not a Sync Service. An Integration platform, an unclassified connector or an `application`. Ruling 1 of 2026-09-23 stands for them: ask AECi to add the pair. `field: connector_product_id` |
+| `INTEGRATION_ALREADY_ON_RECORD` | 409 | `POST /api/vendor/sync-service-pairs` (AECI-2040): the pair is already on record through the same connector, in `connector_evidenced_pairs` (any holder) or in `integrations` (`powered_by_product_id` = the connector, either orientation), live or retired. Nothing was written. `details: { existing_id, anchor, retired, owned_by_caller, claimed }`. A retired one is restored, never added again |
+| `INTEGRATION_VETOED` | 409 | AECI-2042 (§6.15b): an endpoint vendor's veto is in force on the row or the pair key. Answers the owner restore and the admin restore of a vetoed row, `POST /api/vendor/sync-service-pairs` for a vetoed pair key (also after the row is gone), and a report on a vetoed pair |
+| `SYNC_SERVICE_RIGHT_NOT_AVAILABLE` | 403 | AECI-2042: a veto or report on a row whose connector is not a Sync Service: a native row, an Integration platform, a blank kind. Use a field contest |
+| `SYNC_SERVICE_RIGHT_OWN_INTEGRATION` | 403 | AECI-2042: the row's owner, or a vendor holding the connector product, used an endpoint vendor's right |
+| `VETO_DUPLICATE` | 409 | AECI-2042: this vendor already has a veto in force on the pair. Nothing written |
+| `VETO_NOT_IN_FORCE` | 409 | AECI-2042: a withdraw or a lift of a veto that already ended |
+| `VETO_PAIR_CHANGED` | 409 | AECI-2042 review: `POST /api/vendor/integrations/:id/veto`, when between the gate read and the commit the row's connector or endpoints changed, the connector stopped being a Sync Service, the caller's vendor lost its last endpoint product, or it became the owner or a holder of the connector. Nothing written; reload and try again |
+| `PAIR_CONTEST_DUPLICATE` | 409 | AECI-2042: the vendor already has the same report open on the target |
+| `PAIR_CONTEST_NOT_OPEN` | 409 | AECI-2042: a decision or withdraw on a report already decided or withdrawn |
+| `PAIR_CONTEST_CHANGED` | 409 | AECI-2042: the pair or its owner changed while the decision was being saved, or, on `POST /api/vendor/integrations/:id/pair-contests`, the veto route's gate failed at commit, the owner or claim the routing read changed, or the row was retired or vetoed (review fix). Nothing written |
+| `PAIR_PROTEST_NOT_ALLOWED` | 409 | AECI-2042: no protest basis now (outside the §11b.12.2 windows, not owner-routed, or a protest already filed) |
+| `PAIR_PROTEST_NOT_OPEN` | 409 | AECI-2042: a decision or withdraw on a protest that is no longer open |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `THREAD_CHANGED_DURING_PROMOTE` | 409 | Promote job error only, product and connector-catalog arms. A private row thread on an edge the bundle moves into `connector_evidenced_pairs` or makes connector-powered in place (AECI-1541), or on a claim the push deletes, opened or closed after the promote planned the batch and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push closes the threads as they now stand (AECI-1536, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
-| `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
+| `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. Since AECI-2041 also: the connector of a Sync Service pair written on an owned endpoint stopped being a Sync Service (role or kind) before commit. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416) and `POST /api/admin/vendors/:id/suspension/terminate` (AECI-1589, moved there by AECI-1623, which deletes the open proposals in its batch). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
@@ -380,6 +399,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_NOT_LIVE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription that has ended. An ended subscription never goes back on a product; a new one is a new grant. Nothing is written |
 | `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription already on a product, including one assigned or ended between the read and the batch. Moving a subscription is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
 | `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live subscription from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written. Also `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product takes a live subscription between the read and the batch. A retry lands that subscription in the pool |
+| `PRODUCT_NOT_SUBSCRIBABLE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-2044, ruling 6 on AECI-2035) named a product that cannot hold a Managed subscription: a `connector` whose kind is Integration platform or blank (`productTakesSubscription`). `details.product_role` and `details.connector_kind`. Nothing is written. A kind change that commits between the read and the batch trips a sentinel and answers the same. |
+| `NO_SUBSCRIBABLE_PRODUCT` | 409 | `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/admin/vendors/:id/licenses` (AECI-2044) for a vendor that owns products and none that can hold a subscription. Before any Stripe call, and after the grant's replay and ban checks. Nothing is bought or written. A vendor with no product at all is not refused. |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
 | `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add subscriptions to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the Stripe subscription's interval. Nothing is written |
@@ -495,6 +516,12 @@ export const ProductListItemSchema = z.object({
   name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
   product_role: z.enum(['application', 'connector', 'hybrid']),
+  // AECI-2036 (STAGE_1_5_SPEC.md §13.13): 'integration_platform' | 'sync_service' | null.
+  // null = unclassified ("Connector"), and always null on an `application`. Admin-set,
+  // never promoted. Not on the Algolia record yet (AECI-1662), so a card built from a
+  // search hit carries null. The public role chip and the connector page copy read it
+  // (AECI-2037, STAGE_1_5_SPEC.md §13.13 "The public labels").
+  connector_kind: ConnectorKindSchema.nullable().default(null),
   vendor: VendorLinkSchema.nullable(), // null when the product has no ProductVendor link (AECI-115)
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
@@ -577,8 +604,33 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   //
   // Zero-defaulted so a database with no connector rows parses rather than fails.
   reachable_pair_count: z.number().int().min(0).default(0),
+  // AECI-2046 (`STAGE_1_5_SPEC.md` §13.13): a Sync Service's "What it syncs" block. Both
+  // null (or absent) unless the product is a Sync Service. Source:
+  // `packages/shared/src/api/sync-service.ts`.
+  sync_facts: SyncFactsSchema.nullable().optional(),       // { sync_frequency, sync_support,
+                                                           //   sync_setup, source_url,
+                                                           //   recorded_at }, each string | null
+  what_it_syncs: WhatItSyncsSchema.nullable().optional(),  // { pair_count, pairs_with_flows,
+                                                           //   objects: [{ slug, name, pair_count,
+                                                           //   both_ways, one_way }] }
 });
 ```
+
+**`sync_facts` and `what_it_syncs` (AECI-2046).** Both are `null` unless `isSyncService`
+holds for the product now. `sync_facts` is the three AECi-curated columns, trimmed, and
+`null` when none is recorded. `what_it_syncs` is computed per request by `rollUpWhatItSyncs`
+(`apps/api/src/lib/what-it-syncs.ts`) over the rows already loaded for
+`integrations_as_connector`: the rows with the page product as an endpoint are left out, rows
+for one pair are one pair, and the flows are the public ones after the owner's answers, minus
+refuted flows, as `data_object_slugs` counts them. `objects` is A to Z by name with
+`compareText`, the slug breaking a tie. Each object's `both_ways + one_way = pair_count`.
+`PoweredIntegrationItem` no longer carries `endpoint_categories`. AECI-2046 added it for the
+hero's category hub on a connector page, AECI-2018 removed the hub, and the QA pass on AECI-2035
+(2026-11-24) removed the field: a connector's wheel reads no categories. A
+`PoweredIntegrationItem`'s `direction` is claims-aware since the same pass. It is the public
+flows' direction when the row has any, else the stored direction, in the row's oriented
+source/target frame. That is the rule `context_direction` and the pair page apply, so the
+connector's page states the same direction as both endpoint pages.
 
 **`reachable_pair_count` is derived per request, not stored.** It is the only field on
 `ProductDetail` with no column behind it: `createProductDetailHandler` runs
@@ -792,6 +844,8 @@ List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Sp
 
 The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or the browse-page facet sidebar's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
 
+**Connector type (AECI-1662).** `connector_kind` takes a **comma-separated list** of stored kinds (`integration_platform`, `sync_service`), parsed by `connectorKindList` in `packages/shared/src/api/connector-kind-schema.ts`. **OR within the list**, AND with every other filter. A product matches when its role is `connector` or `hybrid` and its stored kind is in the list, which is exactly what `connectorKindFor` reads, so an `application` holding a stale kind never matches. Values are trimmed, deduped and read in vocabulary order. An empty list or an unknown value is `400 VALIDATION_FAILED` with `error.field = 'connector_kind'`, as a bad UUID is on the taxonomy lists. It filters and never sorts: the sort, `textAsc` collation and the `id ASC` tiebreak are unchanged. It is a read, so it is never rate-limited (ADR 0026). `product_role` stays, unused by the web.
+
 **Slug filters (AECI-1508).** `category_slug` / `audience_slug` / `phase_slug` / `trade_slug` filter one dimension by a single term **slug** (`z.string().min(1).max(200)`, no list). They exist for the taxonomy browse grid's lock: the slug is in the page URL, so the SSR resolver fetches the grid in parallel with `GET /api/{kind}s/:slug` instead of waiting for the term's id. A slug is its own clause, so it ANDs with a `{kind}_id` list on the same dimension. An unknown slug returns an empty page (`total: 0`), never a 404. Sort, `textAsc` collation and the `id ASC` tiebreak are the same as for the id filters. The facet sidebar still locks by `{kind}_id`.
 
 ```typescript
@@ -808,6 +862,7 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
+  connector_kind: connectorKindList.optional(),    // AECI-1662 ("Connector type")
   // has_api_docs was a filter here until AECI-534. The object is not .strict(), so a
   // leftover ?has_api_docs= is stripped: ignored, not refused (as ?verified= is).
 });
@@ -819,7 +874,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. That includes the `{kind}_slug` filters, which are disjunctive exactly like their `{kind}_id` siblings (a dimension's own slug is excluded from its own counts). For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. That includes the `{kind}_slug` filters, which are disjunctive exactly like their `{kind}_id` siblings (a dimension's own slug is excluded from its own counts). For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). **`connector_kinds` (AECI-1662)** is the "Connector type" group: always both kinds, in vocabulary order, each with the count of products the `connector_kind` filter would match under the other active filters (its own `?connector_kind=` is excluded). Unclassified connectors and applications are in neither count. Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -840,6 +895,9 @@ export const ProductFacetsResponseSchema = z.object({
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
   trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
+  connector_kinds: z.array(                         // AECI-1662, both kinds, vocabulary order
+    z.object({ kind: ConnectorKindSchema, product_count: z.number().int().min(0) }),
+  ),
 });
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 ```
@@ -1181,6 +1239,12 @@ export const ProductPairMechanismSchema = z.object({
                                         // the union of the two.
   connector_vendor_id: z.string().uuid().nullable().optional(),   // AECI-933: the primary vendor
                                         // of `powered_by_product` or `via`. See below.
+  connector_kind: ConnectorKindSchema.nullable().optional(),   // AECI-2043: the kind of
+                                        // `powered_by_product` or `via`. See below.
+  connector_rating: z.object({          // AECI-2046: the connector product's own rating.
+    review_count: z.number().int().min(0),
+    rating_overall_avg: z.number().nullable(),   // null below the §5.5 five-review floor
+  }).nullable().optional(),
   claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
 });
 
@@ -1258,6 +1322,8 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`moved_to`** (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a) is `{ context_slug, other_slug }` when this pair is **empty AND its edges were re-pointed onto another product**, else `null`. A re-pointed endpoint keeps the edge's id and updates its row in place, but a pair page is keyed by two product slugs — so the URL moves and the old one used to serve 200 + `noindex` forever. The SSR resolver turns a non-null value into a **301**. Four rules: it is set **only** when both anchor tables returned nothing (a pair that lost one edge of two is smaller, not moved, and redirecting it would hide live rows); it is read from the moved edge's **live** row, so it always names a pair that currently holds that edge and a chain of moves resolves to its end; a deleted edge yields `null`, so a retraction still leaves a noindexed empty page; and it is **already oriented** for the requesting URL — the endpoint that did not move stays in the reader's frame, because §7.1's alphabetical rule is a canonical concern the destination page applies itself. It is **not** a slug alias. A retired *endpoint slug* is a different mechanism on a different branch: `slug_redirects` rewrites the pair route's path prefix on its **404**, since AECI-991 (`STAGE_1_5_SPEC.md` §7.2b). `moved_to` can only ride a 200, so it structurally cannot answer a pair URL whose endpoint product has been deleted — which is why both exist.
 - **`pricing_url`** (AECI-1154, specified 2026-09-28) is the mechanism row's pricing page link, read from `integrations` or `connector_evidenced_pairs` alike, `null` when unset. It sits beside the `pricing_model`, `maturity` and `last_reviewed_at` fields that AECI-1142 adds on its own PR, and follows the same rule: additive and `.optional()`, absent meaning `null`. It feeds the "Price" fact in the card's "At a glance" row: the price text links to it when both are set, and "See pricing" links to it when only the URL is. **Rendered since AECI-1158** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11 as-built note); the web re-checks the scheme before it sets `href`. The owner writes it (`PATCH /api/vendor/integrations/:id`). Promote never does. It is an absolute `http(s)` URL, so it renders as an ordinary external link with `rel="noopener nofollow"`, the card links' recipe. **As built:** the pair read carries it only when it is an absolute `http(s)` URL and reads anything else as `null`, as defence in depth behind the writers' own check (security review, AECI-1154).
 - **`connector_vendor_id`** (AECI-933) is the primary vendor of the mechanism's connector product: `powered_by_product` on an `integrations` row, `via` on a connector-evidenced pair. It is `null` when there is no connector or the connector has no vendor. "Primary" is `pickPrimaryVendor`, the rule behind `ProductListItem.vendor`. It has one reader, the pair page's outbound-click analytics. A curated `listing_url` / `docs_url` click on a row with no `built_by_vendor` is owned by this vendor (`VENDOR_PERFORMANCE_SPEC.md` §3.2). It is a new field rather than a vendor on `ProductLinkSchema`, which many responses share. Additive and `.optional()`, absent meaning `null`. The join is on the pair read only: `connectorEvidencedPairListConfig`, which other reads spread, stays bare.
+- **`connector_rating`** (AECI-2046) is the connector product's own approved review count and overall average, the average `null` below the five-review floor as on that product's page. `null` with no connector. The pair page prints it on a Sync Service card only, beside the two endpoint cards' ratings. The page carries the connector's `product:` tag, so a review decision on it purges the page. Additive and `.optional()`.
+- **`connector_kind`** (AECI-2043) is the kind of the mechanism's connector product, `powered_by_product` on an `integrations` row and `via` on a connector-evidenced pair, through `connectorKindFor` (`STAGE_1_5_SPEC.md` §13.13). It is `null` with no connector, for an unclassified connector, and for a product whose role is now `application`. Two readers. The pair page renders its "Not offered or endorsed by" line on `sync_service` cards only. The mapper orders the cards with it: `toProductPairResponse` keeps the read's order (integrations A to Z by name then id, then evidenced pairs the same way) and moves every `sync_service` card last, A to Z by `built_by_vendor.name` case folded, an unknown vendor last, then `id` (`orderPairMechanisms`, ruling 14 on AECI-2035). The join adds two columns to the connector read the pair already makes. `ProductLinkSchema` stays bare. Additive and `.optional()`, absent meaning `null`.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in `PAIR_PAGE_CACHE_KEY_PARAMS` in `apps/web/src/app/core/route-cache-key.ts` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
 
@@ -1326,7 +1392,7 @@ export const PairTimelineResponseSchema = z.object({
 
 - **This is the ONE endpoint in the system that returns retracted rows.** Every other read applies `liveAttestationsWhere`, so a withdrawn assertion neither votes nor renders as current. Its two read configs (`integrationTimelineConfig`, and `connectorEvidencedPairTimelineConfig` for claims on a connector-evidenced pair since AECI-1035) are deliberately separate for that reason, and `computeAgreement` must never be called on their output. The one engine call allowed on them is `isClaimPubliclyBacked` (AECI-1314). It decides visibility, not agreement, and counts only rows whose `retracted_at` is null.
 - **Both delivered-tier tables (AECI-1035).** The pair read and this timeline read `integrations` and `connector_evidenced_pairs` alike, and each evidenced mechanism carries its claims. An evidenced pair's claims are framed against canonical endpoint A (`product_a_id`), so `attestor` and claim `direction` come out context-relative exactly as they do on an `integrations` row.
-- **Pair-scoped, not claim-scoped**, so one browser fetch serves every provenance popover on the page. Entries are ordered `created_at` then `id` (a total order, so the render is stable regardless of D1 row order). A claim with no attestations is omitted — the browser's "does this claim have a history?" test is the absence of an entry for its id. **A claim the pair read withholds is omitted too** (AECI-1314). That is an unbacked vendor-added claim: `origin = 'vendor'`, no live `aeci` attestation and no live affirming vendor vote. Without this the timeline would publish the vendor's Yes and its Cancel. Once any company affirms it or AECi seeds it, its whole history returns, the withdrawn Yes included.
+- **Pair-scoped, not claim-scoped**, so one browser fetch serves every provenance popover on the page. Entries are ordered `created_at` then `id` (a total order, so the render is stable regardless of D1 row order). A claim with no history is omitted — the browser's "does this claim have a history?" test is the absence of an entry for its id. **The owner's answers on a Sync Service pair are history too** (AECI-2039 follow-up): `attestor` gains `'owner'`, the company that offers the pair (the mechanism's `built_by_vendor` on the pair read). Its answers, live and retracted, are interleaved by `created_at`, without version labels or a note. Only the current owner's are listed, and only while it maintains the row's flows (claimed, Sync Service). A flow the owner's live No removed is withheld whole, like an unbacked claim. **A claim the pair read withholds is omitted too** (AECI-1314). That is an unbacked vendor-added claim: `origin = 'vendor'`, no live `aeci` attestation and no live affirming vendor vote. Without this the timeline would publish the vendor's Yes and its Cancel. Once any company affirms it or AECi seeds it, its whole history returns, the withdrawn Yes included.
 - **Why it is a separate, lazy endpoint rather than inline on the pair response.** History is the gateable depth (§9.3), and the pair page is stored in a shared, URL-keyed edge cache — baking gated content into it would break §9.1a the moment AECI-304 makes the gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal home for content that may vary per reader. It is also the only unbounded payload in the system, since the append-only log grows forever. Designed to be fetched from the browser on the first popover open, **never during SSR** — as-built 2026-09-24, no page currently calls it (see the note above).
 - Gated ⇒ `{ claims: [], diff_access: 'latest_only' }`. The latest state is already rendered in full on the free page, so withholding *history* is exactly what `STAGE_2_SPEC.md` §8.1(4) permits and no more.
 - **Errors / status:** identical to the pair read — `NOT_FOUND` on an unknown slug or two equal slugs; a valid-but-unconnected pair is a 200 with `claims: []`. No new error codes.
@@ -3514,6 +3580,7 @@ export const AdminVendorProductsQuerySchema = PageQuerySchema;   // page / perPa
 export const AdminVendorProductRowSchema = z.object({
   id, slug, name,
   product_role: ProductRoleSchema,        // closed enum — the §5.2 payer test reads it
+  connector_kind: ConnectorKindSchema.nullable(), // AECI-2036; null when unset or `application`
   is_primary: z.boolean(),                // is this vendor the product's primary owner?
   promotion_status: z.string(),           // deliberately not an enum — see the note below
   integration_count: z.number().int().min(0),
@@ -3564,6 +3631,141 @@ unique in this catalogue, and an unstable sort makes a row appear on two pages o
 
 Errors: `404 NOT_FOUND` on an unknown vendor id (never an empty successful page, which
 would read as "this vendor has no products"), plus the shared 401/403.
+
+#### `PATCH /api/admin/products/:id/connector-kind` (AECI-2036)
+
+Sets or clears one product's connector kind: Integration platform or Sync Service
+(`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Driven by the kind control on the
+Products tab above (`ADMIN_PANEL_SPEC.md` §5.7). Behind `requireAdmin()`, then
+`rateLimit('write')`. Source: `packages/shared/src/api/connector-kind-schema.ts`.
+
+```typescript
+export const AdminSetConnectorKindSchema = z
+  .object({ connector_kind: ConnectorKindSchema.nullable() })  // null clears it
+  .strict();
+export const AdminSetConnectorKindResponseSchema = z.object({
+  id: z.string().uuid(),
+  connector_kind: ConnectorKindSchema.nullable(),
+  changed: z.boolean(),   // false: the value was already set; nothing written or purged
+});
+```
+
+| Order | Check | Answer |
+|---|---|---|
+| 1 | Body | `400 VALIDATION_FAILED`: an unknown kind, a missing key or an extra key |
+| 2 | Product exists | `404 NOT_FOUND` |
+| 3 | Role is `connector` or `hybrid` | `409 CONNECTOR_KIND_NOT_CONNECTOR` with `details.product_role` |
+| 4 | Value unchanged | `200 { changed: false }`. No write, no audit row, no purge |
+| 5 | The change takes the product from a kind that can hold a subscription to one that cannot (`productTakesSubscription`, AECI-2044) while a live subscription sits on it | `409 CONNECTOR_KIND_SUBSCRIBED`. A hybrid is never refused. A change between two kinds that both refuse is allowed |
+| 6 | One `db.batch`: a role sentinel, a no-live-subscription sentinel when step 5 applies, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort re-reads and answers the 409 of step 5 or step 3 |
+
+The audit row is `product.updated` with `entity_type = 'product'`, before and after
+`{ connectorKind }`, `metadata { source: 'admin-panel', fields: ['connector_kind'] }`, and
+the holder's `vendor_id` and plan when a vendor holds the product. Post-commit it purges
+`product:{slug}` and `index:products` with `source: 'moderation'`, the logo PATCH's set.
+Every page that shows the product embeds `product:{slug}` (`CACHE_STRATEGY.md` §3 rule 2).
+Since AECI-1662 it also re-indexes the product's Algolia record by id after commit
+(`syncOwnerWriteSearch` behind `dispatchHook`), because the record carries `connector_kind`
+for the "Connector type" filter. A failed sync logs
+`aeci.api.admin.connector_kind_algolia_sync_failed`, and the `updated_at` stamp puts the record
+in the next 08:00 UTC sync. An unchanged value or a refused write syncs nothing. It sends no
+vendor notice and no review-app mirror message: the kind is AECi's classification and the
+review app does not carry it. Promote never writes or clears the column
+(`REVIEW_APP_PROMOTE_API.md`).
+
+#### `PATCH /api/admin/products/:id/sync-facts` (AECI-2046)
+
+Sets or clears a Sync Service's three curated facts: how often it syncs, who supports it,
+how setup works (`STAGE_1_5_SPEC.md` §13.13, ruling 15 on AECI-2035). Driven by the facts
+form on the Products tab above (`ADMIN_PANEL_SPEC.md` §5.7). Behind `requireAdmin()`, then
+`rateLimit('write')`. Source: `packages/shared/src/api/sync-service.ts`.
+
+```typescript
+export const AdminSetSyncFactsSchema = z
+  .object({
+    sync_frequency: syncFact(120),   // string, trimmed; '' or null clears it
+    sync_support: syncFact(160),
+    sync_setup: syncFact(280),
+    source_url: HttpsUrlSchema.nullable(),  // '' reads null. Required while any fact is set
+  })
+  .strict();                         // all four keys required. Clearing every fact clears
+                                     // the source too
+export const AdminSetSyncFactsResponseSchema = SyncFactsSchema.extend({
+  id: z.string().uuid(),
+  changed: z.boolean(),              // false: nothing written, audited or purged
+});
+```
+
+| Order | Check | Answer |
+|---|---|---|
+| 1 | Body | `400 VALIDATION_FAILED`: a missing or extra key, a non-string, a value over its cap, a set fact with no `source_url`, a source that is not an https link |
+| 2 | Product exists | `404 NOT_FOUND` |
+| 3 | `isSyncService(role, kind)` | `409 SYNC_FACTS_NOT_SYNC_SERVICE` with `details.product_role` and `details.connector_kind` |
+| 4 | Every value unchanged | `200 { changed: false }`. No write, no audit row, no purge |
+| 5 | One `db.batch`: a still-a-Sync-Service sentinel, the `UPDATE` (with `updated_at`), the audit row | `200 { changed: true }`. A sentinel abort re-reads and answers step 3's 409 |
+
+The audit row is `product.updated` with `entity_type = 'product'`, before and after state
+holding only the changed fields, `metadata { source: 'admin-panel', fields: [...] }`. The
+`UPDATE` stamps `sync_facts_recorded_at`, which the response returns as `recorded_at`, and
+nulls it with the last fact. `SyncFacts` on the read is `{ sync_frequency, sync_support,
+sync_setup, source_url, recorded_at }`: the page marks the facts as ours with this source and
+date, as the Terms promise for text we write on a listing a vendor maintains.
+Post-commit it purges `product:{slug}` with `source: 'moderation'`. No Algolia sync: the
+record does not carry the facts. No vendor notice. A later kind change keeps the stored
+values and hides them from readers. Promote never writes or clears them.
+
+`AdminVendorProductRow` carries `sync_facts` (optional, the stored values whatever the kind)
+for the form.
+
+#### `GET /api/admin/products/:id/delivered-pairs` (AECI-2045)
+
+Every pair one connector product delivers, both tables, live and retired, for the Delivered pairs section of the Products tab (`ADMIN_PANEL_SPEC.md` §5.7). No catalogue row is needed. Behind `requireAdmin()`. No rate limit, no audit row. Source: `packages/shared/src/api/delivered-pairs.ts`.
+
+```typescript
+export const AdminDeliveredPairSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),
+  name: z.string().nullable(),
+  product_a: ProductLinkSchema,
+  product_b: ProductLinkSchema,
+  owner: ContestVendorRefSchema.nullable(),
+  claimed_at: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  retired_by: IntegrationRetiredBySchema.nullable(),
+  endpoint_vendors: z.array(ContestVendorRefSchema),   // owner choices the console offers
+});
+export const AdminDeliveredPairsResponseSchema = z.object({
+  connector: z.object({ id, name, slug, connector_kind: ConnectorKindSchema.nullable() }),
+  connector_vendors: z.array(ContestVendorRefSchema),
+  pairs: z.array(AdminDeliveredPairSchema),             // by name, then id; at most 500
+});
+```
+
+`404 NOT_FOUND` for an unknown product. `409 CONNECTOR_KIND_NOT_CONNECTOR` for an `application` product.
+
+#### `PUT /api/admin/integrations/:id/owner` (AECI-2045)
+
+Sets or changes the owner (`built_by_vendor_id`) of one connector-delivered pair, in `integrations` or `connector_evidenced_pairs`. Behind `requireAdmin()`, then `rateLimit('write')`. Handler: `apps/api/src/routes/admin-integration-owner.ts`.
+
+```typescript
+export const AdminSetIntegrationOwnerSchema = z
+  .object({ owner_vendor_id: z.string().uuid().nullable(), reason: AdminReasonSchema })
+  .strict();
+export const AdminSetIntegrationOwnerResponseSchema = z.object({
+  changed: z.boolean(),        // false: that owner was already on file; nothing written
+  pair: AdminDeliveredPairSchema,
+});
+```
+
+| Refusal | When |
+|---|---|
+| `400 VALIDATION_FAILED` | the body shape, a missing or empty `reason` |
+| `404 NOT_FOUND` | the id is in neither table |
+| `409 INTEGRATION_NOT_CONNECTOR_DELIVERED` | an `integrations` row that `isConnectorPoweredEdge` says is not connector-delivered, or whose connector is one of its own endpoints (a Convention-A self-reference) |
+| `422 VALIDATION_FAILED` (`field: owner_vendor_id`) | no such vendor |
+| `409 INTEGRATION_CHANGED_WHILE_SAVING` | the row was claimed or re-owned between the read and the batch |
+
+**One batch, the `owner` contest accept's writer (`planOwnerReassign` in `routes/admin-contests.ts`).** The state sentinel, then `built_by_vendor_id` = the new owner, `claimed_at = NULL` and `vendor_edited_at = NULL`, the `integration.updated` audit row (entity `integration` or `connector_evidenced_pair`, `reason: 'owner-reassigned'`, `metadata.source = 'admin-owner-write'`, `metadata.adminReason`) and the re-route of every open owner-routed contest on the row to AECi. On a claimed row the batch also carries the `portal-field-overridden-by-aeci` notice to the displaced owner, with the reason, as the `owner` accept that takes a claim sends it (AECI-1159). A reassignment un-claims the row, the §11b.6 rule. A retired row is accepted: no rule refuses it. After commit: the `pair:` and `product:` purge, the by-id Algolia sync, and the ownership record re-sent for the old and the new owner (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, ADR 0044). On an unclaimed row the next promote can write the review app's owner back, so the operator records it upstream too.
 
 #### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
 
@@ -3973,8 +4175,9 @@ vendor is never sold verification and receives a catalogue-maintenance seat inst
 fences the seat from paid state. A seat holds no subscription, so `vendors.verified`, which mirrors
 live subscriptions, stays false and the pair version-diff gate it drives stays closed. Only an admin
 subscription grant (`POST /api/admin/vendors/:id/licenses`) moves it, and since AECI-1615 only once
-the grant is accepted. Connector vendors and subscriptions
-are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343).
+the grant is accepted. Connector vendors and subscriptions were parked (`VENDOR_SIGNUP_PROCESS.md`
+§2, AECI-1343). Since AECI-2044 (ruling 6, 2026-11-24) a Sync Service product may hold one and an
+Integration platform may not (`STAGE_2_PAID_TIERS_SPEC.md` §13.14).
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
 type: an edit that composed this path with a subscription writer could not report the truth
@@ -4197,7 +4400,7 @@ export const GrantLicensesResponseSchema = z.object({
     ends_at: z.string().nullable(), reference: z.string().nullable(),
     assigned_product_id: z.string().nullable(), // always null on a grant
   })),
-  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })),
+  warnings: z.array(z.object({ code: z.enum(['pure_connector_vendor']), message: z.string() })), // always [] since AECI-2044
 });
 ```
 
@@ -4242,8 +4445,12 @@ seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing grant
 only when the grant is predicted to flip the mirror, because the pair-page version-diff
 gate reads it. No Algolia step.
 
-**Warnings, never a gate.** A vendor whose every owned product is a connector gets a
-`pure_connector_vendor` entry in `warnings`, and the grant still writes (AECI-738).
+**No product that can hold one is refused (AECI-2044).** After the replay and ban checks, a
+vendor that owns products and none that can hold a subscription (every one an Integration
+platform or a connector with no kind) answers `409 NO_SUBSCRIBABLE_PRODUCT` and nothing is
+written. A Sync Service, an application or a hybrid passes. A vendor with no product stays
+grantable. This replaced the AECI-738 `pure_connector_vendor` warning: `warnings` stays on the
+wire and is always empty.
 
 **Email.** Post-commit in `waitUntil`, `licenses-granted` to every unbanned seat and to
 `billing_accounts.billing_email` when set, each address once, keyed
@@ -8127,7 +8334,13 @@ writes the very same columns, so a routine push would silently revert their work
   is about** (AECI-1415, ruling Q2), including the stored endpoints of an edge an update would move
   away from an owned product. Reported as `skipped[] { kind: 'integration' }` with
   `BLOCKED_OWNED_ENDPOINT_REASON`. An edge where the owned product is only the `poweredByProduct`
-  connector still writes. The old scope note, that an integration whose far endpoint is a claimed
+  connector still writes. **One exception (AECI-2041, ruling 7 on AECI-2035):** a pair whose
+  connector is a Sync Service (role `connector` or `hybrid`, kind `sync_service`, read from D1)
+  and neither endpoint writes to `connector_evidenced_pairs`, on an insert or an update of a pair
+  whose stored connector is a Sync Service too. A move in from `integrations`, a de-route and any
+  other connector stay refused. A sentinel at the end of the batch aborts it with
+  `VENDOR_OWNED_DURING_PROMOTE` if the connector stops being a Sync Service before commit. The
+  decision table is `REVIEW_APP_PROMOTE_API.md` §4a. The old scope note, that an integration whose far endpoint is a claimed
   vendor's product still writes, is dropped. The per-row claim fence below still applies on top
   (ADR 0035, keyed on `integrations.claimed_at`).
 - **A claimed integration is not written at all (AECI-1005).** Once its owner has
@@ -8609,6 +8822,19 @@ export const VendorEntitlementBlockSchema = z.object({
 //   plan: VendorEntitlementBlockSchema,  // THIS product's plan, from its own license (AECI-1355)
 ```
 
+**`connector_kind` (AECI-2036).** Each `VendorProduct` carries AECi's classification of a
+connector product: `'integration_platform' | 'sync_service' | null`, defaulted to `null` for
+deploy skew. It is read-only for the vendor: no vendor body accepts it, and only
+`PATCH /api/admin/products/:id/connector-kind` (§6.10) writes it. `null` on an
+`application`.
+
+**`has_connector_catalog` (AECI-2044).** `true` when the product is `connector`-role and AECi
+holds a connector catalogue for it that the vendor may maintain (`connectorCatalogProductIds`,
+the Catalog tab's own predicate). Defaulted to `false` for deploy skew. `GET /api/vendor/me` and
+both `PATCH /api/vendor/products/:id` responses carry it. The portal shows the plan panel's
+`catalogue` state and the overview's catalogue link only for a product with it set that is not a
+Sync Service (`isCatalogueProduct`).
+
 **`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
@@ -8858,7 +9084,8 @@ export const VendorBillingLicenseSchema = z.object({
   `id` breaking ties. The dates are the stored ISO strings, as on the admin read (§6.10).
 - **`open_release_request`** is the subscription's `status = 'open'` row in
   `license_release_requests`, at most one by the partial unique index.
-- **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
+- **`assignable_products`** are the products the vendor owns (`product_vendors`) that can hold a
+  subscription (an application, a hybrid or a Sync Service, AECI-2044) and hold no
   live subscription from **any** vendor. A co-owned product subscribed by the other owner is left
   out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
 - **`pool_count`** (AECI-1865) is every live subscription on no product, counted in the same
@@ -8922,8 +9149,12 @@ caller does not own (`product_vendors`), or no such product, is `404 NOT_FOUND`.
 subscription is `409 LICENSE_NOT_LIVE`. A subscription already on a product is
 `409 LICENSE_ALREADY_ASSIGNED`: moving it is an early-unassign request (decision 11). A
 product that already holds a live subscription from any vendor, a co-owner included, is
-`409 PRODUCT_ALREADY_LICENSED`. That last check runs before the batch, and the loser of a
-race on `licenses_live_product_idx` gets the same `409`.
+`409 PRODUCT_ALREADY_LICENSED`. That check runs before the batch, and the loser of a
+race on `licenses_live_product_idx` gets the same `409`. A product that cannot hold a
+subscription, a `connector` whose kind is Integration platform or blank, is `409
+PRODUCT_NOT_SUBSCRIBABLE` with `details.product_role` and `details.connector_kind` (AECI-2044,
+ruling 6). A Sync Service, an application and a hybrid pass. A sentinel leads the batch, so a kind
+change that commits after the read answers the same `409`.
 
 **Release at renewal, in order.** Owner, shape and the subscription `404` as above. An ended
 or unassigned subscription is `409 LICENSE_NOT_ASSIGNED`. A body that matches the stored flag is
@@ -8949,7 +9180,7 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 
 Errors: `UNAUTHENTICATED` (401) · `FORBIDDEN` (403) · `VALIDATION_FAILED` and
 `MALFORMED_REQUEST` (400) · `NOT_FOUND` (404) · `LICENSE_NOT_LIVE`, `LICENSE_ALREADY_ASSIGNED`,
-`PRODUCT_ALREADY_LICENSED` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
+`PRODUCT_ALREADY_LICENSED`, `PRODUCT_NOT_SUBSCRIBABLE` (409, assign) · `LICENSE_NOT_ASSIGNED` (409, PATCH) ·
 `RATE_LIMITED` (429).
 
 #### `PUT /api/vendor/billing/email` (AECI-1389)
@@ -9092,8 +9323,10 @@ counted in the same D1 batch as the pool, after the Stripe read (`loadPurchaseCo
 count taken before the Stripe read would miss a webhook that commits during it, and that
 webhook's subscriptions would then count twice: once in the pool and once in the gap.
 Products without a subscription are the read's `assignable_products`
-predicate (`assignableProductsWhere`): owned through `product_vendors`, holding no live license
-from any vendor. The server counts both itself (`loadPurchaseCounts`) and never trusts the
+predicate (`assignableProductsWhere`): owned through `product_vendors`, able to hold a
+subscription (AECI-2044), holding no live license from any vendor. Before the gate, checkout and
+add answer `409 NO_SUBSCRIBABLE_PRODUCT` when the vendor owns products and none can hold a
+subscription (AECI-2044). The server counts both itself (`loadPurchaseCounts`) and never trusts the
 client. When `unused` is above zero and the body's `unused_acknowledged` is not exactly
 `unused`, the route answers `409 UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` with `details.unused`,
 `details.pool` and `details.products_without_subscription`, before any Stripe write. An exact
@@ -9224,7 +9457,7 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
 `LICENSE_INTERVAL_MISMATCH` (409, checkout) · `UNUSED_SUBSCRIPTIONS_UNACKNOWLEDGED` (409,
-checkout and add, AECI-1865) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+checkout and add, AECI-1865) · `NO_SUBSCRIBABLE_PRODUCT` (409, checkout and add, AECI-2044) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
 portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
 paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
@@ -10166,7 +10399,7 @@ export const VendorChecklistResponseSchema = z.object({
 ```
 
 - **`status`.** `done` when the step is finished, whether or not it counts. `todo` when it is unfinished and counts. `optional` when it is unfinished and does not count.
-- **`counts`.** "Invite a colleague" never counts. "Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`. So a finished Free product reads `done: 3, total: 3` and a Managed product reads `x` of `4`.
+- **`counts`.** "Invite a colleague" never counts. "Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`. Since AECI-2038 (2026-11-24) every live plan holds it, so every product reads `x` of `4`. A Free product read `done: 3, total: 3` before.
 - **A step with nothing to do is `done`.** A vendor with no products has "Finish each product checklist" done.
 - **Step rules.** §13.10 and its as-built note define each one. Two readings matter to a caller. A connector-powered row counts toward "Claim or say not ours" on every plan (since ruling 14, 2026-11-09, AECI-1663; before it, only on a plan that could claim it). A row counts as answered while an `owner` contest on it is open, or accepted with `owner_vendor_id` still equal to the row's `built_by_vendor_id`, whoever filed it (AECI-1225). A declined contest counts against the vendor again. Claims on connector-powered rows never count toward "Confirm data flows", because nobody may attest them.
 - **Batched.** The vendor read is seven SELECTs in one wave for any number of products. The product read is the three-read ownership wave plus three fact reads.
@@ -10210,6 +10443,32 @@ export const VendorProductConnectorsResponseSchema = z.object({
 **Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync, a promote, or a connector seat's mapping edit on its own vendor-managed catalogue moves it (AECI-724). Nothing the reading vendor does moves it. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
 
 Errors: `NOT_FOUND` (unknown product, or one owned by another vendor, deliberately indistinguishable), plus the §6.14 guard errors.
+
+#### `GET /api/vendor/products/:id/delivered-pairs`
+
+AECI-2045 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13a). On a Sync Service product, the live pairs recorded as delivered through it whose owner is not the caller, so the vendor can ask AEC Integrations to record it as the owner. Zod in `packages/shared/src/api/delivered-pairs.ts`, handler in `apps/api/src/routes/vendor-delivered-pairs.ts`, loader in `apps/api/src/lib/delivered-pairs.ts`.
+
+| Gate | Success |
+|---|---|
+| `requireVendor()` **+ ownership** of `:id` (`product_vendors`), else the flat `404`. No entitlement gate, no `vendors.verified` gate, no rate limit | `200 { pairs }`. `{ pairs: [] }` when the product is not a Sync Service (`isSyncService`) |
+
+```typescript
+export const VendorDeliveredPairSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),
+  name: z.string().nullable(),
+  product_a: ProductLinkSchema,      // source on integrations, product_a on a pair
+  product_b: ProductLinkSchema,
+  owner: ContestVendorRefSchema.nullable(),   // never the caller; null = nobody on file
+  claimed: z.boolean(),
+  open_request_id: z.string().uuid().nullable(), // the caller's open `owner` contest
+});
+export const ListVendorDeliveredPairsResponseSchema = z.object({
+  pairs: z.array(VendorDeliveredPairSchema),
+});
+```
+
+Rows: `connector_evidenced_pairs` with `connector_product_id = :id`, and `integrations` with `powered_by_product_id = :id` where the connector is neither endpoint (a Convention-A self-reference is a direct integration). Live only (`retired_at IS NULL`). `built_by_vendor_id` NULL or another vendor. Ordered by name case-insensitively (`compareText`), then id. The ask is the existing contest submit (`POST /api/vendor/integrations/:id/contests`) with `field: 'owner'` and `proposed_value` the caller's vendor id, under §11b.2's Sync Service authority.
 
 #### `GET /api/vendor/products/:id/connector-catalog`
 
@@ -10310,11 +10569,11 @@ Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-dec
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/products/:id/versions` | ownership | `200 { versions }` |
-| `POST` | `/api/vendor/products/:id/versions` | ownership **+ `attestation.author`** | `201 { version }` |
-| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `attestation.author`** | `200 { version }` |
-| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `attestation.author`** | `204` (no body) |
+| `POST` | `/api/vendor/products/:id/versions` | ownership **+ `product.versions.edit`** | `201 { version }` |
+| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `product.versions.edit`** | `200 { version }` |
+| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `product.versions.edit`** | `204` (no body) |
 
-**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is the `attestation.author` capability checked (`requireProductCapability` since AECI-1355, over THIS product's live subscription; it was `requireCapability` over the vendor tier), and a miss there is a **`403 ENTITLEMENT_REQUIRED`** with `details: { capability: 'attestation.author', tier }`. Until AECI-623 this gate read the `vendors.verified` mirror and answered `403 FORBIDDEN`; the status is unchanged, the `code` is not. Reversed, a caller without active access probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps an active non-owner on the 404 path. **`GET` is not account-access-gated**: authoring requires active vendor access (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the vendor-access flow and **never at ranking, placement, or search** — account access gates capability only.
+**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is the `product.versions.edit` capability checked (`requireProductCapability` since AECI-1355, over THIS product's live subscription; it was `requireCapability` over the vendor tier), and a miss there is a **`403 ENTITLEMENT_REQUIRED`** with `details: { capability: 'product.versions.edit', tier }`. The capability was `attestation.author` until AECI-2038 (2026-11-24) moved confirming data flows to every plan and kept versions on Managed under their own id. Until AECI-623 this gate read the `vendors.verified` mirror and answered `403 FORBIDDEN`; the status is unchanged, the `code` is not. Reversed, a caller without active access probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps an active non-owner on the 404 path. **`GET` is not account-access-gated**: authoring requires active vendor access (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the vendor-access flow and **never at ranking, placement, or search** — account access gates capability only.
 
 `:versionId` must belong to `:id`; a mismatch is a `404`, so a version id cannot be probed across products.
 
@@ -10363,7 +10622,7 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
-Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `ENTITLEMENT_REQUIRED` (403 — owner, but the tier lacks `attestation.author`; was `FORBIDDEN` before AECI-623), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `ENTITLEMENT_REQUIRED` (403 — owner, but the product's tier lacks `product.versions.edit`, `attestation.author` before AECI-2038; was `FORBIDDEN` before AECI-623), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
 
 #### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
@@ -10541,7 +10800,7 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 **No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
-Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `ENTITLEMENT_REQUIRED` (403 — endpoint owner, but the caller's endpoint product lacks `attestation.author`; per product since the 2026-10-14 ruling, either endpoint for a caller owning both; `details: { capability, tier }` with the endpoint product's tier; copy points at activation and never at ranking, placement, or search. Was `FORBIDDEN` before AECI-623), `FORBIDDEN` (403 — a connector-powered edge on `POST` / `PUT`, AECI-705; checked before the capability, so no tier is promised to unlock it), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `ENTITLEMENT_REQUIRED` (403 — endpoint owner, but the caller's endpoint product lacks `attestation.author`. Since AECI-2038 (2026-11-24) every live tier holds it, Free included, so only a tier the build does not know is refused; per product since the 2026-10-14 ruling, either endpoint for a caller owning both; `details: { capability, tier }` with the endpoint product's tier; copy points at activation and never at ranking, placement, or search. Was `FORBIDDEN` before AECI-623), `FORBIDDEN` (403 — a connector-powered edge on `POST` / `PUT`, AECI-705; checked before the capability, so no tier is promised to unlock it), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
 **Deny needs a reason (AECI-1151, specified 2026-09-28).** A `PUT` with `asserted: false` whose `note` is missing, `null` or empty after trimming answers `400 ATTESTATION_NOTE_REQUIRED`, `field: 'note'` (§4). The rule is the shared pure function `attestationNoteProblem(asserted, note)`, called by the handler after the capability gate and the body parse, and by the portal before it sends. `UpsertVendorAttestationSchema` itself is unchanged, so a client that sends a note keeps working. Existing deny rows with no note still read as they are, and the author's next deny on that claim must carry one (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). **A note is private** to the other company and AEC Integrations (AECI-1139): `counterparty.note` here is the only vendor read that carries another company's note, and no public read carries any vendor note.
 
@@ -10630,6 +10889,50 @@ export const VendorClaimAddedNotificationSchema = z.object({
   The row never carries the note. `isAttestationNotification` must name `'claim_added'`, or the new rows would be read as attestation rows.
 
 ---
+
+#### 6.15a Owner flows on a Sync Service pair — `/api/vendor/owned-*` (AECI-2039)
+
+The owner (`built_by_vendor_id`) of a claimed row whose connector product is a Sync Service maintains its data flows, on either delivered table (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Mounted `requireVendor()` → `rateLimit('write')`; a seat is the whole remaining gate, on any plan. Handlers: `routes/vendor-owner-flows.ts`. Shapes: `packages/shared/src/api/vendor-attestations.ts`.
+
+| Method and path | Body | Answer |
+|---|---|---|
+| `POST /api/vendor/owned-integrations/:id/flows` | `AddOwnerFlowSchema`: `{ data_object, direction }`, strict. `direction` is framed against the row's `product_a` | `201` with a new claim (`origin = 'vendor'`, `created_by_vendor_id` = the owner) and its Yes. `200` when the flow already exists: it is confirmed instead |
+| `PUT /api/vendor/owned-flows/:claimId/answer` | `SetOwnerFlowAnswerSchema`: `{ asserted }` | `200`. `true` confirms, `false` removes the flow from public reads |
+| `DELETE /api/vendor/owned-flows/:claimId/answer` | none | `204`, also when there was no answer (then nothing is written) |
+| `PATCH /api/vendor/owned-flows/:claimId` | `ChangeOwnerFlowSchema`: `{ direction }` | `200`. The old flow is answered No and the flow in the new direction confirmed, in one batch. The same direction is a no-op `200` |
+
+Every `200`/`201` is `OwnerFlowsResponseSchema`: `{ integration_id, flows: OwnedFlow[] }`, the row's flows after the write.
+
+Refusals, in order: `404 NOT_FOUND` (unknown row, or one the caller neither owns nor has an endpoint on; on a `:claimId` route every 404 reads as the claim's, and a reach-anchored claim is a 404), `403 INTEGRATION_NOT_OWNER` or `409 INTEGRATION_OWNER_UNKNOWN` (an endpoint vendor that is not the owner), `403 FORBIDDEN` (the connector is not a Sync Service, or no connector delivers an `integrations` row), `409 INTEGRATION_NOT_CLAIMED`, `409 INTEGRATION_RETIRED`, then `400 VALIDATION_FAILED` (an unknown `data_object`, a bad body), `409 INTEGRATION_CHANGED_WHILE_SAVING` (the guarded row `UPDATE` matched nothing, re-asked through the gate first), `429 RATE_LIMITED`.
+
+**Read side.** `GET /api/vendor/integrations` adds `owned[].sync_service`, `owned[].flows_editable` and `owned[].flows` (`OwnedFlowSchema`: `id`, `data_object_slug`, `data_object_name`, `direction` framed against `product_a`, `agreement`, `origin`, `answer`: `'yes' | 'no' | null`). The endpoint vendor's entries add `flows_maintained_by_owner`, and each claim `owner_answer`. On an entry whose row the caller OWNS and maintains the flows of (it also makes an endpoint, so the row is on this list and not in `owned`), `owner_flows` carries `{ product_a, product_b, editable, flows }`, framed exactly as `owned[]` is: directions against the row's endpoint A, not the entry's `context_product`. It is `null` on every other entry, and the portal answers through the routes above with it (follow-up, 2026-11-24). All are defaulted for deploy skew. `AgreementState` gains `owner_confirmed` on every wire that carries it (`VendorClaim`, `OwnedFlow`, `ProductPairClaim`, `ProductIntegrationItem.agreement`). The pair read's `attestations[]` never carries the owner's answer: `PairClaimAttestationSchema.source` is unchanged, and the badge names the mechanism's `built_by_vendor`.
+
+**Changed message (AECI-2039).** The AECI-705 `403 FORBIDDEN` on `POST /api/vendor/claims` and `PUT …/attestation` now reads "This integration is delivered through a connector, so neither product vendor can attest to it." Its second sentence was false on a claimed row. The contest route's "`{field}` can no longer be contested." lost "AEC Integrations keeps it up to date." for the same reason.
+
+#### 6.15b An endpoint vendor's rights on a Sync Service pair (AECI-2042)
+
+Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e. Schemas: `packages/shared/src/api/sync-service-pair-rights.ts`. A veto, withdraw and lift act on the pair KEY (connector, A, B): every row on it, in either table, leaves or returns together. `pair_public` on `VetoWriteResponse` is true when any row on the key is live after the write. `GET /api/vendor/vetoes` `received` lists vetoes on any key where the caller owns a row. Every write is `requireVendor()` (or `requireAdmin()`) → `rateLimit('write')` → the handler. The two vendor reads and the two admin reads are never rate-limited. `:id` on the `/integrations/:id/…` routes names a row in either table. Directions are the pair's canonical A/B frame (`a_to_b`, `b_to_a`, `both`) against `pair.product_a`.
+
+| Route | Body | Answer | Refusals |
+|---|---|---|---|
+| `POST /api/vendor/integrations/:id/veto` | `FileVetoSchema` `{ reason }` (1 to 1,000) | `201 VetoWriteResponse { veto, pair_public }` | `404` (unknown id, or caller holds neither endpoint), `403 SYNC_SERVICE_RIGHT_NOT_AVAILABLE`, `403 SYNC_SERVICE_RIGHT_OWN_INTEGRATION`, `409 VETO_DUPLICATE`, `409 VETO_PAIR_CHANGED` (the gate failed at commit), `400` |
+| `POST /api/vendor/vetoes/:id/withdraw` | none | `200 VetoWriteResponse` | `404` (unknown, or another vendor's veto), `409 VETO_NOT_IN_FORCE` |
+| `GET /api/vendor/vetoes` | — | `200 VendorVetoesResponse { filed, received }`, newest change first, 100 per side | — |
+| `POST /api/vendor/integrations/:id/pair-contests` | `SubmitPairContestSchema`: `{ kind: 'existence', reason }` or `{ kind: 'data_flow', claim_id, reason, proposed_direction? }` | `201 PairContestResponse { contest }` | the veto route's gate refusals, `409 INTEGRATION_VETOED`, `409 INTEGRATION_RETIRED`, `400` (`claim_id` not on the row), `422 CONTEST_NO_CHANGE`, `409 PAIR_CONTEST_DUPLICATE`, `409 PAIR_CONTEST_CHANGED` (the gate failed at commit) |
+| `GET /api/vendor/pair-contests` | — | `200 VendorPairContestsResponse { submitted, received }` (received: owner-routed reports on the caller's pairs) | — |
+| `POST /api/vendor/pair-contests/:id/withdraw` | none | `200 PairContestResponse` | `404`, `409 PAIR_CONTEST_NOT_OPEN` |
+| `POST /api/vendor/pair-contests/:id/decision` | `DecidePairContestSchema` `{ decision, note? }` | `200 PairContestResponse` | `404` (not routed to the caller), `409 PAIR_CONTEST_NOT_OPEN`, `409 PAIR_CONTEST_CHANGED`, the owner flow gate's `403` / `409` |
+| `POST /api/vendor/pair-contests/:id/protest` | `FilePairProtestSchema` `{ reason }` (1 to 2,000) | `200 PairContestResponse` | `404`, `409 PAIR_PROTEST_NOT_ALLOWED` |
+| `POST /api/vendor/pair-contests/:id/protest/withdraw` | none | `200 PairContestResponse` | `404`, `409 PAIR_PROTEST_NOT_OPEN` |
+| `GET /api/admin/vetoes?in_force=true\|false` | — | `200 AdminVetoesResponse { data }` (adds `owner_name`), 200 rows | — |
+| `POST /api/admin/vetoes/:id/lift` | `AdminLiftVetoSchema` `{ note }` | `200 VetoWriteResponse` | `404`, `409 VETO_NOT_IN_FORCE`, `400` |
+| `GET /api/admin/pair-contests?status=&protests=` | — | `200 AdminPairContestsResponse { data }`, 200 rows | — |
+| `PATCH /api/admin/pair-contests/:id` | `AdminDecidePairContestSchema` `{ decision, note?, source_url? }` | `200 PairContestResponse` | `409 CONTEST_ROUTED_TO_OWNER`, `409 PAIR_CONTEST_NOT_OPEN`, `409 PAIR_CONTEST_CHANGED`, `400` with `field: note` (accept without a note) or `field: sourceUrl` (existence accept without an https link) |
+| `PATCH /api/admin/pair-contests/:id/protest` | `AdminDecidePairProtestSchema` `{ decision: 'upheld' \| 'rejected', note }` | `200 PairContestResponse` | `409 PAIR_PROTEST_NOT_OPEN` |
+
+`PairContest` carries `kind`, `pair` (`integration_id`, `anchor`, `name`, `connector`, `product_a`, `product_b`), `flow` (`claim_id`, `data_object_slug`, `data_object_name`, `current_direction`, `proposed_direction`) or `null`, `reason`, the submitter and owner ids and names, `routed_to`, `status`, `decision_note`, `decided_at`, `accept_mode` (`retired`, `already-retired`, `upstream-only`, `flow-removed`, `flow-redirected`), `protest`, `protest_closes_at`, `created_at`, `updated_at`. No profile id is sent.
+
+**Changed wire (AECI-2042).** `EvidencedPairContestTarget` on `GET /api/vendor/products/:id/connectors` gains `sync_service_rights` (`SyncServiceRightsSchema`: `veto_id`, `open_reports`, `open_flow_claim_ids`, `flows`, `flows_decided_by_owner`), `null` on any other connector and for the owner, defaulted for deploy skew. `VendorNotification` gains the `pair_right` member (`VendorPairRightNotificationSchema`). `POST /api/vendor/sync-service-pairs` answers `409 INTEGRATION_VETOED` for a vetoed pair key. The owner and admin restores answer `409 INTEGRATION_VETOED` on a vetoed row.
 
 #### Private row threads — `/api/vendor/claims/:claimId/thread` (AECI-1535)
 
@@ -10786,7 +11089,7 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **No capability gate.** This is the named exception to invariant 3 above.
 
-**Submit order: authority → owner → live → shape → owner field → value → duplicate.** Authority is an endpoint vendor, or (AECI-1225) the vendor named in `built_by_vendor_id`. Anyone else, or an unknown id, gets the same `404` before the body is read. The named owner of a claimed or vendor-created row gets `403 CONTEST_OWN_INTEGRATION`. Then the live check, then `400 VALIDATION_FAILED` for the body shape. A named owner sending any field other than `owner` gets `403 CONTEST_OWN_INTEGRATION`. Then `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
+**Submit order: authority → owner → live → shape → owner field → value → duplicate.** Authority is an endpoint vendor, or (AECI-1225) the vendor named in `built_by_vendor_id`, or (AECI-2045) the vendor holding the row's connector product when that product is a Sync Service. That last one may send only `field: 'owner'` (else `403 CONTEST_CONNECTOR_OWNER_ONLY`) with its own vendor id as `proposed_value` (else `422 CONTEST_INVALID_VALUE`). Anyone else, or an unknown id, gets the same `404` before the body is read. The named owner of a claimed or vendor-created row gets `403 CONTEST_OWN_INTEGRATION`. Then the live check, then `400 VALIDATION_FAILED` for the body shape. A named owner sending any field other than `owner` gets `403 CONTEST_OWN_INTEGRATION`. Then `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
 **The owner's "not ours" (AECI-1225, ruled 2026-10-05).** The vendor named in `built_by_vendor_id` may file an `owner` contest on its own row only when the row has `origin = 'aeci'` and `claimed_at IS NULL`. It routes to AECi like every `owner` contest. A named owner holding neither endpoint, such as a connector vendor, must send `context_product_id` absent or `null`, or the existing `400` applies. The submit batch carries `contestIntegrationStateSentinel`, which expects the row unclaimed and the caller as owner. If the row was claimed or re-pointed after the read, the answer is `409 CONTEST_INTEGRATION_CHANGED` and nothing is written. The audit row `integration.contest.submitted` carries `metadata.selfDisclaim: true`. There is no new route, error code or migration.
 
@@ -10954,7 +11257,7 @@ export const ClaimIntegrationResponseSchema = z.object({
 });
 ```
 
-**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row (`isConnectorPoweredEdge`, or any evidenced pair) claims it on any plan. It answered `403 INTEGRATION_CONNECTOR_POWERED` until AECI-1089, and `403 INTEGRATION_ENTITLEMENT_REQUIRED` without a live subscription until AECI-1663. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
+**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row (`isConnectorPoweredEdge`, or any evidenced pair) claims it on any plan. It answered `403 INTEGRATION_CONNECTOR_POWERED` until AECI-1089, and `403 INTEGRATION_ENTITLEMENT_REQUIRED` without a live subscription until AECI-1663. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`. Then, since AECI-2047, an `integrations` row typed `iPaaS` with no `powered_by_product_id` is `409 INTEGRATION_CONNECTOR_UNRESOLVED`: its connector is not recorded yet, and a claim would strand it in the wrong table (`REVIEW_APP_PROMOTE_API.md` §3.4a).
 
 **One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>` on whichever table holds the row, a race sentinel right after it, an `integration.claimed` audit row (entity `integration` or `connector_evidenced_pair`; `metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim, and `connectorPowered: true` with `anchor` only on the carve-out), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers the refusal the re-read finds, or `409 INTEGRATION_CHANGED_WHILE_SAVING` when there is none (promote moved the row to the other table, say). After commit it purges `pair:{a}__{b}` and both `product:` tags, plus the connector's `product:` tag on a pair, and queues the pair re-crawl.
 
@@ -11046,6 +11349,52 @@ export const PossibleDuplicatesResponseSchema = z.object({
 **The list is the create's.** The same strong-match query, oldest first, with the caller as owner and no connector. So a create run straight after returns the same `possible_duplicates`, unless a row landed in between.
 
 **Nothing else.** No audit row, no purge, no cache tag. The response is `private, no-store`. It exposes nothing new: every match sits on the caller's own product, so `GET /api/vendor/integrations` already lists it.
+
+#### A Sync Service adds its own pair — `POST /api/vendor/sync-service-pairs`
+
+AECI-2040 (rulings 7 and 11 on AECI-2035, 2026-11-24; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7). A sibling of the vendor create above, which keeps its contract: its `.strict()` body still refuses a connector. Zod in `packages/shared/src/api/sync-service-pair-create.ts`, handler in `apps/api/src/routes/vendor-sync-service-pair-create.ts`, refusals and sentinels in `apps/api/src/lib/sync-service-pair-create.ts`, the twin guard in `apps/api/src/lib/integration-twins.ts` (`findSyncServicePairBlock`).
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/sync-service-pairs` | seat, `rateLimit('write')`, `connector_product_id` a listed Sync Service the caller holds | `201 { pair }` |
+
+```typescript
+export const CreateSyncServicePairSchema = z
+  .object({
+    connector_product_id: z.string().uuid(),    // the caller's Sync Service
+    product_id: z.string().uuid(),              // any listed product; frames `direction`
+    counterpart_product_id: z.string().uuid(),  // any listed product
+    // The nine fields an owner edits on `connector_evidenced_pairs` (no
+    // `mechanism_kind`: the table has none). `name` and `direction` are required.
+    name, mechanism_name, direction, description, listing_url, docs_url,
+    pricing_model, maturity, pricing_url,
+  })
+  .strict();   // `mechanism_kind`, `origin`, `built_by_vendor_id`, … is a 400.
+               // Equal endpoints, or an endpoint equal to the connector, is a 400.
+
+export const CreateSyncServicePairResponseSchema = z.object({
+  pair: z.object({
+    id, connector_product_id,
+    product_a_id, product_b_id,      // canonical: product_a_id < product_b_id
+    origin: z.literal('vendor'),
+    owner_vendor_id,                 // the caller
+    claimed_at,                      // set: promote never writes this row
+    maintained_by: z.literal('vendor'),
+    last_reviewed_at, created_at, updated_at,
+  }),
+});
+```
+
+| Refusal | Status | When |
+|---|---|---|
+| `NOT_FOUND` | 404 | The connector is not the caller's, hidden, not promoted or missing. Or an endpoint is hidden, not promoted or missing. One answer for each, so the catalog cannot be probed |
+| `CONNECTOR_NOT_SYNC_SERVICE` | 422 | The connector is the caller's but not a Sync Service |
+| `INTEGRATION_INVALID_VALUE` | 422 | A value wrong for its field (`integrationEditValueProblem`) |
+| `INTEGRATION_ALREADY_ON_RECORD` | 409 | The pair is on record through this connector, in either table, live or retired |
+| `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A commit-time sentinel fired and the re-read finds no refusal to give |
+| `VENDOR_SUSPENDED`, `LEGAL_ACCEPTANCE_REQUIRED` | 403 | The guard's own refusals, as on every vendor write |
+
+**One batch:** three sentinels (the connector is still the caller's listed Sync Service, both endpoints are still listed, nothing blocks the pair), the INSERT, the `integration.created` audit row (entity `connector_evidenced_pair`, `metadata.reason: 'sync-service-create'`), one `notification.sent` row (`kind: 'integration_create'`, registry id `portal-sync-service-pair-create`) per vendor of either endpoint except the caller, and three count recomputes (both endpoints and the connector). After commit: by-id Algolia sync, purge `pair:{a}__{b}`, both endpoint `product:` tags, the connector's `product:` tag, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap`, queue the pair re-crawl, and re-send the ownership record.
 
 #### Product requests — `POST` + `GET /api/vendor/product-requests`
 

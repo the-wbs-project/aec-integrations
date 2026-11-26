@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ddlHasRetiredColumn,
+  ddlHasVetoedColumn,
   EVIDENCED_PAIRS_DDL_QUERY,
   evidencedPairsDdlOrThrow,
   integrationsDdlOrThrow,
@@ -25,7 +26,7 @@ import {
 describe('the evidenced arm (AECI-1091)', () => {
   it('filters retired pairs and pairs touching a hidden product (AECI-1238)', () => {
     expect(liveEvidencedPairSql('cep')).toBe(
-      `(cep."retired_at" IS NULL AND ${endpointsVisibleSql([
+      `(cep."retired_at" IS NULL AND cep."vetoed_at" IS NULL AND ${endpointsVisibleSql([
         'cep."product_a_id"',
         'cep."product_b_id"',
         'cep."connector_product_id"',
@@ -36,9 +37,14 @@ describe('the evidenced arm (AECI-1091)', () => {
 
   it('probes its own table and degrades per column', () => {
     expect(EVIDENCED_PAIRS_DDL_QUERY).toContain("name = 'connector_evidenced_pairs'");
-    expect(liveEvidencedPairSqlIf('cep', true, true)).toBe(liveEvidencedPairSql('cep'));
-    expect(liveEvidencedPairSqlIf('cep', false, false)).toBe('(1 = 1 AND 1 = 1)');
-    expect(liveEvidencedPairSqlIf('cep', true, false)).toBe('(cep."retired_at" IS NULL AND 1 = 1)');
+    expect(liveEvidencedPairSqlIf('cep', true, true, true)).toBe(liveEvidencedPairSql('cep'));
+    expect(liveEvidencedPairSqlIf('cep', false, false, false)).toBe('(1 = 1 AND 1 = 1 AND 1 = 1)');
+    expect(liveEvidencedPairSqlIf('cep', true, false, false)).toBe(
+      '(cep."retired_at" IS NULL AND 1 = 1 AND 1 = 1)',
+    );
+    expect(liveEvidencedPairSqlIf('cep', false, false, true)).toBe(
+      '(1 = 1 AND cep."vetoed_at" IS NULL AND 1 = 1)',
+    );
   });
 
   it('treats an empty DDL read as could-not-check', () => {
@@ -55,7 +61,7 @@ describe('live-integration predicate, raw-SQL form (AECI-1010, AECI-1238)', () =
 
   it('adds endpoint visibility over source, target and connector', () => {
     expect(liveIntegrationSql('i')).toBe(
-      `(i."retired_at" IS NULL AND ${endpointsVisibleSql([
+      `(i."retired_at" IS NULL AND i."vetoed_at" IS NULL AND ${endpointsVisibleSql([
         'i."source_product_id"',
         'i."target_product_id"',
         'i."powered_by_product_id"',
@@ -80,11 +86,17 @@ describe('the deployed-database probe (AECI-1010, AECI-1238)', () => {
     expect(ddlHasRetiredColumn(null)).toBe(false);
   });
 
+  it('finds the veto column the same way (AECI-2042)', () => {
+    expect(ddlHasVetoedColumn('CREATE TABLE x (`id` text, `vetoed_at` text)')).toBe(true);
+    expect(ddlHasVetoedColumn(MIGRATED)).toBe(false);
+    expect(ddlHasVetoedColumn(undefined)).toBe(false);
+  });
+
   it('degrades each clause to always-true only when its column is absent', () => {
-    expect(liveIntegrationSqlIf('i', true, true)).toBe(liveIntegrationSql('i'));
-    expect(liveIntegrationSqlIf('i', false, false)).toBe('(1 = 1 AND 1 = 1)');
-    expect(liveIntegrationSqlIf('i', false, true)).toBe(
-      `(1 = 1 AND ${endpointsVisibleSql([
+    expect(liveIntegrationSqlIf('i', true, true, true)).toBe(liveIntegrationSql('i'));
+    expect(liveIntegrationSqlIf('i', false, false, false)).toBe('(1 = 1 AND 1 = 1 AND 1 = 1)');
+    expect(liveIntegrationSqlIf('i', false, true, false)).toBe(
+      `(1 = 1 AND 1 = 1 AND ${endpointsVisibleSql([
         'i."source_product_id"',
         'i."target_product_id"',
         'i."powered_by_product_id"',

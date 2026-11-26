@@ -73,6 +73,9 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.notOwner:Another company is now recorded as the owner of this integration, so it was not claimed.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationClaim.error.connector:Connector-delivered integrations cannot be claimed yet.`;
+    // AECI-2047: the row names a connector AECi has not recorded yet.
+    case 'INTEGRATION_CONNECTOR_UNRESOLVED':
+      return $localize`:@@vendor.integrationClaim.error.connectorUnresolved:AEC Integrations has not finished recording the connector that delivers this integration. You can claim it once we have, so it was not claimed.`;
     case 'INTEGRATION_CHANGED_WHILE_SAVING':
       return $localize`:@@vendor.integrationClaim.error.changed:This integration changed while you were claiming it, so it was not claimed. Reload and try again.`;
     case 'RATE_LIMITED':
@@ -99,6 +102,9 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.notClaimed:Claim this integration before retiring it.`;
     case 'INTEGRATION_RETIRED_BY_AECI':
       return $localize`:@@vendor.retire.error.retiredByAeci:AEC Integrations retired this integration, so only AEC Integrations can restore it. Reload to see its current state.`;
+    // AECI-2042: an endpoint vendor removed it from its product. Not a retire.
+    case 'INTEGRATION_VETOED':
+      return $localize`:@@vendor.retire.error.vetoed.v2:A vendor of one of the two products removed this integration from its product, so you cannot restore it. It returns if that vendor withdraws the removal. Messages says who and why.`;
     case 'INTEGRATION_NOT_OWNER':
       return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
     case 'INTEGRATION_CONNECTOR_POWERED':

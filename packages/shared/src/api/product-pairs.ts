@@ -9,6 +9,7 @@ import {
   ProductLinkSchema,
   VendorLinkSchema,
 } from './common';
+import { ConnectorKindSchema } from './connector-kind-schema';
 import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
 import { UnderReviewSchema } from './hidden-fields';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
@@ -334,6 +335,31 @@ export const ProductPairMechanismSchema = z.object({
    */
   connector_vendor_id: z.string().uuid().nullable().optional(),
   /**
+   * The kind of the connector product behind this mechanism (AECI-2043,
+   * `docs/STAGE_1_5_SPEC.md` §13.13): `powered_by_product`'s kind on an `integrations`
+   * row, `via`'s kind on a connector-evidenced pair, through `connectorKindFor`. `null`
+   * when there is no connector, or the connector is unclassified. Two readers: the
+   * pair page's "Not offered or endorsed by" line, which renders on `sync_service`
+   * only, and the card order, which puts Sync Service cards last, A to Z by the
+   * offering vendor (ruling 14 on AECI-2035). `.optional()` for SSR/API deploy skew:
+   * absent means `null`.
+   */
+  connector_kind: ConnectorKindSchema.nullable().optional(),
+  /**
+   * The connector product's own rating (AECI-2046): its approved review count and its
+   * overall average, the average `null` below the §5.5 five-review floor, exactly as
+   * the product's own page shows it. `null` when there is no connector. The pair page
+   * prints it on a Sync Service card only, beside the two endpoint products' ratings.
+   * `.optional()` for SSR/API deploy skew: absent means `null`.
+   */
+  connector_rating: z
+    .object({
+      review_count: z.number().int().min(0),
+      rating_overall_avg: z.number().nullable(),
+    })
+    .nullable()
+    .optional(),
+  /**
    * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
    * §6.17.11), from `integrations` or `connector_evidenced_pairs` alike. It feeds
    * the "Price" fact of the card's "At a glance" row (AECI-1142): the price text
@@ -520,7 +546,15 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
  * `computeAgreement` on these.
  */
 export const ClaimTimelineEntrySchema = z.object({
-  attestor: z.enum(['aeci', 'context', 'other']),
+  /**
+   * Who spoke, in the page's context frame, as on {@link PairClaimAttestationSchema}.
+   * `owner` (AECI-2039) is the company that offers a Sync Service pair and runs both
+   * sides of it: the mechanism's `built_by_vendor` on the pair read. Its entries are its
+   * answers on the flow (`claim_owner_answers`), listed only while that company still
+   * maintains the row's flows (claimed, Sync Service, the answer is its own), so a
+   * previous owner's answers never appear under the current owner's name.
+   */
+  attestor: z.enum(['aeci', 'context', 'other', 'owner']),
   asserted: z.boolean(),
   /** Always `null`, as on {@link PairClaimAttestationSchema} (AECI-1139). This is
    *  the second public route that once carried the note. */

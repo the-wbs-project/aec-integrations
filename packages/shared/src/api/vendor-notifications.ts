@@ -10,6 +10,7 @@ import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 import { ContextDirectionSchema } from './integrations';
 import { ListingHideKindSchema } from './listing-hides';
 import { PRODUCT_REQUEST_OUTCOMES } from './product-requests';
+import { VendorPairRightNotificationSchema } from './sync-service-pair-rights';
 import { ThreadClosedReasonSchema } from './vendor-threads';
 
 /**
@@ -495,6 +496,8 @@ export const VendorNotificationSchema = z.union([
   VendorProductRequestNotificationSchema,
   VendorThreadMessageNotificationSchema,
   VendorThreadClosedNotificationSchema,
+  // AECI-2042: a veto or a Sync Service pair report.
+  VendorPairRightNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -523,7 +526,8 @@ export function isAttestationNotification(
     notification.kind !== 'aeci_override' &&
     notification.kind !== 'product_request' &&
     notification.kind !== 'thread_message' &&
-    notification.kind !== 'thread_closed'
+    notification.kind !== 'thread_closed' &&
+    notification.kind !== 'pair_right'
   );
 }
 

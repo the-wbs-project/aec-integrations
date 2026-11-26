@@ -20,6 +20,8 @@ import {
   INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_PROCORE_DETAIL,
   VENDOR_ME_FIXTURE,
+  VENDOR_OWNED_INTEGRATIONS_FIXTURE,
+  VENDOR_SYNC_OWNED_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -225,5 +227,217 @@ describe('the guide links (AECI-1253)', () => {
     expectVendorDocsLink(root.querySelector('#overview')!, 'owning-an-integration');
     expectVendorDocsLink(root.querySelector('#data-shared')!, 'confirming-integration-data');
     expectVendorDocsLink(root.querySelector('#change-requests')!, 'requesting-changes-and-appeals');
+  });
+});
+
+/** AECI-2045: a row the caller owns but holds no endpoint of gets its own page. */
+describe('an owned row (AECI-2045)', () => {
+  const SYNC_CLAIMED = VENDOR_SYNC_OWNED_FIXTURE[0]!;
+  const SYNC_UNCLAIMED = VENDOR_SYNC_OWNED_FIXTURE[1]!;
+  const PAIR_CLAIMED = VENDOR_OWNED_INTEGRATIONS_FIXTURE[1]!;
+
+  beforeEach(() => {
+    api.getIntegrations.mockResolvedValue({
+      integrations: [INTEGRATION_PROCORE_DETAIL],
+      owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE, ...VENDOR_SYNC_OWNED_FIXTURE],
+      counterpart_added_unanswered: 0,
+    });
+  });
+
+  it('renders the page shell for the owned pair, with four sections and no links section', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    expect(root.querySelector('[data-testid="owned-detail"]')).not.toBeNull();
+    expect(root.querySelector('h2')?.textContent?.trim()).toBe('Procore and Acumatica');
+    const nav = [...root.querySelectorAll('nav[aria-label="Integration sections"] a')].map((a) =>
+      a.textContent?.trim(),
+    );
+    expect(nav).toEqual(['Overview', "Data that's shared", 'Change requests', 'Settings']);
+    expect(root.querySelector('#links')).toBeNull();
+    // AECI-2045 QA: Invoices has no answer from the owner, so the pair is not up to date.
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'Needs your answer',
+    );
+    const pub = [...root.querySelectorAll('a[target="_blank"]')].find((a) =>
+      a.getAttribute('href')?.startsWith('/products/'),
+    )!;
+    expect(pub.getAttribute('href')).toBe('/products/procore/integrations/acumatica');
+  });
+
+  it('counts the owner flows that wait for an answer, by the checklist rule (AECI-2045 QA)', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    const needs = root.querySelector('[data-testid="integration-needs"]')!;
+    expect(needs.textContent).toContain('Things that need you');
+    expect(needs.textContent).toContain('1 row of data needs your answer');
+    expect(needs.textContent).not.toContain('Nothing needs you right now');
+  });
+
+  it('reads All up to date once every owner flow has an answer', async () => {
+    const answered = {
+      ...SYNC_CLAIMED,
+      flows: SYNC_CLAIMED.flows.map((f) => ({ ...f, answer: 'yes' as const })),
+    };
+    api.getIntegrations.mockResolvedValue({
+      integrations: [INTEGRATION_PROCORE_DETAIL],
+      owned: [answered],
+      counterpart_added_unanswered: 0,
+    });
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'All up to date',
+    );
+    expect(root.querySelector('[data-testid="integration-needs"]')?.textContent).toContain(
+      'Nothing needs you right now',
+    );
+  });
+
+  it('asks for a decision on a received data flow report, and names a removal', async () => {
+    const answered = {
+      ...SYNC_CLAIMED,
+      flows: SYNC_CLAIMED.flows.map((f) => ({ ...f, answer: 'yes' as const })),
+    };
+    api.getIntegrations.mockResolvedValue({
+      integrations: [INTEGRATION_PROCORE_DETAIL],
+      owned: [answered],
+      counterpart_added_unanswered: 0,
+    });
+    const pair = {
+      integration_id: SYNC_CLAIMED.id,
+      anchor: 'evidenced_pair' as const,
+      name: 'Procore and Acumatica',
+      connector: null,
+      product_a: null,
+      product_b: null,
+    };
+    api.listPairContests.mockResolvedValue({
+      submitted: [],
+      received: [
+        {
+          id: '00000000-0000-4000-8000-00000000a001',
+          kind: 'data_flow',
+          pair,
+          flow: {
+            claim_id: SYNC_CLAIMED.flows[1]!.id,
+            data_object_slug: 'invoices',
+            data_object_name: 'Invoices',
+            current_direction: 'b_to_a',
+            proposed_direction: null,
+          },
+          reason: 'Not offered',
+          submitter_vendor_id: '00000000-0000-4000-8000-00000000a002',
+          submitter_name: 'Acumatica',
+          routed_to: 'owner',
+          owner_vendor_id: null,
+          owner_name: null,
+          status: 'open',
+          decision_note: null,
+          decided_at: null,
+          accept_mode: null,
+          protest: null,
+          protest_closes_at: null,
+          created_at: '2026-11-22T00:00:00.000Z',
+          updated_at: '2026-11-22T00:00:00.000Z',
+        },
+      ],
+    });
+    api.listVetoes.mockResolvedValue({
+      filed: [],
+      received: [
+        {
+          id: '00000000-0000-4000-8000-00000000a003',
+          pair,
+          vendor_id: null,
+          vendor_name: 'Trimble',
+          reason: 'Not certified',
+          filed_at: '2026-11-21T00:00:00.000Z',
+          in_force: true,
+          ended_at: null,
+          ended_how: null,
+          end_note: null,
+          other_vetoes_in_force: 0,
+          updated_at: '2026-11-21T00:00:00.000Z',
+        },
+      ],
+    });
+    const { root, harness } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    await flush();
+    harness.detectChanges();
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'Needs your decision',
+    );
+    const needs = root.querySelector('[data-testid="integration-needs"]')!.textContent ?? '';
+    expect(needs).toContain('Acumatica reported a problem with the Invoices data flow');
+    expect(needs).toContain('Trimble removed this integration from its product: Not certified');
+    expect(root.querySelector('#change-requests aec-vendor-pair-rights-list')).not.toBeNull();
+  });
+
+  it('lists the nine fields with the direction in words, and offers Edit details once claimed', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    const rows = root.querySelectorAll('[data-testid^="owned-overview-row-"]');
+    expect(rows).toHaveLength(9);
+    expect(
+      root.querySelector('[data-testid="owned-overview-row-direction"]')?.textContent,
+    ).toContain('Both ways');
+    expect(
+      root.querySelector('[data-testid="owned-overview-row-pricing_url"]')?.textContent,
+    ).toContain('https://summitbim.example.com/sync/pricing');
+    expect(root.querySelector('[data-testid="owned-overview-edit"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="owned-overview-claim"]')).toBeNull();
+  });
+
+  it('renders the owner flow controls under the section heading on a Sync Service pair', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    const section = root.querySelector('#data-shared')!;
+    expect(section.querySelector('aec-vendor-owned-flows')).not.toBeNull();
+    // One heading per section: the component's own is dropped.
+    expect(section.querySelectorAll('h3, h4').length).toBe(1);
+    expect(section.textContent).toContain('Commitments');
+  });
+
+  it('shows Claim and Not ours on an unclaimed pair, and says claim first in Settings', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_UNCLAIMED.id}`);
+    expect(root.querySelector('[data-testid="owned-overview-claim"]')).not.toBeNull();
+    expect(root.querySelector('aec-vendor-not-ours')).not.toBeNull();
+    expect(root.querySelector('[data-testid="integration-status"]')?.textContent).toContain(
+      'Ready to claim',
+    );
+    expect(root.querySelector('#settings')?.textContent).toContain(
+      'Once you claim this integration',
+    );
+  });
+
+  it('claims from the Overview and revalidates the list', async () => {
+    const { harness, root } = await open(`/products/${PRIMARY}/integrations/${SYNC_UNCLAIMED.id}`);
+    const calls = api.getIntegrations.mock.calls.length;
+    (root.querySelector('[data-testid="owned-overview-claim"]') as HTMLButtonElement).click();
+    await flush();
+    harness.detectChanges();
+    expect(api.claimIntegration).toHaveBeenCalledWith(SYNC_UNCLAIMED.id);
+    expect(api.getIntegrations.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it('lists only this row in Change requests, under the section heading', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_CLAIMED.id}`);
+    const section = root.querySelector('#change-requests')!;
+    expect(section.querySelector('aec-vendor-contests-list')).not.toBeNull();
+    expect(section.querySelector('#vendor-contests-heading')).toBeNull();
+    expect(section.textContent).toContain(
+      'No change requests have come in about this integration.',
+    );
+  });
+
+  it('reads the flows of a non Sync Service pair read-only, and offers Retire in Settings', async () => {
+    const { root } = await open(`/products/${PRIMARY}/integrations/${PAIR_CLAIMED.id}`);
+    expect(root.querySelector('[data-testid="owned-flows-note"]')?.textContent).toContain(
+      'These rows stay as they were',
+    );
+    expect(root.querySelector('#data-shared aec-vendor-owned-flows')).toBeNull();
+    expect(root.querySelector('#settings aec-vendor-owned-retire')).not.toBeNull();
+  });
+
+  it('still says not found for an id that is neither listed nor owned', async () => {
+    const { root } = await open(
+      `/products/${PRIMARY}/integrations/00000000-0000-4000-8000-00000000ffff`,
+    );
+    expect(root.querySelector('[data-testid="integration-not-found"]')).not.toBeNull();
   });
 });

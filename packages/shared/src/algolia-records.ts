@@ -23,6 +23,7 @@ import { LogoReadUrlSchema } from './api/logo-read';
 
 import { z } from 'zod';
 
+import { ConnectorKindSchema } from './api/connector-kind-schema';
 import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './api/integrations';
 import { ProductRoleSchema } from './api/products';
 import { RATING_VISIBILITY_MIN_REVIEWS } from './api/reviews';
@@ -112,6 +113,20 @@ export const AlgoliaProductRecordSchema = z.object({
   // until they are next rewritten, so the web reader treats a missing role as no
   // chip (`search-product-card.ts`).
   product_role: ProductRoleSchema,
+  // AECI-1662 — the connector kind (`STAGE_1_5_SPEC.md` §13.13), as
+  // `connectorKindFor(product_role, products.connector_kind)` reads it: NULL on an
+  // `application`, on an unclassified connector and on a value outside the
+  // vocabulary. **Faceted only: never searchable, never ranked.** The `/search`
+  // "Connector type" filter reads it, and so does the card chip. An AECi admin sets
+  // it (ruling 3 on AECI-2035), no plan buys it, and it orders nothing
+  // (`SEARCH_RANKING.md` §3.1).
+  //
+  // REQUIRED (nullable, no default) for the reason `name_sort` is: the datatool's
+  // raw-SQL builder has no compile-time link to this type, and a `.default(null)`
+  // would let it forget the field, so a full reindex would silently reset every
+  // kind to NULL. Records written before AECI-1662 lack it until they are next
+  // rewritten, and the web reader treats a missing kind as NULL.
+  connector_kind: ConnectorKindSchema.nullable(),
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;

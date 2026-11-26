@@ -3,7 +3,7 @@ title: Your checklists
 description: The company and product checklists in your portal, how a product's checklist counts on each plan, and how "Looks right" records that you checked a listing.
 section: vendors
 order: 13
-last_updated: November 17, 2026
+last_updated: November 24, 2026
 ---
 
 Your portal keeps a checklist for your company and one for each product. Each shows what is left to check, so your listings stay accurate without anyone keeping a list by hand. The checklists work on every plan.
@@ -16,17 +16,16 @@ Your company's checklist has three steps:
 - Finish each product checklist.
 - Invite a colleague. This step is optional.
 
-Each product's checklist has four steps:
+Each product's checklist has up to four steps:
 
 - **Check product details.** Edit the product, or choose "Looks right". See [Editing your profile and products](/docs/vendors/editing-profile-and-products).
 - **Check the integration list.** Choose "Looks right" on the product's integrations. This step completes even when your company has claimed none of them yet.
 - **Claim or say "not ours".** Claim each integration your company is recorded as owning. If one is not yours, choose "Not ours?" on it and say who offers it, if you know. The step counts it as answered while AEC Integrations reviews it, and after it agrees. [Owning an integration](/docs/vendors/owning-an-integration) explains both.
-- **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations.
+- **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations. On a Sync Service, this step covers the data flows on the integrations your Sync Service delivers that your company has claimed. An integration platform, or a connector product with no kind set, has no flows of its own to confirm, so its checklist has no such step and reads "x of 3".
 
 How a product's score counts:
 
-- Confirming data flows needs Managed. So on a Free product that step shows but is optional. A finished Free product reads "3 of 3".
-- On a Managed product all four steps count. It reads "x of 4", where x is the steps done.
+- Every step counts on every plan. A product reads "x of 4", where x is the steps done, or "x of 3" on a connector product with no data flows step.
 - A step with nothing to do counts as done.
 - A step stays done once it is done. It does not expire.
 

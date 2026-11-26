@@ -118,6 +118,80 @@ describe('GET /api/products', () => {
     expect(parsed.data[0]?.vendor).toMatchObject({ slug: 'autodesk', name: 'Autodesk' });
   });
 
+  // AECI-2036 (STAGE_1_5_SPEC.md §13.13): the card carries the connector kind, and an
+  // `application` row reads null even when a stale value is stored.
+  it('carries connector_kind on each list row, null on an application', async () => {
+    await seedProduct(u(1), 'rivets-sync', 'Rivets Sync', {
+      productRole: 'connector',
+      connectorKind: 'sync_service',
+      createdAt: '2026-03-01T00:00:00.000Z',
+    });
+    await seedProduct(u(2), 'zapier', 'Zapier', {
+      productRole: 'connector',
+      createdAt: '2026-02-01T00:00:00.000Z',
+    });
+    await seedProduct(u(3), 'procore', 'Procore', {
+      connectorKind: 'sync_service',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products')).json(),
+    );
+    expect(parsed.data.map((p) => [p.slug, p.connector_kind])).toEqual([
+      ['rivets-sync', 'sync_service'],
+      ['zapier', null],
+      ['procore', null],
+    ]);
+  });
+
+  // AECI-1662 — the "Connector type" filter. OR within the list, only a connector or
+  // hybrid whose kind matches, and the sort is untouched.
+  describe('?connector_kind=', () => {
+    beforeEach(async () => {
+      await seedProduct(u(1), 'zapier', 'Zapier', {
+        productRole: 'connector',
+        connectorKind: 'integration_platform',
+      });
+      await seedProduct(u(2), 'agave', 'agave', {
+        productRole: 'connector',
+        connectorKind: 'sync_service',
+      });
+      await seedProduct(u(3), 'anyware', 'AnyWare', {
+        productRole: 'hybrid',
+        connectorKind: 'sync_service',
+      });
+      await seedProduct(u(4), 'appxchange', 'AppXchange', { productRole: 'connector' });
+      // A promote moved it to `application`; the stale stored kind must not match.
+      await seedProduct(u(5), 'procore', 'Procore', { connectorKind: 'sync_service' });
+    });
+
+    const slugs = async (qs: string) => {
+      const res = await get(listApp(), `/api/products${qs}`);
+      expect(res.status).toBe(200);
+      return ProductsListResponseSchema.parse(await res.json()).data.map((p) => p.slug);
+    };
+
+    it('filters to one kind, a connector or hybrid only', async () => {
+      expect(await slugs('?connector_kind=sync_service&sort=name')).toEqual(['agave', 'anyware']);
+      expect(await slugs('?connector_kind=integration_platform')).toEqual(['zapier']);
+    });
+
+    it('takes a comma-separated list, OR within it, in any order', async () => {
+      const both = await slugs('?connector_kind=sync_service,integration_platform&sort=name');
+      expect(both).toEqual(['agave', 'anyware', 'zapier']);
+      expect(await slugs('?connector_kind=integration_platform,sync_service&sort=name')).toEqual(
+        both,
+      );
+    });
+
+    it('refuses an unknown or empty kind with a 400', async () => {
+      for (const qs of ['?connector_kind=ipaas', '?connector_kind=,', '?connector_kind=Sync']) {
+        expect((await get(listApp(), `/api/products${qs}`)).status).toBe(400);
+      }
+    });
+  });
+
   it('returns a null vendor for a product with no vendor link', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
 
@@ -505,6 +579,17 @@ describe('GET /api/products/:slug', () => {
       await (await get(detailApp(), '/api/products/dex')).json(),
     );
     expect(aeciBody.usefulness_source).toBeNull();
+  });
+
+  it('carries connector_kind on the detail payload (AECI-2036)', async () => {
+    await seedProduct(u(1), 'agave', 'Agave', {
+      productRole: 'hybrid',
+      connectorKind: 'integration_platform',
+    });
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave')).json(),
+    );
+    expect(body.connector_kind).toBe('integration_platform');
   });
 
   it('hydrates detail: taxonomy + both integration sides + approved reviews only', async () => {
@@ -945,6 +1030,64 @@ describe('GET /api/products/:slug', () => {
     // A swapped (b_to_a) pair keeps its objects: an object has no orientation.
     expect(byId(u(52))?.data_object_slugs).toEqual(['rfis']);
     expect(byId(u(53))?.data_object_slugs).toEqual([]);
+  });
+
+  it("states a powered row's direction from its public flows, as the pair page does (QA pass on AECI-2035)", async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(3), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(4), 'acumatica', 'Acumatica');
+    await seedProduct(u(5), 'fieldwire', 'Fieldwire');
+    // integrations arm: stored one way, but its flows run both ways.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'iPaaS',
+      direction: 'a_to_b',
+      poweredByProductId: u(3),
+    });
+    const [a, b] = [u(1), u(4)].sort();
+    const [c, d] = [u(1), u(5)].sort();
+    await t.db.insert(connectorEvidencedPairs).values([
+      // Stored B to A, so the item is oriented with B as its source. Its one flow is
+      // framed A to B, so it runs INTO the oriented source.
+      { id: u(52), connectorProductId: u(3), productAId: a!, productBId: b!, direction: 'b_to_a' },
+      // No flow: the stored direction stands.
+      { id: u(53), connectorProductId: u(3), productAId: c!, productBId: d!, direction: 'a_to_b' },
+    ]);
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'b_to_a' },
+      { id: u(84), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+    ]);
+
+    const body = (await (await get(detailApp(), '/api/products/agave-erp-sync')).json()) as {
+      integrations_as_connector: Record<string, unknown>[];
+    };
+    // The removed field is not on the wire.
+    expect(body.integrations_as_connector[0]).not.toHaveProperty('endpoint_categories');
+    const connector = ProductDetailSchema.parse(body);
+    const byId = (id: string) => connector.integrations_as_connector.find((i) => i.id === id);
+    expect(byId(u(51))?.direction).toBe('both');
+    expect(byId(u(52))?.source.id).toBe(b);
+    expect(byId(u(52))?.direction).toBe('b_to_a');
+    expect(byId(u(53))?.direction).toBe('a_to_b');
+    // The endpoint row on Procore's page says the same of the same pair.
+    const procore = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    const fromProcore = [...procore.integrations_as_source, ...procore.integrations_as_target];
+    expect(fromProcore.find((i) => i.id === u(51))?.context_direction).toBe('both');
+
+    // The connector wheel's marks: every endpoint its rows reach, and itself.
+    expect(new Set(connector.wheel_marks?.map((m) => m.product_id))).toEqual(
+      new Set([u(1), u(2), u(3), u(4), u(5)]),
+    );
   });
 
   it('frames a one-way claim relative to the page product (outbound from source, inbound from target)', async () => {

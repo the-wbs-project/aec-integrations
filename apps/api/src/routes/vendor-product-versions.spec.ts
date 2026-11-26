@@ -10,7 +10,7 @@
  *
  * The security-relevant cases here are the two gates and their ORDER: a
  * non-owning vendor gets a flat 404 (never a 403 that would confirm the product
- * exists), and an OWNER without `attestation.author` gets a 403
+ * exists), and an OWNER without `product.versions.edit` (AECI-2038) gets a 403
  * `ENTITLEMENT_REQUIRED` on writes (AECI-623) but still reads its own list. The
  * gate reads the session tier, never the `vendors.verified` mirror.
  */
@@ -372,7 +372,7 @@ describe('POST /api/vendor/products/:id/versions', () => {
     );
     expect(status).toBe(403);
     expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+    expect(body.error.details).toEqual({ capability: 'product.versions.edit', tier: 'unclaimed' });
     // Copy points at activation, never at ranking or placement.
     expect(body.error.message).not.toMatch(/rank|placement|search/i);
     expect(await versionRows()).toEqual([]);
@@ -392,7 +392,7 @@ describe('POST /api/vendor/products/:id/versions', () => {
     expect(await auditRows()).toEqual([]);
   });
 
-  it('accepts a seat holding attestation.author even when its vendor row reads unverified', async () => {
+  it('accepts a seat holding product.versions.edit even when its vendor row reads unverified', async () => {
     const { status } = await sendJson(
       'POST',
       versionsUrl(UNVERIFIED_PRODUCT),
@@ -416,7 +416,7 @@ describe('POST /api/vendor/products/:id/versions', () => {
     );
     expect(status).toBe(403);
     expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+    expect(body.error.details).toEqual({ capability: 'product.versions.edit', tier: 'unclaimed' });
     expect(await auditRows()).toEqual([]);
   });
 

@@ -85,7 +85,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
                  take a flex gap, so the row itself is gated. -->
             @if (product.product_role !== 'application') {
               <div class="flex flex-wrap items-center gap-2">
-                <aec-role-badge [role]="product.product_role" />
+                <aec-role-badge [role]="product.product_role" [kind]="product.connector_kind" />
               </div>
             }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate
@@ -95,7 +95,12 @@ export type ProductCardGridColumns = 1 | 2 | 3;
               [ratingOverall]="product.rating_overall_avg"
               [reviewCount]="product.review_count"
             />
-            <aec-integration-stat [count]="product.integration_count" variant="inline" />
+            <aec-integration-stat
+              [count]="product.integration_count"
+              [role]="product.product_role"
+              [kind]="product.connector_kind"
+              variant="inline"
+            />
           </div>
         </li>
       }
@@ -110,7 +115,12 @@ export type ProductCardGridColumns = 1 | 2 | 3;
                 [name]="product.name"
                 size="sm"
               />
-              <aec-integration-stat [count]="product.integration_count" variant="badge" />
+              <aec-integration-stat
+                [count]="product.integration_count"
+                [role]="product.product_role"
+                [kind]="product.connector_kind"
+                variant="badge"
+              />
             </div>
             <div class="min-w-0 flex-1">
               <p class="truncate font-display text-t-20 leading-tight font-semibold">
@@ -131,7 +141,7 @@ export type ProductCardGridColumns = 1 | 2 | 3;
             <!-- Role chip row: connector / hybrid only (see the featured card). -->
             @if (product.product_role !== 'application') {
               <div class="flex flex-wrap items-center gap-2">
-                <aec-role-badge [role]="product.product_role" />
+                <aec-role-badge [role]="product.product_role" [kind]="product.connector_kind" />
               </div>
             }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate. -->

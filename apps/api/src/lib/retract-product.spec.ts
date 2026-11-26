@@ -1279,6 +1279,8 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       pageViewPairColumns: false,
       vendorHeldColumns: false,
       vendorHeldPairColumns: false,
+      // AECI-2039: nor 0131's `claim_owner_answers`.
+      claimOwnerAnswersTable: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
       evidencedContestAnchor: false,
       // AECI-1192: nor 0063's `audit_log` columns.
@@ -1511,7 +1513,8 @@ async function connectorFixtureDb(): Promise<TestDb> {
       id: string;
     }>
   ).map((r) => r.id);
-  expect(pairIds).toHaveLength(4);
+  // Five since AECI-2043 added a second Sync Service on Procore and Viewpoint Vista.
+  expect(pairIds).toHaveLength(5);
   for (const [i, id] of pairIds.entries()) {
     t.raw.exec(
       `INSERT INTO claims (id, connector_evidenced_pair_id, data_object_id, direction, created_at, updated_at) VALUES ('fx-cl-${i}', '${id}', 'do1', 'both', ${TS}, ${TS});`,
@@ -1566,10 +1569,10 @@ describe('connector-evidenced pairs (AECI-904)', () => {
     };
     expect(roles(FX.mindcloud)).toEqual([2, 2, 0, 0]);
     expect(roles(FX.agave)).toEqual([2, 2, 0, 0]);
-    expect(roles(FX.procore)).toEqual([4, 0, 4, 0]);
+    expect(roles(FX.procore)).toEqual([5, 0, 5, 0]);
     expect(roles(FX.sageIntacct)).toEqual([1, 0, 0, 1]);
     // Every pair's claim and attestation is in the footprint too.
-    expect(footprintOf(t, FX.procore)).toMatchObject({ claims: 4, attestations: 4 });
+    expect(footprintOf(t, FX.procore)).toMatchObject({ claims: 5, attestations: 5 });
     const report = formatFootprintReport(productRow(t, FX.mindcloud), footprintOf(t, FX.mindcloud));
     expect(report).toMatch(/as connector\s+2/);
     expect(report).toMatch(/as endpoint A\s+0/);
@@ -1589,7 +1592,7 @@ describe('connector-evidenced pairs (AECI-904)', () => {
 
   for (const [role, id, pairs] of [
     ['connector', FX.mindcloud, 2],
-    ['endpoint A', FX.procore, 4],
+    ['endpoint A', FX.procore, 5],
     ['endpoint B', FX.sageIntacct, 1],
   ] as const) {
     it(`with the flag, as ${role}: deletes exactly the counted rows and nothing else`, async () => {
@@ -1684,8 +1687,8 @@ describe('connector-evidenced pairs (AECI-904)', () => {
     ).toBe(1);
     expect(
       n(`SELECT count(*) AS n FROM claims WHERE connector_evidenced_pair_id IS NOT NULL`),
-    ).toBe(4);
-    expect(n(`SELECT count(*) AS n FROM attestations`)).toBe(4);
+    ).toBe(5);
+    expect(n(`SELECT count(*) AS n FROM attestations`)).toBe(5);
     expect(n(`SELECT count(*) AS n FROM audit_log WHERE action = 'product.deleted'`)).toBe(0);
     t.dispose();
   });

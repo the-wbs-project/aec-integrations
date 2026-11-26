@@ -46,7 +46,8 @@ import {
   type ChecklistFixtureState,
 } from '../../vendor/vendor-fixtures';
 import { VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE } from '../../vendor/vendor-catalogue-fixtures';
-import { PreviewVendorApi } from './preview-vendor-api';
+import { PREVIEW_SYNC_ME } from './preview-sync-fixtures';
+import { PREVIEW_SYNC_INTEGRATIONS, PreviewVendorApi } from './preview-vendor-api';
 
 type FixtureKey =
   | 'verified'
@@ -61,6 +62,7 @@ type FixtureKey =
   | 'mixed'
   | 'product-ended'
   | 'removal-election'
+  | 'sync-service'
   | 'listing-hidden'
   | 'member'
   | 'legal-required'
@@ -83,6 +85,7 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'mixed',
   'product-ended',
   'removal-election',
+  'sync-service',
   'listing-hidden',
   'member',
   'legal-required',
@@ -264,6 +267,12 @@ export class VendorDashboardPreview {
     // AECI-1618: Managed ended 20 days ago, so an owner seat's removal election is open
     // on each product's overview.
     { key: 'removal-election', label: 'Free · removal election open' },
+    // AECI-2045: a Sync Service product with no catalogue (Products, Summit Sync): owned
+    // pairs with their own pages, and two pairs under another owner to ask about. The QA
+    // pass added a hybrid Sync Service (Summit Field Link), a pair Trimble removed, a data
+    // flow report in the owner's inbox, and Rivet Sync's pair on Summit Model
+    // Coordination with the endpoint vendor's three actions (preview-sync-fixtures.ts).
+    { key: 'sync-service', label: 'Free · Sync Service' },
     // AECI-2083: the listing-hidden banner (section 11d.6). AECi hid the company and its
     // products, so the overview and every product tab carry the banner.
     { key: 'listing-hidden', label: 'Active · hidden by AECi' },
@@ -330,6 +339,9 @@ export class VendorDashboardPreview {
         return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
       case 'removal-election':
         return VENDOR_ME_REMOVAL_ELECTION_FIXTURE;
+      case 'sync-service':
+        // AECI-2045 QA: plus a hybrid Sync Service (Summit Field Link).
+        return PREVIEW_SYNC_ME;
       case 'listing-hidden':
         return LISTING_HIDDEN_FIXTURE;
       case 'member':
@@ -424,7 +436,13 @@ export class VendorDashboardPreview {
             state: LEGAL_NOTHING_PENDING_FIXTURE,
           });
         }
-        this.previewApi.setFixture(me, seats, undefined, checklist);
+        this.previewApi.setFixture(
+          me,
+          seats,
+          this.fixture() === 'sync-service' ? PREVIEW_SYNC_INTEGRATIONS : undefined,
+          checklist,
+          this.fixture() === 'sync-service',
+        );
         this.store.seed(me);
         // A new fixture is a different vendor: re-read any checklist on screen.
         void this.store.refreshChecklists();

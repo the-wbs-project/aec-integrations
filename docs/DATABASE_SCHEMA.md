@@ -332,6 +332,7 @@ create table products (
 
   -- Classification
   product_role text not null default 'application' check (product_role in ('application', 'connector', 'hybrid')),
+  connector_kind text, -- AECI-2036 (0130): 'integration_platform' | 'sync_service' | NULL ("Connector"). Admin-set, connector/hybrid only. NO CHECK; Zod validates. Promote never writes it
 
   -- Brandfetch / logo
   logo_url text, -- HTTPS image URL or /api/logos/<sha256>
@@ -410,6 +411,10 @@ Neither column is indexed: both are read with the row and never filtered or sort
 Not indexed: it is read with the row, never filtered on.
 
 **Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
+
+**The connector kind (AECI-2036, migration `0130_heavy_ender_wiggin.sql`).** `connector_kind` tells a Sync Service from an Integration platform, the two public kinds under the one `connector` role (`STAGE_1_5_SPEC.md` §13.13, AECI-2035 rulings 1 and 3). Values are `integration_platform` and `sync_service`. NULL is unclassified and reads as "Connector". The migration is one bare `ALTER TABLE … ADD COLUMN`, as `usefulness_source` was in 0042. The Drizzle `enum` emits no SQL CHECK, and the column must never gain one: a CHECK recreates `products`, and the recreate cascades (`docs/migrations.md` §0). `ConnectorKindSchema` (`packages/shared/src/api/connector-kind-schema.ts`) is the only validation. One writer: `PATCH /api/admin/products/:id/connector-kind`, which refuses an `application` product (`API_CONTRACTS.md`). Promote has no field for it, so it never writes or clears it, and the review app does not carry it. Readers go through `connectorKindFor` (`packages/shared/src/api/connector-kind.ts`), so an `application` row or a value outside the vocabulary reads as NULL. Promote reads it (never writes it) for one decision since AECI-2041: a pair whose connector is a Sync Service may be written on an owned endpoint (`REVIEW_APP_PROMOTE_API.md` §4a). The read is `isSyncService`, and a sentinel at the end of the promote batch re-checks it at commit. Not indexed: nothing filters on it yet. Not on the Algolia record yet (AECI-1662).
+
+**The Sync Service facts (AECI-2046).** `sync_frequency`, `sync_support` and `sync_setup` are three nullable text columns: how often a Sync Service syncs, who supports it, and how setup works (`STAGE_1_5_SPEC.md` §13.13, ruling 15 on AECI-2035). AECi curates them. The migration is three bare `ALTER TABLE … ADD COLUMN`s, with no CHECK, for the reason `connector_kind` has none. `AdminSetSyncFactsSchema` (`packages/shared/src/api/sync-service.ts`) is the only validation: trimmed, a blank stored as NULL, at most 120, 160 and 280 characters. One writer: `PATCH /api/admin/products/:id/sync-facts`, which refuses a product that is not a Sync Service (`API_CONTRACTS.md`). No vendor route writes them. Promote has no field for them, so it never writes or clears them. A later kind change leaves them stored, and `toProductDetail` reads them out only while `isSyncService` holds. Two more nullable text columns go with them: `sync_facts_source_url`, the https link the facts come from (required by the write while any fact is set), and `sync_facts_recorded_at`, stamped when the write changes them. The Terms promise that text we write on a listing a vendor maintains is marked as ours "with its source and date", and the block prints both. Both clear with the last fact. Not indexed and not on the Algolia record.
 
 **The edit stamps and the plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Four nullable ISO text columns, no CHECK, no index, read by the public field captions (`apps/api/src/lib/field-captions.ts`). `updated_at` and `last_reviewed_at` cannot back a caption date, because promote, an override and "Looks right" move them.
 
@@ -499,6 +504,10 @@ create table integrations (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at text,
   retired_by text check (retired_by in ('owner', 'aeci')),
+  -- AECI-2042 (0132): an endpoint vendor's veto in force, denormalised from
+  -- sync_service_pair_vetoes (earliest open filed_at, else NULL). Part of liveness.
+  -- Plain ADD COLUMN, no CHECK.
+  vetoed_at text,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -977,11 +986,97 @@ create index attestations_claim_idx on attestations(claim_id, updated_at);
 - **Ownership is not the whole gate: the EDGE must also be attestable** (AECI-705, `STAGE_2_ATTESTATIONS_SPEC.md` §14). A **connector-powered** integration — `integrations.powered_by_product_id IS NOT NULL` **or** `integrations.mechanism_kind = 'iPaaS'` — refuses `POST`/`PUT` with a **403**, because neither endpoint vendor built the plumbing and the connector holds no attestation seat. **No schema change**: the predicate reads two columns that have existed since `0000_init`, and nothing queries on it (every caller already has the row), so `integrations_powered_by_idx` and `integrations_mechanism_kind_idx` are untouched. `DELETE` is deliberately exempt, since promote can set `powered_by_product_id` *after* a vendor has attested. Note the two columns sit on different axes and nothing cross-validates them — `mechanism_kind` describes the edge, `products.product_role` the product — which is why the predicate is a union rather than either column alone.
 - **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
 - **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction readout) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
-- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
+- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — five states since AECI-2039 added `owner_confirmed` (§5a.2a), `unverified | single_source | confirmed | conflict`.
 - **When a disagreement was raised is computed too, and needs no column** (AECI-1153, specified 2026-09-28). The vendor read's `disagreement.raised_at` is the start of the claim's current unbroken run of `conflict` (`API_CONTRACTS.md` §6.14). Because supersession is retract-then-insert under one timestamp and nothing deletes a vendor row short of a cascade, `created_at` and `retracted_at` on this table replay every past agreement exactly. A stored `conflict_since` was rejected for three reasons: agreement is never stored (ADR 0018), so a stored start would be derived state that every attestation writer must keep in step; an `ON DELETE SET NULL` on `attested_by_vendor_id` can end a conflict with no application code to update it; and the replay costs one extra read, for conflict claims only.
 - **`note` is never public** (AECI-779, AECI-1139; `STAGE_1_5_SPEC.md` §3.3, `STAGE_2_ATTESTATIONS_SPEC.md` §4.3). An `aeci`-sourced note is **curation-internal**: the AECI-299 seed pass wrote machine-prefixed research annotations there. A **vendor**-authored note, affirm or deny, is seen only by the other company (the portal's `counterparty`), its author (`mine`) and AECi (the `attestation.*` audit row). The public pair and timeline read configs in `apps/api/src/lib/drizzle-helpers.ts` do not select the column, and both mappers return `note: null`. The column stores every note unchanged; the rule is a read rule, not a constraint, so it covers rows written before it.
 - **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
 - **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
+
+### 5a.2a `claim_owner_answers` (AECI-2039, migration 0131)
+
+The owner's answer on a data flow of a Sync Service pair (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A plain `CREATE TABLE`: no existing table changed, so no recreate.
+
+```sql
+create table claim_owner_answers (
+  id           text primary key,
+  claim_id     text not null references claims(id) on delete cascade,
+  vendor_id    text references vendors(id) on delete set null,
+  asserted     integer not null,          -- 1 confirms; 0 removes the flow from public reads
+  retracted_at text,
+  created_at   text not null,
+  updated_at   text not null
+);
+create unique index claim_owner_answers_live_key on claim_owner_answers(claim_id) where retracted_at is null;
+create index claim_owner_answers_claim_idx on claim_owner_answers(claim_id, updated_at);
+```
+
+- **Why not a fourth `attestations.source`.** `attestations_source_check` is a CHECK; changing it recreates `attestations` (`docs/migrations.md` §0). An `aeci` row would say AEC Integrations said it, and `vendor_a` / `vendor_b` speak for endpoint vendors.
+- **One live row per claim**, retract-then-insert, the retract first in the batch, as on `attestations`.
+- **When it counts** (`apps/api/src/lib/owner-flows.ts`): the connector product is a Sync Service, the anchor row is claimed, `vendor_id` is the row's `built_by_vendor_id` now, and the row is live. Readers append it to the claim's attestation list as an in-memory `source = 'owner'` entry. It is never written to `attestations`.
+- **A child of `claims`.** A recreate of `claims` would empty it too (`docs/migrations.md` §3.3a). `retract-product` deletes it explicitly before the claims; `retract-vendor` nulls `vendor_id`.
+- **Writers.** `routes/vendor-owner-flows.ts` only. Promote never writes it.
+  Since AECI-2042 a data flow report accept (`routes/vendor-pair-contests.ts`) writes it through the same logic, in the decision's batch.
+
+### 5a.2b `sync_service_pair_vetoes` and `sync_service_pair_contests` (AECI-2042, migration 0132)
+
+An endpoint vendor's rights on a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e). Two plain `CREATE TABLE`s; the only change to existing tables is `vetoed_at` on `integrations` and `connector_evidenced_pairs`, two plain `ADD COLUMN`s. No CHECK on an existing table changes.
+
+```sql
+create table sync_service_pair_vetoes (
+  id text primary key,
+  integration_id text references integrations(id) on delete set null,
+  evidenced_pair_id text references connector_evidenced_pairs(id) on delete set null,
+  connector_product_id text not null references products(id) on delete cascade,
+  product_a_id text not null references products(id) on delete cascade,
+  product_b_id text not null references products(id) on delete cascade,
+  vendor_id text references vendors(id) on delete set null,
+  vendor_name text,
+  reason text not null,
+  filed_by text references profiles(id) on delete set null,
+  filed_at text not null,
+  ended_at text,
+  ended_how text,   -- 'withdrawn' | 'lifted'
+  ended_by text references profiles(id) on delete set null,
+  end_note text,
+  created_at text not null, updated_at text not null,
+  check ((integration_id is null) or (evidenced_pair_id is null)),
+  check (product_a_id < product_b_id),
+  check (ended_how is null or ended_how in ('withdrawn', 'lifted'))
+);
+create unique index sync_service_pair_vetoes_open_key
+  on sync_service_pair_vetoes(connector_product_id, product_a_id, product_b_id, vendor_id)
+  where ended_at is null;
+
+create table sync_service_pair_contests (
+  id text primary key,
+  kind text not null,                -- 'existence' | 'data_flow'
+  integration_id text references integrations(id) on delete cascade,
+  evidenced_pair_id text references connector_evidenced_pairs(id) on delete cascade,
+  claim_id text references claims(id) on delete cascade,   -- data_flow only
+  current_direction text, proposed_direction text,          -- the pair's A/B frame
+  reason text not null,
+  submitter_vendor_id text not null references vendors(id) on delete cascade,
+  submitted_by text references profiles(id) on delete set null,
+  routed_to text not null,           -- 'owner' | 'aeci', frozen at submit
+  owner_vendor_id text references vendors(id) on delete set null,
+  status text not null default 'open',
+  decision_note text, decided_by text references profiles(id) on delete set null, decided_at text,
+  accept_mode text,
+  protest_status text, protest_basis text, protest_reason text,
+  protested_by text references profiles(id) on delete set null, protested_at text,
+  protest_decision_note text, protest_decided_by text references profiles(id) on delete set null,
+  protest_decided_at text,
+  created_at text not null, updated_at text not null
+  -- CHECKs: exactly one anchor; kind; claim_id iff data_flow; proposed_direction;
+  -- routed_to; status; protest_status; protest_basis.
+);
+```
+
+- **Why the veto keeps the pair key.** Its anchor FKs are `SET NULL`, so a veto keeps refusing a re-create of the pair (by a Sync Service or by promote) after the row it was filed on is deleted.
+- **`vetoed_at` is the reader's column, and its rule is key-wide.** On every row on a veto's pair key it holds the earliest open veto on that key's `filed_at`, or NULL. A `connector_evidenced_pairs` row is on the key by its (`connector_product_id`, `product_a_id`, `product_b_id`). An `integrations` row is on it by `powered_by_product_id` and its source and target in either order. Every veto, withdraw and lift batch recomputes it from this table on every row on the key (`vetoedAtKeyRecompute`), not only on the anchor. Every count, id set and public read filters it through the live predicates (`lib/live-integration.ts`). The `vetoed_at_mismatch` data-quality check (severity `error`) reports a row that disagrees with the rule. When the anchor row is deleted the veto keeps its key, and the other rows on it keep `vetoed_at`. No migration: the indexes `sync_service_pair_vetoes_key_idx`, `connector_evidenced_pairs_pair_idx` and `integrations_powered_by_idx` serve the key reads.
+- **Why a reports table.** `integration_field_challenges.field` has a CHECK over twelve field names (§8.7). An existence or data flow report is not a field, and changing that CHECK recreates a cascade child of both edge tables. No partial unique index holds "one open report per submitter, kind and target", because two of its columns are NULL on most rows; the submit batch's sentinel holds it.
+- **Cascade.** `sync_service_pair_contests` is a cascade child of both edge tables and of `claims`; `sync_service_pair_vetoes` is a SET NULL child of both edge tables. `d1.spec.ts` pins both lists. Nothing references either table.
+- **Writers.** `routes/vendor-sync-service-vetoes.ts`, `routes/admin-sync-service-vetoes.ts` (through `lib/sync-service-veto-write.ts`), `routes/vendor-pair-contests.ts`, `routes/admin-pair-contests.ts`, and the `DELETE /api/account` erasure (the profile columns). Promote never writes them, nor `vetoed_at`. Nothing public reads them.
 
 ### 5a.3 `product_versions`
 
@@ -5428,6 +5523,7 @@ create table connector_evidenced_pairs (
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   retired_at timestamptz,
   retired_by text check (retired_by in ('owner', 'aeci')),
+  vetoed_at timestamptz,  -- AECI-2042 (0132), as on integrations
   constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
   constraint connector_evidenced_pairs_distinct_connector
     check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
@@ -5507,9 +5603,11 @@ count, id set and public read filters `retired_at IS NULL` on this table too
   'vendor'`. The one definition is `isVendorHeld` in `apps/api/src/lib/integration-claims.ts`.
   Its SQL forms are `vendorHeldIntegrationWhere` and `vendorHeldEvidencedPairWhere` in
   `apps/api/src/lib/integration-twins.ts`. The ops lanes' plain-JS copy is
-  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`. `origin` is always `'aeci'` on
-  this table today, because vendor create stays closed on connector-powered rows (ruling 1).
-  It exists so the predicate reads identically on both tables.
+  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`. `origin` is `'aeci'` from
+  promote, or `'vendor'` when a Sync Service added its own pair (AECI-2040,
+  `POST /api/vendor/sync-service-pairs`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.7). Every other
+  vendor create stays closed on connector-powered rows (ruling 1). The predicate reads
+  identically on both tables.
 - **`ALTER TABLE … ADD COLUMN` only. Never recreate this table.** It is a cascade parent of
   `claims`, and `attestations` cascade from `claims`, so a recreate deletes both, two levels deep
   (`docs/migrations.md` §0 and §3.3a). `apps/api/src/test/migration-0049.spec.ts` is the
@@ -6554,13 +6652,14 @@ What a push writes is decided by these rules, all in `docs/REVIEW_APP_PROMOTE_AP
 | `logoUrl` applies only while `logo_source IS NULL` (AECI-955). | §3.2 |
 | `usefulness` is not written once a vendor has authored it (AECI-963). | §3.3 |
 | `lastReviewedAt` is refused on a vendor-maintained record. | §3.6a |
-| An owned vendor and its products are skipped whole. So is an integration whose source or target product is owned. A new product for an owned vendor is stored as a proposal, not created. | §4a |
+| An owned vendor and its products are skipped whole. So is an integration whose source or target product is owned, except a pair whose connector is a Sync Service (`products.connector_kind = 'sync_service'`, AECI-2041), which writes to `connector_evidenced_pairs`. A new product for an owned vendor is stored as a proposal, not created. | §4a |
 | A claimed integration is skipped whole. | §4b |
 | A vendor-created integration is never replaced by an AECi twin. | §4c |
 
 The protection for a value a human set in D1 is the ownership fence, not a column list. It is
 per record, not per column. The two exceptions are `logo_source` and `usefulness_source`. Each
-fences one column, and only after a vendor or admin has set it.
+fences one column, and only after a vendor or admin has set it. `connector_kind` (AECI-2036) needs no fence: the promote payload has no
+field for it, so promote never writes it at all.
 
 ---
 

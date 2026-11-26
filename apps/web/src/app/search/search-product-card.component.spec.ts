@@ -27,6 +27,7 @@ const baseRecord: AlgoliaProductRecord = {
   updated_at_ts: 1767225600,
   logo_url: null,
   product_role: 'application',
+  connector_kind: null,
 };
 
 @Component({
@@ -90,6 +91,31 @@ describe('SearchProductCard', () => {
   it('shows the Connector chip for a connector-role product', () => {
     const el = setup({ ...baseRecord, product_role: 'connector' });
     expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
+  });
+
+  // AECI-1662: the hit carries the kind, so the chip reads it as the /products tile does.
+  it.each([
+    ['sync_service', 'Sync Service'],
+    ['integration_platform', 'Integration platform'],
+  ] as const)('shows the kind chip for a connector of kind %s', (kind, label) => {
+    const el = setup({ ...baseRecord, product_role: 'connector', connector_kind: kind });
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe(label);
+  });
+
+  it('keeps the Connector chip for an unclassified connector', () => {
+    const el = setup({ ...baseRecord, product_role: 'connector', connector_kind: null });
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
+  });
+
+  it('keeps the Connector chip for a hit indexed before the kind existed', () => {
+    const { connector_kind: _kind, ...stale } = { ...baseRecord, product_role: 'connector' };
+    const el = setup(stale as AlgoliaProductRecord);
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
+  });
+
+  it('keeps the Hybrid chip for a hybrid Sync Service', () => {
+    const el = setup({ ...baseRecord, product_role: 'hybrid', connector_kind: 'sync_service' });
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Hybrid');
   });
 
   it('shows the Hybrid chip for a hybrid-role product', () => {

@@ -90,6 +90,7 @@ const CATALOGUE: readonly ProductListItem[] = [
   name: name!,
   logo_url: null,
   product_role: 'application' as const,
+  connector_kind: null,
   vendor: { id: uuid(5600 + index), slug: slug!, name: vendor!, logo_url: null, verified: false },
   integration_count: 0,
   review_count: 0,

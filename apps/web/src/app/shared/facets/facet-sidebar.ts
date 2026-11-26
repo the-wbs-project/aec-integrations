@@ -16,6 +16,7 @@ import { filter } from 'rxjs';
 
 import type { ProductFacetsResponse } from '@aeci/shared';
 
+import { connectorKindLabel } from '../../products/connector-kind-labels';
 import { SearchRefinementList } from '../../search/widgets/search-refinement-list';
 import {
   FacetHistoryStore,
@@ -63,17 +64,26 @@ import type { RefinementItem } from './refinement-item';
  * visitor-state-neutral (the panel's `hidden`/`md:flex` is pure CSS the client
  * never has to reconcile). The disclosure lives in the shared `aec-facet-panel`
  * so `/search` renders the identical chrome.
+ *
+ * **Connector type (AECI-1662).** After the four taxonomy groups comes one more
+ * checkbox group, "Connector type", with two options: "Integration platform" and
+ * "Sync Service". It filters by what a product is (`STAGE_1_5_SPEC.md` §13.13) and
+ * orders nothing. It works exactly like a taxonomy group: a sorted CSV in
+ * `?connector_kind=`, OR within the group, disjunctive counts from the same
+ * `/api/products/facets` call, zero-count options hidden unless checked, and
+ * "Clear filters" clears it. `/search` shows the same group with the same two
+ * options in the same order. A browse page shows it too: it never locks it.
  */
 @Component({
   selector: 'aec-facet-sidebar',
   imports: [FacetPanel, SearchRefinementList],
   template: `
     <aec-facet-panel [activeCount]="activeFilterCount()" [orderNote]="orderNote()">
-      @for (group of groups(); track group.kind) {
+      @for (group of groups(); track group.param) {
         <aec-search-refinement-list
           [label]="group.label"
           [items]="group.items"
-          (refine)="onRefine(group.kind, $event)"
+          (refine)="onRefine(group.param, $event)"
         />
       }
 
@@ -129,7 +139,7 @@ export class FacetSidebar {
 
       const qp = this.queryParamMap();
       const params: Record<string, string> = {};
-      for (const { param } of DIMENSIONS) {
+      for (const param of [...DIMENSIONS.map((d) => d.param), CONNECTOR_KIND_PARAM]) {
         const value = qp.get(param);
         if (value) params[param] = value;
       }
@@ -244,16 +254,17 @@ export class FacetSidebar {
     this.history.write(this.historyKey(line), this.traversal?.currentEntryId() ?? null, counts);
   }
 
-  /** One render group per non-locked dimension, terms mapped to refinement items. */
-  protected readonly groups = computed<
-    { kind: TaxonomyKind; label: string; items: RefinementItem[] }[]
-  >(() => {
+  /**
+   * One render group per non-locked dimension, terms mapped to refinement items,
+   * then the "Connector type" group (AECI-1662).
+   */
+  protected readonly groups = computed<FacetGroup[]>(() => {
     const facets = this.retainedFacets();
     if (!facets) return [];
     const locked = this.lockedKind();
     const qp = this.queryParamMap();
 
-    return DIMENSIONS.filter((d) => d.kind !== locked).map((d) => {
+    const taxonomy = DIMENSIONS.filter((d) => d.kind !== locked).map((d): FacetGroup => {
       const activeIds = parseIds(qp.get(d.param));
       const items: RefinementItem[] = facets[d.responseKey]
         .map((term) => ({
@@ -275,8 +286,30 @@ export class FacetSidebar {
         // indexable content — the floor exists to keep thin *pages* out of the
         // index. Recorded in TRADES_VOCABULARY.md §6.
         .filter((item) => item.count > 0 || item.isRefined);
-      return { kind: d.kind, label: this.groupLabel(d.kind), items };
+      return { kind: d.kind, param: d.param, label: this.groupLabel(d.kind), items };
     });
+
+    // AECI-1662 — the two kinds, in vocabulary order (A to Z, as the caption says),
+    // with the same hide-at-zero-unless-checked rule as a taxonomy term. An older
+    // stored response from the history store may lack the key: no group then.
+    const activeKinds = parseIds(qp.get(CONNECTOR_KIND_PARAM));
+    const kindItems: RefinementItem[] = (facets.connector_kinds ?? [])
+      .map((entry) => ({
+        value: entry.kind,
+        label: connectorKindLabel(entry.kind),
+        count: entry.product_count,
+        isRefined: activeKinds.has(entry.kind),
+      }))
+      .filter((item) => item.count > 0 || item.isRefined);
+    return [
+      ...taxonomy,
+      {
+        kind: null,
+        param: CONNECTOR_KIND_PARAM,
+        label: $localize`:@@listing.filters.connectorKind:Connector type`,
+        items: kindItems,
+      },
+    ];
   });
 
   /**
@@ -307,11 +340,14 @@ export class FacetSidebar {
       : $localize`:@@listing.filters.order.directoryNoPhases:Terms A to Z.`;
   });
 
-  /** True when any non-locked dimension filter is active in the URL. */
+  /** True when any non-locked dimension filter, or the kind filter, is active in the URL. */
   protected readonly hasActiveFilters = computed(() => {
     const locked = this.lockedKind();
     const qp = this.queryParamMap();
-    return DIMENSIONS.some((d) => d.kind !== locked && !!qp.get(d.param));
+    return (
+      DIMENSIONS.some((d) => d.kind !== locked && !!qp.get(d.param)) ||
+      !!qp.get(CONNECTOR_KIND_PARAM)
+    );
   });
 
   /**
@@ -327,7 +363,7 @@ export class FacetSidebar {
       if (d.kind === locked) continue;
       count += parseIds(qp.get(d.param)).size;
     }
-    return count;
+    return count + parseIds(qp.get(CONNECTOR_KIND_PARAM)).size;
   });
 
   /**
@@ -335,8 +371,7 @@ export class FacetSidebar {
    * dimension's set, then re-encode as a **sorted** CSV so click order never
    * forks the cache. An empty set drops the param. Resets to page 1.
    */
-  protected onRefine(kind: TaxonomyKind, value: string): void {
-    const param = `${kind}_id`;
+  protected onRefine(param: string, value: string): void {
     const ids = parseIds(this.queryParamMap().get(param));
     if (ids.has(value)) ids.delete(value);
     else ids.add(value);
@@ -361,6 +396,7 @@ export class FacetSidebar {
     for (const d of DIMENSIONS) {
       if (d.kind !== locked) queryParams[d.param] = null;
     }
+    queryParams[CONNECTOR_KIND_PARAM] = null;
     void this.router.navigate([], {
       relativeTo: this.route,
       queryParams,
@@ -381,6 +417,22 @@ export class FacetSidebar {
         return $localize`:@@listing.filters.trades:Trades`;
     }
   }
+}
+
+/**
+ * AECI-1662 — the "Connector type" filter's URL and API param: a sorted CSV of
+ * stored kinds (`integration_platform`, `sync_service`), like a `{kind}_id` list.
+ * In `LISTING_CACHE_KEY_PARAMS`, `MULTI_VALUE_CACHE_KEY_PARAMS` and both listing
+ * configs' `passthroughParams`.
+ */
+export const CONNECTOR_KIND_PARAM = 'connector_kind';
+
+/** One checkbox group: a taxonomy dimension (`kind`) or the kind filter (`kind: null`). */
+interface FacetGroup {
+  readonly kind: TaxonomyKind | null;
+  readonly param: string;
+  readonly label: string;
+  readonly items: RefinementItem[];
 }
 
 /** Decode a (possibly null) `{kind}_id` CSV param into its set of selected ids. */
@@ -418,7 +470,7 @@ function shallowEqualParams(
  */
 const DIMENSIONS: readonly {
   kind: TaxonomyKind;
-  responseKey: keyof ProductFacetsResponse;
+  responseKey: Exclude<keyof ProductFacetsResponse, 'connector_kinds'>;
   param: string;
 }[] = [
   { kind: 'category', responseKey: 'categories', param: 'category_id' },

@@ -1,4 +1,5 @@
 import { COMPANY_SIZE_BANDS, OWNERSHIP_TYPES } from './company-fact-vocabularies';
+import { ConnectorKindSchema, connectorKindList } from './connector-kind-schema';
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
@@ -15,6 +16,7 @@ import { ProductFieldCaptionsSchema } from './field-captions';
 import { UnderReviewSchema } from './hidden-fields';
 import { PoweredIntegrationItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
+import { SyncFactsSchema, WhatItSyncsSchema } from './sync-service';
 
 /**
  * Product role enum. Mirrors the `product_role` column on the `products`
@@ -70,6 +72,12 @@ export const ProductListItemSchema = z.object({
   name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
   product_role: ProductRoleSchema,
+  // AECI-2036 (`STAGE_1_5_SPEC.md` §13.13): Integration platform or Sync Service.
+  // `null` is unclassified ("Connector"), and always `null` on an `application`
+  // (`connectorKindFor`). Admin-set, never promoted. Not on the Algolia record yet
+  // (AECI-1662), so a card built from a search hit carries `null`. No public label
+  // reads it yet (AECI-2037). Defaulted so an older payload still parses.
+  connector_kind: ConnectorKindSchema.nullable().default(null),
   vendor: VendorLinkSchema.nullable(),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
@@ -219,6 +227,15 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // on this payload, and no "Corrected by" caption names it. Never the reason, note or
   // source. The vendor's hidden facts in `vendor_facts` are `null` too, silently.
   under_review: UnderReviewSchema,
+  // AECI-2046 (ruling 15 on AECI-2035, `STAGE_1_5_SPEC.md` §13.13): the "What it
+  // syncs" block. Both `null` unless the product is a Sync Service (`isSyncService`).
+  // `sync_facts` is AECi-curated (admin-set, never promoted, never vendor-written);
+  // it is `null` too when none of the three is recorded. `what_it_syncs` is the
+  // record-type roll-up across the pairs it delivers (`apps/api/src/lib/what-it-syncs.ts`),
+  // after the owner's answers (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). Optional, read
+  // as `null`, so an older payload and a hand-built fixture still parse.
+  sync_facts: SyncFactsSchema.nullable().optional(),
+  what_it_syncs: WhatItSyncsSchema.nullable().optional(),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
@@ -257,6 +274,10 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
+  // AECI-1662 — the "Connector type" filter: a comma-separated list of kinds, OR
+  // within the list. Matches what `connectorKindFor` reads, so only a `connector` or
+  // `hybrid` with that stored kind. It filters and never sorts.
+  connector_kind: connectorKindList.optional(),
   // `has_api_docs` was a filter here until AECI-534. A leftover `?has_api_docs=` is
   // stripped by this non-strict object: ignored, not refused (as `?verified=` is).
 });

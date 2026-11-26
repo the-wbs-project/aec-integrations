@@ -30,6 +30,7 @@ import {
   mechanismRank,
   type AlgoliaEnv,
 } from '@aeci/shared/algolia';
+import { connectorKindFor } from '@aeci/shared/api/connector-kind';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 import {
   ALGOLIA_BATCH_MAX,
@@ -49,6 +50,7 @@ import {
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import {
   ddlHasRetiredColumn,
+  ddlHasVetoedColumn,
   EVIDENCED_PAIRS_DDL_QUERY,
   evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
@@ -84,6 +86,16 @@ async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {
 async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   const row = await db.prepare(INTEGRATIONS_DDL_QUERY).first<{ sql: string }>();
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
+}
+
+/**
+ * Whether this tier has migration 0132's `vetoed_at` yet (AECI-2042). One migration
+ * adds it to both tables, so one probe of `integrations` answers for both. Without it
+ * no row is vetoed, so the veto clause degrades to always-true.
+ */
+async function hasVetoedColumn(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(INTEGRATIONS_DDL_QUERY).first<{ sql: string }>();
+  return ddlHasVetoedColumn(integrationsDdlOrThrow(row?.sql));
 }
 
 /**
@@ -224,7 +236,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       `SELECT
          p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website,
          p.integration_count, p.review_count, p.rating_overall_avg,
-         p.created_at, p.updated_at, p.product_role,
+         p.created_at, p.updated_at, p.product_role, p.connector_kind,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
          EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id
             WHERE cpv.product_id = p.id AND cv.owned_at IS NOT NULL
@@ -260,6 +272,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       created_at: string;
       updated_at: string;
       product_role: string;
+      connector_kind: string | null;
       claimed: number;
       vendor_name: string | null;
       vendor_slug: string | null;
@@ -313,6 +326,10 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       // AECI-1086 — display only, never ranked. Identical to `toAlgoliaProduct`;
       // the column is NOT NULL with a CHECK, so the raw value is always a role.
       product_role: r.product_role,
+      // AECI-1662 — identical to `toAlgoliaProduct` through the shared reader, so an
+      // application never carries a kind. The record schema makes the key required, so
+      // a rebuild that dropped it would fail the parse rather than reset every kind.
+      connector_kind: connectorKindFor(r.product_role, r.connector_kind),
     };
   });
 }
@@ -320,6 +337,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
 export async function buildVendorRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
+  const vetoedColumn = await hasVetoedColumn(db);
   const productsHidden = await hasHiddenColumn(db, 'products');
   const vendorsHidden = await hasHiddenColumn(db, 'vendors');
   const hides = await activeFieldHides(db, 'vendor');
@@ -348,11 +366,11 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          -- over IN, so each leg uses its column's index (AECI-1483).
          ((SELECT count(*) FROM integrations ri
              WHERE (ri.source_product_id IN (${owned}) OR ri.target_product_id IN (${owned}))
-               AND ${liveIntegrationSqlIf('ri', retiredColumn, productsHidden)})
+               AND ${liveIntegrationSqlIf('ri', retiredColumn, productsHidden, vetoedColumn)})
           + (SELECT count(*) FROM connector_evidenced_pairs rep
              WHERE (rep.product_a_id IN (${owned}) OR rep.product_b_id IN (${owned})
                     OR rep.connector_product_id IN (${owned}))
-               AND ${liveEvidencedPairSqlIf('rep', pairsRetiredColumn, productsHidden)}))
+               AND ${liveEvidencedPairSqlIf('rep', pairsRetiredColumn, productsHidden, vetoedColumn)}))
            AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'
          AND ${visibleVendorSqlIf('v', vendorsHidden)}`,
@@ -451,6 +469,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
+  const vetoedColumn = await hasVetoedColumn(db);
   const productsHidden = await hasHiddenColumn(db, 'products');
   const [integrationHides, pairHides] = await Promise.all([
     activeFieldHides(db, 'integration'),
@@ -480,7 +499,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        -- AECI-1010: a retired row is not a member, so a full rebuild must not
        -- re-add it. Same predicate as the Worker sync's upsert arm.
        WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'
-         AND ${liveIntegrationSqlIf('i', retiredColumn, productsHidden)}
+         AND ${liveIntegrationSqlIf('i', retiredColumn, productsHidden, vetoedColumn)}
        UNION ALL
        SELECT
          cep.id AS objectID,
@@ -502,7 +521,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        JOIN products pb ON pb.id = cep.product_b_id
        -- AECI-1091: the same rule on the evidenced arm. A retired pair is not re-added.
        WHERE pa.promotion_status = 'promoted' AND pb.promotion_status = 'promoted'
-         AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, productsHidden)}`,
+         AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, productsHidden, vetoedColumn)}`,
     )
     .all<{
       objectID: string;

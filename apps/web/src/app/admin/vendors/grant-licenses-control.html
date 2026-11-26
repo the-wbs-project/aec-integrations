@@ -30,19 +30,6 @@
     >
     }
   </p>
-  }
-
-  <!-- The API's warnings[] after a grant, by code, so the text stays localized. -->
-  @if (warnedConnector()) {
-  <p
-    [class]="noticeClass"
-    role="note"
-    data-testid="grant-licenses-warning"
-    i18n="@@admin.vendors.licenses.warned.connector"
-  >
-    Granted to a vendor whose every product is a connector. Connector vendors and subscriptions are
-    not settled yet, so check this grant with the team.
-  </p>
   } @if (!formOpen()) {
   <div>
     <button
@@ -66,11 +53,11 @@
     (aecSubmit)="submit()"
     (keydown.escape)="onEscape($event)"
   >
-    <!-- AECI-738: warns, never disables. product_role is curated upstream. -->
+    <!-- AECI-738: a note, never disabled. AECI-2044: the API refuses when no product can hold one. -->
     @if (isPureConnectorVendor()) {
-    <p [class]="noticeClass" role="note" i18n="@@admin.vendors.licenses.warn.connector">
-      Every product this vendor owns is a connector. Connector vendors and subscriptions are not
-      settled yet. You can still grant.
+    <p [class]="noticeClass" role="note" i18n="@@admin.vendors.licenses.warn.connectorKind">
+      Every product this vendor owns is a connector. Only a Sync Service can hold a subscription, so
+      the grant is refused unless one of them is a Sync Service.
     </p>
     }
 

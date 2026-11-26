@@ -53,7 +53,8 @@ Chris reviewed this report on 2026-10-01. These rulings supersede the matching f
 - **Company details are editable on every plan.** So are product description, website, logo and
   categories, the four `listing_tier` ranking inputs. Section 5 coupling 1 is resolved by this.
 - **Data-flow confirmation stays a Managed feature.** Free vendors cannot create vendor agreement.
-  Section 5 coupling 2 stands as a deliberate positioning choice.
+  Section 5 coupling 2 stands as a deliberate positioning choice. *Reversed 2026-11-24 (ruling 5
+  on epic AECI-2035, AECI-2038): confirming is on every plan, so coupling 2 is resolved.*
 - **"Looked and changed nothing" counts as a pilot step.** The "Looks right" action records it
   (AECI-1216). A Free product's checklist is finishable without data flows.
 - **Nothing beyond Managed is shown in the portal yet.**
@@ -261,7 +262,8 @@ Four indirect couplings need a ruling:
 2. **Only paid vendors can create vendor agreement.** Attestation needs `attestation.author`. The
    public pair page shows whether both vendors agree. So the "both vendors agree" trust state is
    reachable only by paying vendors. **Ruled 2026-10-01 in AECI-1212:** this stays a Managed
-   feature. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.1.
+   feature. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.1. **Resolved 2026-11-24 by AECI-2038 (ruling 5
+   on epic AECI-2035):** Free holds `attestation.author`, so any claimed vendor can confirm.
 3. **Public version-diff depth depends on payment.** It opens when either endpoint vendor holds a
    plan (`lib/pair-version-diff.ts:76-114`). It is disclosed on `/methodology`. Per-product plans
    must re-key it to the endpoint product.

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  connectorCatalogs,
   productAudiences,
   productCategories,
   productTrades,
@@ -207,6 +208,31 @@ describe('GET /api/vendor/me', () => {
     expect(body.seat_count).toBe(2);
     // SEAT is a member seat: `profiles.seat_owner` defaults to false.
     expect(body.seat_owner).toBe(false);
+  });
+
+  // AECI-2036: AECi's connector kind rides each product, read-only, null on an application.
+  it('carries connector_kind on each product', async () => {
+    expect((await call('/api/vendor/me')).body.products[0].connector_kind).toBeNull();
+    await t.db
+      .update(products)
+      .set({ productRole: 'connector', connectorKind: 'sync_service' })
+      .where(eq(products.id, PRODUCT));
+    const { body } = await call('/api/vendor/me');
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    expect(body.products[0].connector_kind).toBe('sync_service');
+  });
+
+  // AECI-2044: the plan panel's catalogue state reads this, so it is true only for a
+  // connector AECi holds a catalogue for.
+  it('carries has_connector_catalog, true only on a connector with a catalogue', async () => {
+    expect((await call('/api/vendor/me')).body.products[0].has_connector_catalog).toBe(false);
+    await t.db.insert(connectorCatalogs).values({ id: 'recCatalog1', connectorProductId: PRODUCT });
+    // An application with a catalogue row is not the seat's product.
+    expect((await call('/api/vendor/me')).body.products[0].has_connector_catalog).toBe(false);
+    await t.db.update(products).set({ productRole: 'connector' }).where(eq(products.id, PRODUCT));
+    const { body } = await call('/api/vendor/me');
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    expect(body.products[0].has_connector_catalog).toBe(true);
   });
 
   it('reports seat_owner from the caller’s own profile (AECI-1387)', async () => {

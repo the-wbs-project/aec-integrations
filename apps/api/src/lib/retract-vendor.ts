@@ -112,6 +112,7 @@
 
 import {
   AUDIT_LOG_DDL_SQL,
+  CLAIM_OWNER_ANSWERS_TABLE_SQL,
   CLAIM_THREADS_TABLE_SQL,
   ddlHasAuditVendorColumns,
   escapeSqlLiteral,
@@ -130,6 +131,7 @@ export const PRODUCT_PROPOSALS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" W
 
 export {
   AUDIT_LOG_DDL_SQL,
+  CLAIM_OWNER_ANSWERS_TABLE_SQL,
   CLAIM_THREADS_TABLE_SQL,
   ddlHasAuditVendorColumns,
   escapeSqlLiteral,
@@ -169,8 +171,17 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'integration_field_challenges.owner_vendor_id': 'detach',
   'claims.created_by_vendor_id': 'detach',
   'attestations.attested_by_vendor_id': 'detach',
+  // AECI-2039 (0131): an owner's answer on a Sync Service pair's flow. A NULL vendor
+  // matches no owner, so the answer stops counting and its history stays.
+  'claim_owner_answers.vendor_id': 'detach',
   'page_views.vendor_id': 'detach',
   'integration_vendor_links.vendor_id': 'fk-action',
+  // AECI-2042 (0132). A report the vendor filed goes with it (CASCADE, uncounted). A
+  // report routed to it as owner, and a veto it filed, are NULLed by SET NULL: the
+  // veto stays in force, because only a withdraw or an AECi lift ends one.
+  'sync_service_pair_contests.submitter_vendor_id': 'fk-action',
+  'sync_service_pair_contests.owner_vendor_id': 'fk-action',
+  'sync_service_pair_vetoes.vendor_id': 'fk-action',
 };
 
 /**
@@ -442,6 +453,10 @@ export interface VendorAuditInsertArgs {
   /** AECI-1192: whether `audit_log` has migration 0063's columns on the target tier.
    *  Defaults to true; the CLI passes its {@link AUDIT_LOG_DDL_SQL} probe. */
   auditVendorColumns?: boolean;
+  /** AECI-2039: whether `claim_owner_answers` exists on the target tier (migration
+   *  0131). Defaults to true; the CLI passes its {@link CLAIM_OWNER_ANSWERS_TABLE_SQL}
+   *  probe so a tier without the table gets a plan that never names it. */
+  claimOwnerAnswersTable?: boolean;
 }
 
 /**
@@ -554,6 +569,9 @@ export function buildVendorDeleteStatements(args: VendorAuditInsertArgs): string
     `UPDATE "page_views" SET "vendor_id" = NULL WHERE "vendor_id" = ${v};`,
     `UPDATE "claims" SET "created_by_vendor_id" = NULL WHERE "created_by_vendor_id" = ${v};`,
     `UPDATE "attestations" SET "attested_by_vendor_id" = NULL WHERE "attested_by_vendor_id" = ${v};`,
+    ...((args.claimOwnerAnswersTable ?? true)
+      ? [`UPDATE "claim_owner_answers" SET "vendor_id" = NULL WHERE "vendor_id" = ${v};`]
+      : []),
     // The vendor itself. Everything else that references it was a refusal.
     `DELETE FROM "vendors" WHERE "id" = ${v};`,
     // §26.1 — same batch as the mutation.

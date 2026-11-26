@@ -72,6 +72,7 @@ So the pure parts that public pages need live in their own files:
 | File | Holds | Its schemas live in |
 |---|---|---|
 | `api/agreements.ts` | legal and Plans version tables, hashes, labels | `api/agreement-schemas.ts` |
+| `api/connector-kind.ts` | `CONNECTOR_KINDS`, `connectorKindFor`, `isSyncService` (AECI-2036), `productTakesSubscription` (AECI-2044) | `api/connector-kind-schema.ts` |
 | `api/https-url-rule.ts` | `isHttpsUrl`, `isHttpUrl`, `HTTPS_URL_MAX_LENGTH` | `api/https-url.ts` |
 | `api/legal-moment.ts` | `LEGAL_DOCUMENT_SLUGS`, `legalEffectiveAtMs` | `api/legal-versions.ts` |
 | `api/taxonomy-count.ts` | `taxonomyIntegrationCount` | `api/taxonomy.ts` |

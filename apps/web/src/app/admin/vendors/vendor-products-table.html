@@ -84,6 +84,41 @@
 
         <td [class]="t.cell" class="text-(--text-secondary)">
           {{ roleLabel(row) }}
+          <!-- AECI-2036: Integration platform or Sync Service. Connector and hybrid rows only. -->
+          @if (takesConnectorKind(row)) {
+          <aec-connector-kind-control
+            [productId]="row.id"
+            [productName]="row.name"
+            [kind]="row.connector_kind"
+            (saved)="retry.emit()"
+            (announce)="announce.emit($event)"
+          />
+          <!-- AECI-2046: the three curated facts, on a Sync Service row only. -->
+          @if (row.connector_kind === 'sync_service') {
+          <aec-sync-facts-control
+            [productId]="row.id"
+            [productName]="row.name"
+            [facts]="row.sync_facts ?? noSyncFacts"
+            (saved)="retry.emit()"
+            (announce)="announce.emit($event)"
+          />
+          }
+          <!-- AECI-2045: every pair this connector delivers, with its owner. -->
+          <button
+            aecButton
+            variant="ghost"
+            compact
+            type="button"
+            class="mt-2"
+            [attr.aria-expanded]="deliveredOpenId() === row.id"
+            [attr.aria-controls]="'delivered-pairs-' + row.id"
+            (click)="toggleDelivered(row)"
+            data-testid="delivered-pairs-toggle"
+            i18n="@@admin.vendors.products.deliveredPairs"
+          >
+            Delivered pairs
+          </button>
+          }
           <!--
             Ownership is EVERY `product_vendors` row, so a product this vendor
             merely co-owns appears here too. The chip says which is which — the
@@ -204,7 +239,19 @@
           </div>
         </td>
       </tr>
-      @if (listingFormFor(); as open) { @if (open.id === row.id) {
+      @if (deliveredOpenId() === row.id) {
+      <tr [id]="'delivered-pairs-' + row.id" [class]="t.detailRow">
+        <td colspan="7" [class]="t.detailCell">
+          <div [class]="t.detailInner">
+            <aec-delivered-pairs-panel
+              [productId]="row.id"
+              [productName]="row.name"
+              (announce)="announce.emit($event)"
+            />
+          </div>
+        </td>
+      </tr>
+      } @if (listingFormFor(); as open) { @if (open.id === row.id) {
       <tr [id]="'product-listing-' + row.id" [class]="t.detailRow">
         <td colspan="7" [class]="t.detailCell">
           <div [class]="t.detailInner">

@@ -64,6 +64,7 @@ import {
   PORTAL_WITHDRAWN_FIELDS,
   ListVendorContestsQuerySchema,
   contestValueProblem,
+  isSyncService,
   DecideContestSchema,
   ListVendorContestsResponseSchema,
   SubmitIntegrationContestSchema,
@@ -148,6 +149,7 @@ import {
   type ContestRow,
   type ContestTarget,
   type IntegrationClaimedPredicate,
+  contestConnectorHolderSentinel,
   contestIntegrationStateSentinel,
   contestStillOpenSentinel,
   isContestRaceError,
@@ -458,6 +460,10 @@ export function createSubmitContestHandler(
     //    an `owner` contest, checked once the body names the field (step 3b).
     const selfDisclaim = target.builtByVendorId === vendorId;
     if (selfDisclaim && !selfDisclaimable(target)) throw ownIntegration();
+    // AECI-2045 (§11b.2): no slots and not the named owner means the caller passed as
+    // the vendor of the row's Sync Service connector product. It may ask only to be
+    // recorded as the owner itself (checked once the body is parsed, step 3b).
+    const connectorHolder = authority === null && !selfDisclaim;
     // 2b. A retired row takes no new contest (AECI-1010). Its owner withdrew it, and
     //     the retire closed every open contest on it as withdrawn.
     assertIntegrationLive(target);
@@ -471,12 +477,18 @@ export function createSubmitContestHandler(
     const field = payload.field;
     // 3b. The owner may contest only `owner`, and only to name someone else.
     if (selfDisclaim && field !== 'owner') throw ownIntegration();
+    // AECI-2045: the connector holder's one request: "record us as the owner".
+    if (connectorHolder && (field !== 'owner' || payload.proposed_value !== vendorId)) {
+      throw connectorOwnerOnly(field !== 'owner');
+    }
     if (!(contestFieldsFor(anchor.kind) as readonly string[]).includes(field)) {
       throw new ApiError(
         400,
         'VALIDATION_FAILED',
         isPortalWithdrawnField(field)
-          ? `${field} can no longer be contested. AEC Integrations keeps it up to date.`
+          ? // AECI-2039: no longer says AEC Integrations keeps it up to date. Promote
+            // writes nothing to a claimed row, so that was false there.
+            `${field} can no longer be contested.`
           : `${field} cannot be contested on an integration delivered through a connector product`,
         { field: 'field' },
       );
@@ -511,7 +523,8 @@ export function createSubmitContestHandler(
         field: 'proposed_value',
       });
     }
-    if (field === 'owner' && wire !== null) {
+    // AECI-2045: the connector holder names itself, which is not an endpoint vendor.
+    if (field === 'owner' && wire !== null && !connectorHolder) {
       const slotVendors =
         anchor.kind === 'evidenced_pair'
           ? await vendorsForEvidencedPairSlots(db, [anchor.id])
@@ -575,6 +588,7 @@ export function createSubmitContestHandler(
       reason: payload.reason,
       pairSlugs,
       selfDisclaim,
+      connectorHolder,
     };
 
     // 7. Route and write, in one batch.
@@ -680,6 +694,9 @@ interface SubmitDraft {
   pairSlugs: readonly [string, string] | null;
   /** The row's named owner says the row is not its own (AECI-1225). */
   selfDisclaim: boolean;
+  /** AECI-2045: the caller passed only as the vendor of the row's Sync Service
+   *  connector product, asking to be recorded as the owner. Re-asserted at commit. */
+  connectorHolder?: boolean;
 }
 
 /**
@@ -810,6 +827,12 @@ async function planSubmit(
     ...(draft.selfDisclaim
       ? [contestIntegrationStateSentinel(db, anchor, { claimed: false, ownerVendorId: vendorId })]
       : []),
+    // AECI-2042 review: the connector holder's authority is read before the batch, so
+    // it is asserted again here. A connector change, a kind change or a lost seat on the
+    // connector product landing first aborts the batch.
+    ...(draft.connectorHolder && draft.target.poweredByProductId
+      ? [contestConnectorHolderSentinel(db, anchor, vendorId, draft.target.poweredByProductId)]
+      : []),
     workflowTransitionInsert(db, transition),
     ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
   ];
@@ -834,9 +857,50 @@ async function resolveContestAuthority(
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) throw error;
     const target = await loadContestTarget(db, anchor);
-    if (target?.builtByVendorId !== vendorId) throw error;
-    return null;
+    if (target?.builtByVendorId === vendorId) return null;
+    // AECI-2045 (§11b.2): the vendor of the row's Sync Service connector product may
+    // ask to be recorded as its owner. `null` slots, like the named owner above.
+    if (target && (await holdsSyncServiceConnector(db, vendorId, target))) return null;
+    throw error;
   }
+}
+
+/**
+ * AECI-2045: does the caller's vendor hold the row's connector product, and is that
+ * product a Sync Service? An Integration platform's or a blank-kind connector's
+ * vendor stays outside (the flat 404).
+ */
+async function holdsSyncServiceConnector(
+  db: Db,
+  vendorId: string,
+  target: Pick<ContestTarget, 'poweredByProductId'>,
+): Promise<boolean> {
+  const connectorId = target.poweredByProductId;
+  if (!connectorId) return false;
+  const [held, product] = await Promise.all([
+    db.query.productVendors.findFirst({
+      columns: { productId: true },
+      where: and(eq(productVendors.productId, connectorId), eq(productVendors.vendorId, vendorId)),
+    }),
+    db.query.products.findFirst({
+      columns: { productRole: true, connectorKind: true },
+      where: eq(products.id, connectorId),
+    }),
+  ]);
+  return Boolean(held && product && isSyncService(product.productRole, product.connectorKind));
+}
+
+/** AECI-2045: what the connector holder may not file. */
+function connectorOwnerOnly(wrongField: boolean): ApiError {
+  return wrongField
+    ? new ApiError(
+        403,
+        ApiErrorCode.CONTEST_CONNECTOR_OWNER_ONLY,
+        'Your company delivers this integration but is not its owner, so you can only ask to be recorded as the owner.',
+      )
+    : new ApiError(422, ApiErrorCode.CONTEST_INVALID_VALUE, 'Name your own company as the owner.', {
+        field: 'proposed_value',
+      });
 }
 
 /**

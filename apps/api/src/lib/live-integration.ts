@@ -48,6 +48,8 @@ import { noHiddenEndpointOn } from './listing-visibility';
 /** The integration's endpoint columns, over any table object or `alias()` of it. */
 interface IntegrationEndpointColumns {
   readonly retiredAt: Column;
+  /** AECI-2042: an endpoint vendor's veto. */
+  readonly vetoedAt: Column;
   readonly sourceProductId: Column;
   readonly targetProductId: Column;
   readonly poweredByProductId: Column;
@@ -56,15 +58,17 @@ interface IntegrationEndpointColumns {
 /** The pair's endpoint columns, over the table or an `alias()` of it. */
 interface EvidencedPairEndpointColumns {
   readonly retiredAt: Column;
+  readonly vetoedAt: Column;
   readonly productAId: Column;
   readonly productBId: Column;
   readonly connectorProductId: Column;
 }
 
 /** Live over any table object carrying the columns, including an `alias()`: not
- *  retired, and no endpoint or connector hidden. */
+ *  retired, not vetoed by an endpoint vendor (AECI-2042), and no endpoint or connector
+ *  hidden. */
 export function liveIntegrationOn(t: IntegrationEndpointColumns): SQL {
-  return sql`(${isNull(t.retiredAt)} AND ${noHiddenEndpointOn([
+  return sql`(${isNull(t.retiredAt)} AND ${isNull(t.vetoedAt)} AND ${noHiddenEndpointOn([
     t.sourceProductId,
     t.targetProductId,
     t.poweredByProductId,
@@ -94,7 +98,7 @@ export const notRetiredIntegrationWhere: SQL = notRetiredIntegrationOn(integrati
 /** The evidenced arm (AECI-1091): live over `connector_evidenced_pairs`, or an
  *  `alias()` of it. The same rule as {@link liveIntegrationOn}, named apart. */
 export function liveEvidencedPairOn(t: EvidencedPairEndpointColumns): SQL {
-  return sql`(${isNull(t.retiredAt)} AND ${noHiddenEndpointOn([
+  return sql`(${isNull(t.retiredAt)} AND ${isNull(t.vetoedAt)} AND ${noHiddenEndpointOn([
     t.productAId,
     t.productBId,
     t.connectorProductId,
@@ -166,6 +170,19 @@ export function isLiveIntegration(row: { readonly retiredAt: string | null | und
 export function assertIntegrationLive(row: { readonly retiredAt?: string | null }): void {
   if (isLiveIntegration({ retiredAt: row.retiredAt })) return;
   throw integrationRetiredError();
+}
+
+/**
+ * The `409 INTEGRATION_VETOED` a restore of a vetoed row answers (AECI-2042). A veto
+ * is not a retire: neither the owner's restore nor the admin restore brings the row
+ * back. Only the vetoing vendor's withdraw or an AECi lift ends the veto.
+ */
+export function integrationVetoedError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.INTEGRATION_VETOED,
+    'A vendor of one of the two products removed this integration from its product. It stays off the site while that removal stands.',
+  );
 }
 
 /** The `409 INTEGRATION_RETIRED` a write on a retired row answers. */

@@ -601,7 +601,8 @@ export function answerErrorMessage(err: unknown): string {
   }
   if (info?.code === 'ATTESTATION_NOTE_REQUIRED') return noteRequiredMessage();
   if (info?.code === 'ENTITLEMENT_REQUIRED') {
-    return $localize`:@@vendor.im.error.access:Answering needs active vendor access. Contact AEC Integrations to arrange it.`;
+    // AECI-2038: every live plan may answer, so this is a tier the build does not know.
+    return $localize`:@@vendor.im.error.accessUnavailable:Answering is not available for this integration right now. Contact AEC Integrations if this does not change.`;
   }
   if (info?.status === 403) {
     return $localize`:@@vendor.im.error.forbidden:You cannot change this row. Reload to see where it stands.`;

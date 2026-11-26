@@ -14,6 +14,7 @@ function render(
   agreement: AgreementState,
   attributedTo: string | null = null,
   refuted = false,
+  syncService = false,
 ): HTMLElement {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
@@ -21,6 +22,7 @@ function render(
   fixture.componentRef.setInput('agreement', agreement);
   fixture.componentRef.setInput('attributedTo', attributedTo);
   fixture.componentRef.setInput('refuted', refuted);
+  fixture.componentRef.setInput('syncService', syncService);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
 }
@@ -167,5 +169,29 @@ describe('AgreementBadge', () => {
       expect(heard.every((span) => span.contains(meaning))).toBe(true);
     }
     expect(ariaOf(render('confirmed'))).toBe('Confirmed by both companies.');
+  });
+
+  // AECI-2039, ruling 4 on AECI-2035: a Sync Service confirms its own flows.
+  it('names the company that offers a Sync Service pair, and never says "both companies"', () => {
+    const el = render('owner_confirmed', 'Rivets');
+    expect(el.textContent).toContain('Confirmed by Rivets, which offers this integration');
+    expect(el.textContent).not.toContain('both companies');
+    expect(ariaOf(el)).toBe('Confirmed by Rivets, which offers this integration.');
+    // One company's word: the neutral chip, never the bilateral Forest wash.
+    expect(toneOf(el)).toBe('quiet');
+  });
+
+  it('falls back to an unattributed owner line when no company is on file', () => {
+    const el = render('owner_confirmed');
+    expect(el.textContent).toContain('Confirmed by the company that offers this integration');
+  });
+
+  it('on a Sync Service pair an unanswered flow no longer says "Neither company"', () => {
+    const el = render('unverified', 'Rivets', false, true);
+    expect(el.textContent).toContain('Listed by AEC Integrations');
+    expect(ariaOf(el)).not.toContain('Neither company');
+    expect(ariaOf(el)).toBe(
+      'Listed by AEC Integrations from public sources. Rivets, which offers this integration, has not confirmed it yet.',
+    );
   });
 });
