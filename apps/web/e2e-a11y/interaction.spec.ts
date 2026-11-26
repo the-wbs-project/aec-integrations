@@ -119,8 +119,12 @@ export const KNOWN_INTERACTION_BARRIERS: readonly InteractionBarrier[] = [
   {
     issue: 'AECI-2120',
     check: 'pointer',
-    // The site header is checked once per persona.
-    applies: (_surface, sharedChrome) => sharedChrome,
+    // The site header is checked once per persona. On Linux the anonymous
+    // header did not reproduce it in two of two runs (AECI-1885, runs
+    // 45788445186 and 45794243864), while the three signed-in headers did, and
+    // a Mac reproduces it for all four. The cause is not known yet.
+    applies: (surface, sharedChrome) =>
+      sharedChrome && !(process.platform === 'linux' && surface.persona === 'anonymous'),
     matches: (p) => p.startsWith('link "Browse": '),
     mark: () =>
       knownFailure(
@@ -143,6 +147,22 @@ export const KNOWN_INTERACTION_BARRIERS: readonly InteractionBarrier[] = [
       knownFailure(
         'AECI-2197',
         'Linux Chromium draws the default outline auto as a 1px ring round a wrapped link, in forced colours too',
+      ),
+  },
+  {
+    // AECI-2100 on Linux, in forced colours as without: after Tab, the centre of
+    // the review text area is under the consent banner. 4 of 4 Linux checks.
+    issue: 'AECI-2100',
+    check: 'forced colours focus',
+    applies: (surface) => process.platform === 'linux' && surface.id === 'review-submission',
+    matches: (p) =>
+      /^obscured: main textbox "Your review" \(stop \d+\): elementFromPoint at its centre is .* in aec-consent-banner /.test(
+        p,
+      ),
+    mark: () =>
+      knownFailure(
+        'AECI-2100',
+        'after Tab the review text area sits under the consent banner, its centre covered on Linux',
       ),
   },
   {

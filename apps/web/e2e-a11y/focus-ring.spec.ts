@@ -126,6 +126,7 @@ const LINUX_WEBKIT_BAND_UNDER_BANNER = new Set([
   'product-index',
   'vendor-index',
   'vendor-detail',
+  'integration-index',
   'integration-detail',
   'product-pair',
   'category-browse',
