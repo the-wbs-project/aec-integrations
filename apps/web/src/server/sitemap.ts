@@ -91,6 +91,8 @@ export async function staticSitemapEntries(
     // and canonicalises here, so it is never listed (AECI-1361). Nor is an
     // upcoming version or the current version's own address at the same kind of
     // URL (AECI-1610).
+    // AECI-2237: the `/legal` index of the six documents.
+    { loc: `${base}/legal`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/terms`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
     { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
