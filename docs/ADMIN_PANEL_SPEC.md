@@ -512,6 +512,14 @@ missing**: human-vs-bot per day, unique visitors per day, top pages, top product
 the UTC ↔ WIB toggle, the §9.8 definition beside the number, the internal-ASN
 toggle and the honesty envelope are all live at `/admin/traffic`.
 
+**What a filter click reads (AECI-2225, 2026-11-26).** Every read on this screen is a
+live aggregate over `page_views`, and one Traffic type click used to fire all nine
+of them. On demo that exhausted D1's per-database budget (`D1 DB is overloaded`) and
+failed most panels. A Traffic type click now re-reads only the five breakdowns that
+take `traffic`. The three day series and the crawler breakdown do not depend on it.
+A range or internal-filter change still re-reads all nine. A newer load always wins
+over an older one still in flight.
+
 ### 5.4 Audience — SHIPPED (AECI-586, 2026-08-13)
 
 Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox**, a console table since AECI-2125 (received, features they want, tools they use, contact). `feedback` is written by `POST /api/feedback` and had **no read surface anywhere in the product** before this unit.
@@ -3266,8 +3274,8 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 |---|---|---|
 | `GET /api/admin/overview` | The §5.1 bundle | One round trip; **calls** `collectAnalyticsMetrics` (see the P1.1 note below). `?day=YYYY-MM-DD` picks a UTC day, default the digest's prior complete day; `?recompute=1` runs the two network-dependent status items (pure read; sends no email) |
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
-| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day&basis=additions\|net` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot. `basis=net` (AECI-686, `catalog.*` only) counts surviving rows by `created_at`, bypasses the snapshot, and is a 400 on any other metric |
-| `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window. The rows and the distinct-group `total` come from one statement (`count(*) over ()`), AECI-1492 |
+| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day&basis=additions\|net` | Serves `metrics_daily` (§7.1); falls back to live aggregation for the uncovered days only, one query from the first uncovered day to the last (AECI-2225). `basis=net` (AECI-686, `catalog.*` only) counts surviving rows by `created_at`, bypasses the snapshot, and is a 400 on any other metric |
+| `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window. The rows and the distinct-group `total` come from one statement (`count(*) over ()`), AECI-1492. On every dimension but `product`, `window_total` comes from that statement too (`sum(count(*)) over ()`), AECI-2225 |
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates — **SHIPPED (AECI-586)** | Subscribers, churn, UTM, geo. `?from=&to=` (both inclusive) + `?breakdown_limit=` (1–50, default 8). Derived **live** from `mailing_list`, not from `metrics_daily` — see §5.4 note (1) |
 | `GET /api/admin/feedback` | Paginated feedback list — **SHIPPED (AECI-586)** | First read surface for the table. `PageQuerySchema` only; no window (the windowed count rides on `/audience`) |

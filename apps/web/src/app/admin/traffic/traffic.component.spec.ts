@@ -171,7 +171,7 @@ describe('AdminTraffic', () => {
     const dimensions = api.breakdown.mock.calls.map(
       (c) => (c[0] as { dimension: string }).dimension,
     );
-    expect(dimensions).toEqual(['source', 'path', 'product', 'country', 'bot', 'asn']);
+    expect(dimensions).toEqual(['source', 'path', 'product', 'country', 'asn', 'bot']);
 
     // Both ends inclusive, so a 30-day window spans 29 days of offset.
     const q = api.timeseries.mock.calls[0]![0] as { from: string; to: string };
@@ -249,7 +249,99 @@ describe('AdminTraffic', () => {
     api.breakdown.mockClear();
     await click(fixture, buttonByText(el, 'Bots'));
     const traffic = api.breakdown.mock.calls.map((c) => (c[0] as { traffic?: string }).traffic);
-    expect(traffic).toEqual(['bot', 'bot', 'bot', 'bot', 'bot', 'bot']);
+    expect(traffic).toEqual(['bot', 'bot', 'bot', 'bot', 'bot']);
+  });
+
+  it('re-reads only the five population breakdowns on a population change (AECI-2225)', async () => {
+    // The day series and the crawler breakdown do not take `traffic`. Re-reading
+    // them spent D1 time for the same answer, and one toggle used to overload D1.
+    const { fixture, api, el } = await setup();
+    api.timeseries.mockClear();
+    api.breakdown.mockClear();
+    await click(fixture, buttonByText(el, 'Bots'));
+    expect(api.timeseries).not.toHaveBeenCalled();
+    const dimensions = api.breakdown.mock.calls.map(
+      (c) => (c[0] as { dimension: string }).dimension,
+    );
+    expect(dimensions).toEqual(['source', 'path', 'product', 'country', 'asn']);
+    // The charts the toggle did not re-read are still on screen.
+    expect(el.textContent).toContain('3,419');
+  });
+
+  it('re-reads everything when a population click lands before the first load finished', async () => {
+    let releaseFirst: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let first = true;
+    const api = makeApi({
+      timeseries: vi.fn(async () => {
+        if (first) await gate;
+        return makeTimeseries();
+      }),
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        { provide: AdminTrafficApi, useValue: api },
+      ],
+    });
+    const fixture = TestBed.createComponent(AdminTraffic);
+    fixture.detectChanges();
+    await settle();
+    expect(api.timeseries).toHaveBeenCalledTimes(3);
+    first = false;
+
+    const el = fixture.nativeElement as HTMLElement;
+    await click(fixture, buttonByText(el, 'Bots'));
+    // The first load never landed, so there is no series to keep.
+    expect(api.timeseries).toHaveBeenCalledTimes(6);
+    releaseFirst();
+    await settle();
+    fixture.detectChanges();
+    expect(el.textContent).toContain('3,419');
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('never lets an older, slower load overwrite a newer one (AECI-2225)', async () => {
+    const { fixture, api, el } = await setup();
+    let releaseSlow: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (releaseSlow = resolve));
+    api.breakdown.mockImplementation(async (q: { traffic?: string }) => {
+      if (q.traffic === 'bot') {
+        await gate;
+        return makeBreakdown({
+          data: [
+            {
+              key: 'slow.example',
+              label: 'slow.example',
+              ref: null,
+              views: 900,
+              views_excluding_internal: null,
+              asn_registry: null,
+            },
+          ],
+        });
+      }
+      return makeBreakdown({
+        data: [
+          {
+            key: 'fast.example',
+            label: 'fast.example',
+            ref: null,
+            views: 900,
+            views_excluding_internal: null,
+            asn_registry: null,
+          },
+        ],
+      });
+    });
+    await click(fixture, buttonByText(el, 'Bots'));
+    await click(fixture, buttonByText(el, 'All'));
+    releaseSlow();
+    await settle();
+    fixture.detectChanges();
+    expect(el.textContent).toContain('fast.example');
+    expect(el.textContent).not.toContain('slow.example');
   });
 
   it('ignores a re-click of the active filter rather than re-querying', async () => {

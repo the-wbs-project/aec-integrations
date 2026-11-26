@@ -22,7 +22,7 @@ import {
   FROZEN_METRIC_KEYS,
   type AdminTimeseriesResponse,
 } from '@aeci/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
@@ -464,6 +464,54 @@ describe('GET /api/admin/metrics/timeseries — the metrics_daily snapshot (P2.1
     const body = await series('metric=traffic.page_views_human&from=2026-08-09&to=2026-08-10');
     expect(body.source).toBe('mixed');
     expect(body.points.map((p) => p.value)).toEqual([42, 2]);
+  });
+
+  it('runs the live query over the uncovered days only, not the whole window (AECI-2225)', async () => {
+    // 08-05..08-09 captured except a gap on 08-07; 08-10 (the "today" the cron has
+    // not reached) is uncovered too. Live must span 08-07..08-10 and no further.
+    await t.db.insert(pageViews).values([
+      { path: '/', isBot: false, createdAt: '2026-08-05T01:00:00.000Z' },
+      { path: '/', isBot: false, createdAt: '2026-08-07T01:00:00.000Z' },
+      { path: '/', isBot: false, createdAt: '2026-08-10T01:00:00.000Z' },
+      { path: '/', isBot: false, createdAt: '2026-08-10T02:00:00.000Z' },
+    ]);
+    for (const day of ['2026-08-05', '2026-08-06', '2026-08-08', '2026-08-09']) {
+      await snap(day, 'traffic.page_views_human', 10);
+    }
+
+    // Record the bound parameters of every grouped `page_views` statement.
+    const original = t.raw.prepare.bind(t.raw);
+    const bound: unknown[][] = [];
+    const record = <T extends object>(stmt: T): T =>
+      new Proxy(stmt, {
+        get(target, prop, receiver) {
+          const value = Reflect.get(target, prop, receiver);
+          if (typeof value !== 'function') return value;
+          return (...args: unknown[]) => {
+            if (prop === 'all' || prop === 'get') bound.push(args);
+            const out = value.apply(target, args);
+            return out === target ? receiver : out;
+          };
+        },
+      });
+    const spy = vi.spyOn(t.raw, 'prepare').mockImplementation((sql: string) => {
+      const stmt = original(sql);
+      return /from\s+"page_views"/i.test(sql) && /group by/i.test(sql) ? record(stmt) : stmt;
+    });
+    let body: AdminTimeseriesResponse;
+    try {
+      body = await series('metric=traffic.page_views_human&from=2026-08-05&to=2026-08-10');
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(body.source).toBe('mixed');
+    expect(body.points.map((p) => p.value)).toEqual([10, 10, 1, 10, 10, 2]);
+    expect(bound).toHaveLength(1);
+    const params = bound[0]!.flat();
+    expect(params).toContain('2026-08-07T00:00:00.000Z');
+    expect(params).toContain('2026-08-11T00:00:00.000Z');
+    expect(params).not.toContain('2026-08-05T00:00:00.000Z');
   });
 
   it('reports source:live when no day in the window was captured', async () => {
