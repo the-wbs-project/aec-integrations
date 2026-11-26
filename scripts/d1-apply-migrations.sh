@@ -26,7 +26,12 @@
 # Companion to the other CI shell gates in this dir (require-secrets.sh,
 # verify-version.sh, verify-health.sh). Used by ALL THREE deployed tiers: the
 # "Apply D1 migrations" step of deploy-staging (staging) in deploy.yml,
-# promote-to-demo.yml (demo), and promote-to-prod.yml (production). It also ran
+# refresh-staging.yml (staging), promote-to-demo.yml (demo), and
+# promote-to-prod.yml (production). The manual `deploy:{staging,demo,production}`
+# scripts call it through scripts/api-manual-deploy.sh, which adds a revision guard
+# and a pending-migrations check after it (AECI-2069). Interactively, a declined
+# wrangler prompt makes `migrations apply` exit 0, so a caller outside CI must not
+# treat this script's success as "schema current". It also ran
 # deploy.yml's `migrate-preview` job from AECI-828 until the preview tier retired
 # (AECI-1268).
 # See docs/migrations.md §0 and docs/CICD_PLAN.md.

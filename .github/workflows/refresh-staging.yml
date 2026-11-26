@@ -1,8 +1,10 @@
 # AEC Integrations — staging redeploy button (AECI-77; gutted by AECI-278).
 #
 # Press-a-button workflow that redeploys the staging Workers (API first, then
-# SSR) at the current `main` and smoke-tests them. It does NOT touch any
-# database.
+# SSR) at the current `main` and smoke-tests them. Before the API deploys it
+# applies any pending D1 migrations and reconciles the reference seeds, the same
+# step `deploy.yml` runs (AECI-2069). Both are idempotent, so on a staging that
+# is already current the step is a no-op. It copies no data between databases.
 #
 # History: this workflow used to refresh staging's **Postgres public-schema
 # data** from a prod dump (pg_dump → wipe → restore → `supabase db push` →
@@ -57,6 +59,18 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Migrations below apply whatever the dispatched ref carries to the shared
+      # staging D1. A branch dispatch would land unmerged migrations there, so the
+      # job runs from main only (AECI-2069).
+      - name: Require dispatch from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::refresh-staging must be dispatched from main (got '$REF'). Re-run it with the branch set to main."
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
 
       - name: Install pnpm
@@ -79,6 +93,18 @@ jobs:
       - name: Compute deploy timestamp
         id: ts
         run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # AECI-2069: migrate BEFORE the API deploys. Code that pins an index with
+      # `INDEXED BY` (lib/seo-queue.ts) fails every query if the index is missing,
+      # and a dispatch can follow a push whose own migrate step failed. Same
+      # helper and arguments as deploy.yml's "Apply D1 migrations (staging)". See
+      # docs/migrations.md §0 "Every path that deploys the API Worker".
+      - name: Apply D1 migrations (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: bash "$GITHUB_WORKSPACE/scripts/d1-apply-migrations.sh" aeci-app-staging staging
 
       - name: Deploy API (staging)
         env:

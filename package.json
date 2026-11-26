@@ -44,7 +44,6 @@
     "test:extras": "pnpm --filter @aeci/web run test:extras",
     "lighthouse": "pnpm --filter @aeci/web run lighthouse",
     "deploy:web": "pnpm --filter @aeci/web deploy",
-    "deploy:api": "pnpm --filter @aeci/api deploy",
     "tail:web": "pnpm --filter @aeci/web run tail",
     "tail:api": "pnpm --filter @aeci/api run tail",
     "tail:web:staging": "pnpm --filter @aeci/web run tail:staging",
