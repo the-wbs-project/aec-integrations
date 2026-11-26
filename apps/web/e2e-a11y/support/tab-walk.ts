@@ -22,7 +22,14 @@
  */
 import type { Page } from '@playwright/test';
 import { browserOf, expected, sequentialKey } from './browser-expectations';
-import { ensureProbe, focusFacts, locatorForKey, type FocusFacts } from './probe';
+import {
+  collectElementFacts,
+  ensureProbe,
+  focusFacts,
+  locatorForKey,
+  type FocusFacts,
+} from './probe';
+import { isLastCandidate } from './tab-candidates';
 
 export interface TabStop {
   /** Position in the walk, from 0. */
@@ -177,7 +184,11 @@ export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise
       // it is means the end of the document, not a trap, when the opposite key
       // moves it. `wrapByHand` then does the wrap, and the walk goes on from the
       // other end, as it does in a browser that wraps.
-      if (expected('sequentialFocusWraps', browserOf(page)) || stops.length === 0) {
+      if (
+        expected('sequentialFocusWraps', browserOf(page)) ||
+        stops.length === 0 ||
+        !(await atLastCandidate(page, facts.key))
+      ) {
         end = 'stuck';
         break;
       }
@@ -274,6 +285,20 @@ async function wrapByHand(
     previous = facts.key;
   }
   return { kind: 'budget', presses };
+}
+
+/**
+ * Is the element with this key the last Tab stop the prediction expects, with
+ * this browser's scroller rules? Only then is a stop Tab cannot leave the end of
+ * the page in a browser that does not wrap. Anywhere else it is a trap.
+ */
+async function atLastCandidate(page: Page, key: number | null): Promise<boolean> {
+  if (key === null) return false;
+  const browser = browserOf(page);
+  return isLastCandidate(key, await collectElementFacts(page), {
+    keyboardFocusableScrollers: expected('keyboardFocusableScrollers', browser),
+    scrollersWithFocusableContent: expected('scrollersWithFocusableContent', browser),
+  });
 }
 
 /**
