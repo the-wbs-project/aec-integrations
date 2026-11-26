@@ -1,6 +1,6 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928 / AECI-1018 / AECI-1170)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928 / AECI-1018 / AECI-1170 / AECI-2095)
 
-**Status: RUN — fourteen tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — fifteen tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
@@ -13,7 +13,8 @@ retirement, and the first to cascade claims that no surviving row holds**), and 
 window, ruled withdrawn**), and 2026-09-24 (16 rows, **AECI-928 — Zapier's I24 retire**),
 and 2026-09-24 again (1 row, **AECI-1018 — the AutoCAD Map 3D ↔ Civil 3D row that AECI-928
 held**), and 2026-10-01 (3 rows, **AECI-1170 — the first ruling run against promote
-double-create residue**). **The feed is empty.** No hold is active in the file. The AECI-1024 vendor half ran the same
+double-create residue**), and 2026-11-26 (1 row, **AECI-2095 — the Procore → Extractus
+by Smoothx edge, ruled out with its 5 AECi-seeded claims**). **The feed is empty.** No hold is active in the file. The AECI-1024 vendor half ran the same
 day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
 the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
 
@@ -1638,6 +1639,84 @@ Nothing to purge. Production serves uncached.
 - The daily strand audit has been green every day since 2026-10-03. Run 37647779815 reads
   `integrationSourceGone 0` and `RESULT: clean`. The 2026-10-01 and 2026-10-02 runs were red
   on an MCP session error, not on these rows.
+
+## What ran — 2026-11-26, 1 row (AECI-2095)
+
+**Why.** Under AECI-2095 the review app deleted the "MYOB AccountRight 0link" connector product
+and its edge, which left Smoothx as the vendor's only connector product. It also deleted the
+upstream record for "Procore Project Management → Extractus by Smoothx" (`rec8pKeZMHXz7Digp`).
+That record carried a `supabase_integration_id`, so the delete journalled one entry,
+`recbvUTuDzN2NO6H8`, at 2026-11-26T07:35:49Z. This is journal mode, not ruling mode.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 1
+```
+
+The dry run read `feed: 1 pending entries`, `resolve: integrations 1,
+connector_evidenced_pairs 0, already gone 0`, `plan: 1 to delete, 0 held`, `cascade: 5
+claims, 5 attestations, 0 per-side vendor links`, and `affected products: 2`.
+
+| Pair | Upstream record | Journal entry | Deleted | Claims |
+|---|---|---|---|--:|
+| Procore Project Management → Extractus by Smoothx | `rec8pKeZMHXz7Digp` | `recbvUTuDzN2NO6H8` | `1762a762-9783-43c3-b8fc-b83f29c045da` | 5 |
+
+The apply ran at **2026-11-26T07:59:41Z**. It wrote **1 `integration.deleted` audit row**,
+`d9acd39a-ae7b-4c1b-abad-4a0b5a5005b1`, with `metadata.source = 'retraction-journal'`.
+**2 products** had `integration_count` repaired and `updated_at` bumped at 07:59:47Z:
+`procore-project-management` (now 58) and `extractus-by-smoothx` (now 0). Verify read
+`integrations left 0, pairs left 0, orphan claims 0`, and the consumer confirmed the entry
+itself: `confirm: requested 1, confirmed 1`. The sentinel edge read the same before and after.
+
+| | integrations | pairs | claims | attestations |
+|---|--:|--:|--:|--:|
+| After | 1581 | 98 | 2674 | 2674 |
+
+The local rollback is `rollback-2026-11-26T07-59-36-877Z.sql` (gitignored). The Time Travel
+bookmark for 2026-11-26T07:59:00Z, just before the delete, is
+`00001bfa-00002600-0000512f-102aaa7a90442588cd74fec47dbd312b`.
+
+### `MAX_CASCADE` moved by ruling, not by twin-count
+
+Raised to `5 / 5` by Chris's in-session ruling on 2026-11-26. All 5 claims had `origin =
+'aeci'`, all seeded on 2026-08-27, none vendor-authored. They described Procore syncing with
+its own add-on, so the edge was ruled out of the catalog and no superseding row exists. This is
+the AECI-1024 shape, not the AECI-1170 one.
+
+### The three guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 1, inPairs: 0, inIntegrations: 1 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 5, attestations: 5 }` | `{ 0, 0 }` |
+| `HOLD` | `{}` | `{}` |
+
+The pins were never committed. They were set for the run and reset in the change that added
+this section.
+
+### Algolia
+
+The dry sweep found one orphan in `production_integrations`, the deleted id itself
+(`indexed 1680`, `promoted 1679`). This run removed it:
+
+```
+pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env production --apply --allow-production
+```
+
+### Cache
+
+Production now runs native Workers Cache, unlike the earlier runs in this file. The consumer
+enqueues no purge. The tags that cover this edge are `product:procore-project-management`,
+`product:extractus-by-smoothx` and `pair:extractus-by-smoothx__procore-project-management`.
+Detail pages expire on their own TTL. A `POST /admin/purge` with those tags clears them sooner.
+
+### Verification, live (2026-11-26, browser UA)
+
+- `/products/procore-project-management/integrations/extractus-by-smoothx` and its mirror
+  return **200 with `noindex`**, `cf-cache-status: MISS`. Expected: a retracted pair leaves a
+  noindexed empty pair page (AECI-795).
+- `/products/extractus-by-smoothx` renders **Integrations (0)**. Procore still appears there
+  as the product Extractus extends (`extension_of`), which is correct.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
