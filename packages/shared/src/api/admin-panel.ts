@@ -428,6 +428,23 @@ export const AdminModerationDepthSchema = z.object({
 });
 export type AdminModerationDepth = z.infer<typeof AdminModerationDepthSchema>;
 
+/**
+ * The copyright restore clock on the §5.1 strip (AECI-1944). Counts of open counter-notices
+ * by the clock state that needs the operator, from `readRestoresDue`
+ * (`apps/api/src/lib/dmca-notices.ts`), the predicate the `dmca_restore_due` data-quality
+ * check reads too. A cheap D1 read, so it is present on every response, recompute or not.
+ */
+export const AdminCopyrightRestoresSchema = z.object({
+  /** Business day 14 has ended with no outcome recorded, forwarded or not. Each row counts
+   *  in exactly one of the three fields. */
+  overdue: z.number().int().nonnegative(),
+  /** Business day 10 has started and day 14 has not ended. */
+  window_open: z.number().int().nonnegative(),
+  /** Not yet forwarded to the complainant, and business day 14 has not ended. */
+  awaiting_forward: z.number().int().nonnegative(),
+});
+export type AdminCopyrightRestores = z.infer<typeof AdminCopyrightRestoresSchema>;
+
 /** One data-quality check's outcome — the wire form of `DataQualityCheckResult`
  *  (`apps/api/src/lib/data-quality.ts`). `sample` is capped at 10 lines by the
  *  suite itself. */
@@ -492,7 +509,7 @@ export const AdminAlgoliaDriftStatusSchema = z.object({
 export type AdminAlgoliaDriftStatus = z.infer<typeof AdminAlgoliaDriftStatusSchema>;
 
 /**
- * The §5.1 status strip. The first three are cheap D1/env reads and are always
+ * The §5.1 status strip. The first four are cheap D1/env reads and are always
  * present. The last two need the network (a logo probe and three Algolia
  * queries) and are `null` on the default response with a `requires_recompute`
  * note — `?recompute=1` fills them.
@@ -501,6 +518,7 @@ export const AdminStatusStripSchema = z.object({
   version: AdminVersionStatusSchema,
   stats_freshness: AdminStatsFreshnessSchema,
   moderation: AdminModerationDepthSchema,
+  copyright_restores: AdminCopyrightRestoresSchema,
   data_quality: AdminDataQualityStatusSchema.nullable(),
   algolia_drift: AdminAlgoliaDriftStatusSchema.nullable(),
 });

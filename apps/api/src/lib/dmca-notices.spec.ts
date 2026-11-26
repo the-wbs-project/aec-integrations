@@ -10,6 +10,9 @@
  *      material was removed or disabled. `pending`, `no_action` and a takedown restored after
  *      a counter-notice do not count. A takedown whose counter-notice ended `not_restored`
  *      does.
+ *   3. **The restores due are the open counter-notices that need the operator now**
+ *      (AECI-1944): overdue, window open, or never forwarded. Most urgent first. The
+ *      data-quality check and the Overview strip read the same list.
  */
 
 import { count } from 'drizzle-orm';
@@ -20,6 +23,8 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import {
   accountCountStatements,
   counterNoticeCountWhere,
+  countRestoresDue,
+  readRestoresDue,
   restoreClock,
   takedownCountWhere,
   type DmcaNoticeRow,
@@ -182,5 +187,71 @@ describe('the per-account counts', () => {
       .where(counterNoticeCountWhere(ACCOUNT));
     expect(row?.value).toBe(1);
     expect(await counts(OTHER)).toEqual({ takedowns: 1, counters: 0 });
+  });
+});
+
+describe('readRestoresDue (AECI-1944)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  // Received Fri 20 Nov 2026: the window is 7 Dec to 11 Dec (see restoreClock above).
+  const OPEN = new Date('2026-12-08T12:00:00.000Z');
+  let n = 0;
+  async function seed(over: Partial<DmcaNoticeRow>): Promise<string> {
+    n += 1;
+    const id = `00000000-0000-4000-8000-0000000002${String(n).padStart(2, '0')}`;
+    await t.db.insert(dmcaNotices).values({
+      id,
+      kind: 'counter_notice',
+      noticeId: '00000000-0000-4000-8000-000000000200',
+      receivedAt: '2026-11-20T15:00:00.000Z',
+      forwardedAt: '2026-11-20T16:00:00.000Z',
+      action: 'pending',
+      createdBy: 'admin',
+      updatedBy: 'admin',
+      ...over,
+    });
+    return id;
+  }
+
+  it('lists overdue, window-open and unforwarded counter-notices, most urgent first', async () => {
+    const open = await seed({});
+    const overdue = await seed({ receivedAt: '2026-11-02T15:00:00.000Z' });
+    const unforwarded = await seed({ forwardedAt: null, receivedAt: '2026-12-07T15:00:00.000Z' });
+    // Waiting: forwarded, and day 10 has not started.
+    await seed({ receivedAt: '2026-12-01T15:00:00.000Z' });
+    await seed({ restoreOutcome: 'restored' });
+    await seed({ restoreOutcome: 'not_restored' });
+    await seed({ courtActionAt: '2026-12-01T12:00:00.000Z' });
+    await seed({ kind: 'notice', noticeId: null, action: 'removed', contentIdentified: 'x' });
+
+    const due = await readRestoresDue(t.db, OPEN);
+    expect(due.map((d) => [d.id, d.clock.state])).toEqual([
+      [overdue, 'overdue'],
+      [open, 'restore_window_open'],
+      [unforwarded, 'awaiting_forward'],
+    ]);
+    expect(countRestoresDue(due)).toEqual({ overdue: 1, window_open: 1, awaiting_forward: 1 });
+  });
+
+  it('counts an unforwarded counter-notice past business day 14 as overdue, once', async () => {
+    const unsentLate = await seed({ forwardedAt: null, receivedAt: '2026-11-02T15:00:00.000Z' });
+    const open = await seed({});
+    const unsent = await seed({ forwardedAt: null, receivedAt: '2026-12-07T15:00:00.000Z' });
+    const due = await readRestoresDue(t.db, OPEN);
+    // Past the deadline sorts first, whatever the state.
+    expect(due.map((d) => [d.id, d.clock.state, d.pastDeadline])).toEqual([
+      [unsentLate, 'awaiting_forward', true],
+      [open, 'restore_window_open', false],
+      [unsent, 'awaiting_forward', false],
+    ]);
+    expect(countRestoresDue(due)).toEqual({ overdue: 1, window_open: 1, awaiting_forward: 1 });
+  });
+
+  it('is empty on an empty log', async () => {
+    expect(await readRestoresDue(t.db, OPEN)).toEqual([]);
   });
 });

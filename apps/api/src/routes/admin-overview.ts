@@ -110,6 +110,7 @@ import {
   windowsForDay,
 } from '../lib/analytics-digest';
 import { readAdminQueueCounts } from '../lib/admin-queue-counts';
+import { countRestoresDue, readRestoresDue } from '../lib/dmca-notices';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
 
@@ -176,6 +177,7 @@ export function createAdminOverviewHandler(
       notes,
       classificationDay,
       classificationSeries,
+      restoresDue,
     ] = await Promise.all([
       countViewsExcludingInternal(db, dayW, 'bot', filter),
       countUniqueVisitorsBoth(db, dayW, 'human', filter),
@@ -205,6 +207,9 @@ export function createAdminOverviewHandler(
       // AECI-1346. The 30-day class chart, its seam, and the prior day the class
       // deltas compare against. One grouped read.
       readClassificationSeries(db, chartW),
+      // AECI-1944. The copyright restore clock, on the predicate the
+      // `dmca_restore_due` data-quality check reads, so the two cannot disagree.
+      readRestoresDue(db, now),
     ]);
 
     // AECI-1346. §3d collection-method changes for this tier (`ENV`; a local run
@@ -305,6 +310,7 @@ export function createAdminOverviewHandler(
           open_requests: queueDepths.pending_requests,
           open_claims: queueDepths.pending_claims,
         },
+        copyright_restores: countRestoresDue(restoresDue),
         data_quality: dataQuality,
         algolia_drift: algoliaDrift,
       },

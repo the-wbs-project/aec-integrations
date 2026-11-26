@@ -20,6 +20,7 @@ import {
   auditLog,
   billingAccounts,
   connectorEvidencedPairs,
+  dmcaNotices,
   integrations,
   legalVersions,
   licenses,
@@ -67,6 +68,7 @@ import {
   checkLicenseMirrorDrift,
   checkLogo404Sample,
   checkOwnershipSyncUnknownVendor,
+  checkDmcaRestoreDue,
   checkPlanSnapshotOverdue,
   checkProductsWithoutVendor,
   checkReviewMirrorDrift,
@@ -1218,6 +1220,75 @@ describe('checkPlanSnapshotOverdue', () => {
 
   it('is an error: the ranking evidence is missing', () => {
     expect(CHECKS.find((c) => c.id === 'plan_snapshot_overdue')?.severity).toBe('error');
+  });
+});
+
+// ── copyright restore clock (AECI-1944) ───────────────────────────────────────
+
+describe('checkDmcaRestoreDue', () => {
+  // Received Fri 20 Nov 2026: the restore window is 7 Dec to 11 Dec 2026.
+  const NOW = new Date('2026-12-08T12:00:00.000Z');
+  const NOTICE = '00000000-0000-4000-8000-000000000300';
+  const row = (id: string, over: Partial<typeof dmcaNotices.$inferInsert> = {}) => ({
+    id,
+    kind: 'counter_notice',
+    noticeId: NOTICE,
+    receivedAt: '2026-11-20T15:00:00.000Z',
+    forwardedAt: '2026-11-20T16:00:00.000Z',
+    submitterName: 'Private Person',
+    submitterContact: 'private@example.test',
+    action: 'pending',
+    createdBy: 'admin',
+    updatedBy: 'admin',
+    ...over,
+  });
+
+  it('lists overdue, window-open and unforwarded counter-notices, and nothing else', async () => {
+    await t.db
+      .insert(dmcaNotices)
+      .values([
+        row('cn-open'),
+        row('cn-late', { receivedAt: '2026-11-02T15:00:00.000Z' }),
+        row('cn-unsent', { forwardedAt: null, receivedAt: '2026-12-07T15:00:00.000Z' }),
+        row('cn-unsent-late', { forwardedAt: null, receivedAt: '2026-11-02T15:00:00.000Z' }),
+        row('cn-waiting', { receivedAt: '2026-12-01T15:00:00.000Z' }),
+        row('cn-restored', { restoreOutcome: 'restored' }),
+        row('cn-court', { courtActionAt: '2026-12-01T12:00:00.000Z' }),
+        row(NOTICE, { kind: 'notice', noticeId: null, action: 'removed', contentIdentified: 'x' }),
+      ]);
+    const { lines } = await checkDmcaRestoreDue(t.db, NOW);
+    expect(lines).toEqual([
+      `Counter-notice cn-late (notice ${NOTICE}) — overdue, restore was due by 2026-11-23`,
+      `Counter-notice cn-unsent-late (notice ${NOTICE}) — never forwarded to the complainant, and the restore was due by 2026-11-23`,
+      `Counter-notice cn-open (notice ${NOTICE}) — restore window open, restore by 2026-12-11`,
+      `Counter-notice cn-unsent (notice ${NOTICE}) — not yet forwarded to the complainant, restore due by 2026-12-28`,
+    ]);
+  });
+
+  // Review finding on AECI-1944: a closed row could vanish from the linked log. It stays
+  // on the list instead, because closing a counter-notice does not stop its deadline.
+  it('keeps a counter-notice closed with no outcome, and says so', async () => {
+    await t.db
+      .insert(dmcaNotices)
+      .values([row('cn-closed', { closedAt: '2026-12-01T12:00:00.000Z' })]);
+    const { lines } = await checkDmcaRestoreDue(t.db, NOW);
+    expect(lines).toEqual([
+      `Counter-notice cn-closed (notice ${NOTICE}, closed with no outcome recorded) — restore window open, restore by 2026-12-11`,
+    ]);
+  });
+
+  it('never puts the sender in the digest: ids and dates only', async () => {
+    await t.db.insert(dmcaNotices).values([row('cn-open')]);
+    const { lines } = await checkDmcaRestoreDue(t.db, NOW);
+    expect(lines.join(' ')).not.toMatch(/Private Person|private@example/);
+  });
+
+  it('is clean on an empty log', async () => {
+    expect((await checkDmcaRestoreDue(t.db, NOW)).lines).toEqual([]);
+  });
+
+  it('is an error: a statutory deadline is running', () => {
+    expect(CHECKS.find((c) => c.id === 'dmca_restore_due')?.severity).toBe('error');
   });
 });
 

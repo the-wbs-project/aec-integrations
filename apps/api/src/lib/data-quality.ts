@@ -63,6 +63,7 @@ import type { AlgoliaIndexDrift } from './algolia-drift';
 import type { AlgoliaLogoReader, LogoEntity } from './algolia-unclaimed-logo';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { businessWindowEnd } from './business-days';
+import { readRestoresDue } from './dmca-notices';
 import { fieldHideDues } from './field-hide-dues';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
@@ -998,6 +999,36 @@ export async function checkVendorSuspensionPastWindow(db: Db, now: Date): Promis
 }
 
 /**
+ * An open counter-notice that needs the operator (AECI-1944): its restore is overdue, its
+ * restore window is open, or it was never forwarded to the complainant. The Terms promise
+ * to forward a counter-notice promptly and to restore 10 to 14 business days after it
+ * arrives (17 U.S.C. 512(g)). `/admin/dmca` was the only place that said so, and only to
+ * an operator who opened it. `readRestoresDue` is the predicate the Overview strip reads
+ * too. Lines carry ids and dates only, never the sender's name or contact details,
+ * because the digest is an email. `error`: a statutory deadline is running. No seed
+ * writes `dmca_notices`, so a seeded database is clean.
+ */
+export async function checkDmcaRestoreDue(db: Db, now: Date): Promise<CheckFinding> {
+  const due = await readRestoresDue(db, now);
+  return {
+    lines: due.map((d) => {
+      const closed = d.closedAt ? ', closed with no outcome recorded' : '';
+      const label = `Counter-notice ${d.id} (notice ${d.noticeId ?? 'none'}${closed})`;
+      switch (d.clock.state) {
+        case 'overdue':
+          return `${label} — overdue, restore was due by ${d.clock.due_on}`;
+        case 'restore_window_open':
+          return `${label} — restore window open, restore by ${d.clock.due_on}`;
+        case 'awaiting_forward':
+          return d.pastDeadline
+            ? `${label} — never forwarded to the complainant, and the restore was due by ${d.clock.due_on}`
+            : `${label} — not yet forwarded to the complainant, restore due by ${d.clock.due_on}`;
+      }
+    }),
+  };
+}
+
+/**
  * A plan-change ranking snapshot still unwritten 24 hours after it was due (AECI-1621,
  * ADR 0056). The 15-minute sweep retries a failed row on every run, so a row this late
  * means the sweep keeps failing it or has stopped. The evidence the Terms rely on is
@@ -1833,7 +1864,8 @@ interface CheckSpec {
 /** The checks in digest order (§23.1, less the two AECI-592 retired, plus the
  *  AECI-609 and AECI-1354 mirror guards, the AECI-868 telemetry tripwire and the
  *  AECI-1455 review-app mirror drift, the AECI-1715 browser report tripwire and the
- *  AECI-1908 maintenance-marker guard and the AECI-1914 retention-date guard). Severity
+ *  AECI-1908 maintenance-marker guard, the AECI-1914 retention-date guard and the AECI-1944
+ *  copyright restore clock). Severity
  *  drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
@@ -2038,6 +2070,14 @@ export const CHECKS: CheckSpec[] = [
     // obligation: no seed writes the table.
     severity: 'error',
     run: ({ db, now }) => checkPlanSnapshotOverdue(db, now),
+  },
+  {
+    id: 'dmca_restore_due',
+    label: 'Counter-notices overdue for a restore, in their restore window, or not yet forwarded',
+    // `error`: a statutory deadline the Terms state is running (AECI-1944). A seed
+    // obligation that costs nothing: no seed writes `dmca_notices`.
+    severity: 'error',
+    run: ({ db, now }) => checkDmcaRestoreDue(db, now),
   },
   {
     id: 'review_mirror_drift',
