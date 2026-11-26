@@ -576,8 +576,19 @@ describe('LegalPage', () => {
           : getLegalVersion(slug, version),
     };
 
+    // A current text in force (a dated `effective_date`), so a current version applies.
+    const datedLookup: LegalDocLookup = {
+      ...lookup,
+      current: (slug) => {
+        const doc = getLegalDoc(slug);
+        return doc && slug === 'vendor-terms'
+          ? { ...doc, frontmatter: { ...doc.frontmatter, effectiveDate: 'January 15, 2027' } }
+          : doc;
+      },
+    };
+
     it('opens with the effective date and links the current version', () => {
-      const { host } = render('vendor-terms', '9.0', lookup);
+      const { host } = render('vendor-terms', '9.0', datedLookup);
       const opener = host.querySelector('[data-testid="legal-upcoming"]');
       expect(opener?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
         'This version takes effect on March 31, 2027. Until then the current version applies.',
@@ -588,6 +599,17 @@ describe('LegalPage', () => {
       expect(host.textContent).toContain('Version 9.0');
       expect(host.textContent).toContain('Effective March 31, 2027');
       expect(host.querySelector('article.aec-prose')?.textContent).toContain('New text.');
+    });
+
+    // AECI-2234: the current text is a draft, so no current version applies.
+    it('a first version over a draft says it is the first and links no current version', () => {
+      const { host } = render('vendor-terms', '9.0', lookup);
+      const opener = host.querySelector('[data-testid="legal-upcoming"]');
+      expect(opener?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'This version takes effect on March 31, 2027. It is the first version of the Vendor Terms to take effect.',
+      );
+      expect(opener?.querySelector('a')).toBeNull();
+      expect(opener?.textContent).not.toMatch(/current version|draft/i);
     });
 
     it('sets robots noindex and canonicalises to the current version', () => {

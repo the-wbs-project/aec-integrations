@@ -344,3 +344,58 @@ export function isRecordableLegalAgreementVersion(
     ).includes(version) || maps.agreementUpcoming[document]?.version === version
   );
 }
+
+/**
+ * Whether `version` of `document` is the document's FIRST version in force (AECI-2234): at
+ * `nowMs` no other version of it is in force. The change notice then cannot say "Until then
+ * the current version applies" or name an earlier version, because only a draft exists and
+ * a draft is never in force (`LEGAL_AGREEMENT_EFFECTIVE_ON`).
+ *
+ * Another version is in force when either holds:
+ *
+ *   - another `legal_versions` row of the document has reached its moment and is not
+ *     mismatched (`legalPublishedRowMismatched`). Every switch needs a row, for all six
+ *     documents since AECI-1969, so this arm alone covers the policies.
+ *   - the build's current version has an effective day (an agreement or a reader document
+ *     after its bump day). The policies have no effective-day map.
+ *
+ * Pure. `published` may hold rows of other documents; they are ignored.
+ */
+export function legalNoticeIsFirstInForce(
+  document: LegalPublishableDocument,
+  version: string,
+  published: readonly LegalPublishedLite[],
+  nowMs: number,
+  maps: LegalInForceMaps = LEGAL_IN_FORCE_MAPS,
+): boolean {
+  const earlierRow = published.some(
+    (r) =>
+      r.document === document &&
+      r.version !== version &&
+      legalMomentReached(r.effectiveAt, nowMs) &&
+      !legalPublishedRowMismatched(r, maps),
+  );
+  if (earlierRow) return false;
+  return buildCurrentEffectiveOn(document, maps) === null;
+}
+
+/** The effective day of the build's current version of `document`, or `null`: a draft, or
+ *  a policy (no effective-day map). */
+function buildCurrentEffectiveOn(
+  document: LegalPublishableDocument,
+  maps: LegalInForceMaps,
+): string | null {
+  if ((LEGAL_AGREEMENT_DOCUMENTS as readonly string[]).includes(document)) {
+    const d = document as LegalAgreementDocument;
+    const days = (maps.agreementEffectiveOn ?? LEGAL_AGREEMENT_EFFECTIVE_ON)[d] as Readonly<
+      Record<string, string | null>
+    >;
+    return days[maps.agreementCurrent[d]] ?? null;
+  }
+  if ((LEGAL_READER_DOCUMENTS as readonly string[]).includes(document)) {
+    const d = document as LegalReaderDocument;
+    const days = legalReaderEffectiveOnOf(maps)[d];
+    return days[(maps.readerCurrent ?? LEGAL_READER_CURRENT_VERSIONS)[d]] ?? null;
+  }
+  return null;
+}

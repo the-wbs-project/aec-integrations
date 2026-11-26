@@ -56,8 +56,9 @@
  * itself incomplete so the page says to send again.
  *
  * ── NEVER AFTER THE EFFECTIVE MOMENT ───────────────────────────────────────────
- * The email says "Until then the current version applies", which is false once the
- * version is in effect. A message that arrives at or after `effective_at` sends nothing,
+ * The email says "Until then the current version applies" (or, for a first version in
+ * force, AECI-2234, that it is the first to take effect), which is false once the version
+ * is in effect. A message that arrives at or after `effective_at` sends nothing,
  * logs an error naming the version and the company, and is acked. Every row of the
  * version still `queued` becomes `expired`, and `notice_enqueued_at` is cleared
  * (`markNoticeExpired`, with a system audit row), so `/admin/legal` shows the notice as not
@@ -90,8 +91,10 @@ import {
   isLegalPolicyDocument,
   isLegalReaderDocument,
   LegalCompanyNoticeDocumentSchema,
+  legalNoticeIsFirstInForce,
   LegalReaderDocumentSchema,
   type LegalCompanyNoticeDocument,
+  type LegalPublishableDocument,
   type LegalReaderDocument,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -338,6 +341,27 @@ export async function legalNoticeRecipients(
 export async function legalNoticeAccountIds(db: Db): Promise<string[]> {
   const rows = await db.select({ id: profiles.id }).from(profiles).where(isNull(profiles.bannedAt));
   return binarySort(rows.map((r) => r.id));
+}
+
+/**
+ * Whether the version is its document's first in force (AECI-2234), read from the
+ * document's `legal_versions` rows at `now`. The rule is `legalNoticeIsFirstInForce`.
+ */
+async function loadNoticeFirstInForce(
+  db: Db,
+  document: LegalPublishableDocument,
+  version: string,
+  now: Date,
+): Promise<boolean> {
+  const published = await db
+    .select({
+      document: legalVersions.document,
+      version: legalVersions.version,
+      effectiveAt: legalVersions.effectiveAt,
+    })
+    .from(legalVersions)
+    .where(eq(legalVersions.document, document));
+  return legalNoticeIsFirstInForce(document, version, published, now.getTime());
 }
 
 /** The closing line for one account's notice (AECI-1637). */
@@ -1297,7 +1321,7 @@ export async function deliverLegalNotice(
       return;
     }
     if (row.effectiveAt <= clock().getTime()) {
-      // The email says "Until then the current version applies", which is false from the
+      // The email says the version "takes effect on" its date, which is false from the
       // effective moment on. Send nothing, and mark the notice not completed so the page
       // shows it. The re-send route refuses here too (LEGAL_NOTICE_TOO_LATE).
       metric('too_late');
@@ -1373,6 +1397,7 @@ export async function deliverLegalNotice(
       where: eq(vendors.id, vendorId),
     });
     const closing = legalClosingFor(document, row.requiresAcceptance, monthly);
+    const firstInForce = await loadNoticeFirstInForce(db, document, row.version, clock());
     const effectiveDay = new Date(row.effectiveAt).toISOString().slice(0, 10);
     const summary = summaryOf(row);
     const pdfBase64 = bytesToBase64(pdf.bytes);
@@ -1390,6 +1415,7 @@ export async function deliverLegalNotice(
         effectiveDay,
         summary,
         closing,
+        firstInForce,
         expeditedReason,
         vendorSlug: vendor?.slug ?? null,
         otherSubscriptions: closing === 'managed-monthly-accept' && kinds.other,
@@ -1601,6 +1627,7 @@ async function deliverReaderLegalNotice(
     }
     const noEmail = todo.filter((id) => !lookup.emails.has(id));
     const closing = legalReaderClosingFor(document, row.requiresAcceptance);
+    const firstInForce = await loadNoticeFirstInForce(db, document, row.version, clock());
     const effectiveDay = new Date(row.effectiveAt).toISOString().slice(0, 10);
     const summary = summaryOf(row);
     const pdfBase64 = bytesToBase64(pdf.bytes);
@@ -1623,6 +1650,7 @@ async function deliverReaderLegalNotice(
         effectiveDay,
         summary,
         closing,
+        firstInForce,
         expeditedReason: null,
         vendorSlug: null,
         pdfBase64,
