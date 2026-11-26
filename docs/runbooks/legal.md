@@ -28,8 +28,11 @@ That day is day 0. Write it on the Linear issue before anything else.
 from when to when, and how we know. Keep every log you read: copy it out before its retention ends
 (the debugging record is 7 days).
 
-**2. Decide whether it is notifiable.** Under 501.171, "personal information" that matters for us is an
-email address together with a credential that would let someone into the account. Counsel (Q41):
+**2. Decide whether it is notifiable.** Under 501.171, two kinds of "personal information" matter for us.
+The first is an email address together with a credential that would let someone into the account
+(counsel, Q41). The second is a first name or initial and last name together with "any information
+regarding an individual's geolocation" (501.171(1)(g)1.a.(VII)). The statute does not define
+geolocation, so we read it widely: a name with an IP address or any other location counts (ruling 67).
 
 | What was taken | Notifiable? |
 |---|---|
@@ -37,8 +40,9 @@ email address together with a credential that would let someone into the account
 | Email addresses with live session tokens (the `sb-*-auth-token` cookie, a Supabase refresh token) | Yes |
 | Email addresses with stored Google OAuth tokens | Yes. We hold none server-side; see the recorded checks |
 | Email addresses alone | No |
-| Names, work emails and claim records alone | No |
-| IP addresses | No |
+| A name together with an IP address or any location. Today that is a claim or grant acceptance inside its 90 days, and any record that holds both a name and a place | Yes (ruling 67) |
+| Names and work emails with no IP address and no location | No |
+| IP addresses or locations with no name | No |
 | Keyed hashes (the page-view `ip_hash`, `recipient_hash`, `user_agent_hash`) | No |
 | Expired or used tokens | No. Check the lifetime below before relying on this |
 
@@ -57,12 +61,84 @@ before the first notice goes out.
 | The nationwide consumer reporting agencies | Without unreasonable delay | More than 1,000 people affected |
 | Insurer | First, when a policy exists | None today |
 
-**5. What the individual notice says.** The date, or the estimated date range, of the breach. What
-information was involved. How to contact us. The statute also sets what the Department notice holds.
-The attorney drafts that one.
+**4a. The no-harm waiver (501.171(4)(c)).** We may skip the notice to individuals when all of these
+hold. It fits the low-harm case, such as names with IP addresses and no credential.
 
-**6. Our processors.** A processor that holds our data must tell us of a breach on its side. Counsel
-says within 10 days. The recorded checks below list which processor agreements say so.
+1. We have made an appropriate investigation.
+2. We have consulted a relevant federal, state or local law enforcement agency. This step is required,
+   not optional. Record who, when and what they said.
+3. We reasonably determine that the breach has not caused, and is not likely to cause, identity theft or
+   any other financial harm to the people affected.
+4. The determination is in writing. Keep it for at least five years.
+5. We send that written determination to the Florida Department of Legal Affairs within 30 days of
+   making it.
+
+The waiver covers the notice to individuals only. The statute does not say it excuses the notice to the
+Department, so with 500 or more Florida residents affected, send that notice anyway and explain the
+waiver in it. Other states have their own rules. Check each one in step 3 before relying on this.
+
+**5. What the individual notice says.** At a minimum (501.171(4)(e)): the date, estimated date or
+estimated date range of the breach, a description of the personal information that was or may have
+been accessed, and contact details the person can use to ask about the breach and about what we hold on
+them. Send it by email to the address on record, or by post (501.171(4)(d)). The template is below.
+
+**5a. What the Department notice says (501.171(3)(b)).** A synopsis of what happened. How many people
+in Florida were or may have been affected. Any free services we offer, with instructions. A copy of the
+individual notice, or an explanation of what we did instead. The name, address, phone number and email
+of the person who can say more. On request the Department may also ask for an incident or forensics
+report, our breach policy, and the steps taken to fix it. The attorney drafts this one.
+
+**6. Our processors.** A processor that holds our data must tell us of a breach on its side, as fast as
+practicable and no later than 10 days after it determines the breach or has reason to believe one
+happened. That duty is in the statute (501.171(6)(a)), so it binds the processor whatever its agreement
+says. The processor must also give us what we need for our own notices.
+
+- **The clock (ruling 67).** The statute does not say when our 30 days start if the breach was at a
+  processor. We take the strict reading: day 0 is the day the processor determined the breach, not the
+  day it told us. A processor that uses its full 10 days leaves us about 20. Ask the processor for its
+  determination date in writing, first thing.
+- **A late processor is our problem.** A processor's failure to give proper notice counts as a violation
+  against us (501.171(6)(b)), and the civil penalty in 501.171(9)(b) falls on the covered entity.
+- **Do not wait to be told.** A processor sends a breach notice to the contact email on our account with
+  it, not to a status page. Supabase's agreement says so (DPA §10). Resend's and Cloudflare's do not say
+  where. So the owner email on each of the three accounts must be a mailbox Chris reads. Chris also
+  subscribes to each status page, which reports outages and is a second, weaker signal. Treat a notice
+  from either as "reason to believe" and start step 1. The three are Supabase, Resend and Cloudflare,
+  the processors that can hold an email address with a live sign-in credential.
+
+### Notice to an affected person: template
+
+Adapted from the model letter in the FTC's "Data Breach Response: A Guide for Business" (August 2023).
+The FTC model is written for stolen Social Security numbers. We hold none, so its credit bureau, fraud
+alert and credit freeze paragraphs are left out. Put them back only if financial data was involved.
+Fill every bracket. Say nothing you do not know to be true. Send from a support address people already
+know, with no links other than our own site, so the notice does not read as phishing.
+
+> **Subject: Notice of data breach**
+>
+> Dear [name],
+>
+> We are writing to tell you about a data breach at AEC Integrations that involved your information.
+>
+> **What happened.** [How it happened, in plain words. The date, or the estimated date range. Whether we
+> know the information was misused.]
+>
+> **What information was involved.** [Each kind of information, for example your email address together
+> with a sign-in link that was still valid, or your name together with the IP address recorded when you
+> claimed a listing.] It did not include a password, because we do not use passwords, or any payment
+> card number, because our payment provider holds those.
+>
+> **What we are doing.** [What we did to stop it. What we changed so it does not happen again. For a
+> sign-in credential: that every session was ended and every outstanding sign-in link cancelled.]
+>
+> **What you can do.** [For a sign-in credential: sign in again, and check your account page for
+> anything you did not do. For any breach: be careful with emails that claim to come from us. We will
+> only write to you from [address], and we will never ask for a password or payment details.]
+>
+> **For more information.** Write to [support address] or [postal address]. You may also ask us what
+> information we hold about you. We will post updates at [page].
+>
+> [Name], The WBS Project, Inc.
 
 ### Recorded checks (AECI-1674)
 
@@ -84,9 +160,16 @@ so no Google refresh token is issued, and no code of ours reads or saves `provid
 Google access token can sit in the user's own session cookie after sign-in. That is on their device, not
 in any store of ours.
 
+**Processor notice channels (set 2026-11-26).** Chris confirmed the owner or admin email on the
+Supabase, Cloudflare and Resend accounts is a mailbox he reads, subscribed to both status pages
+(`status.supabase.com`, `resend-status.com`), and added a Cloudflare **Incident Alerts** notification
+under Alerts → Platform Notifications. Re-check when an account owner or that mailbox changes.
+
 **Processor breach-notice terms (checked 2026-11-11 against each public DPA).** Counsel says a processor
 must tell us within 10 days. Two agreements meet that. Stripe meets it for GDPR data only. Six fix no
-deadline at all. Spur's is unread. Listed on AECI-310.
+deadline at all. Spur's is unread. Listed on AECI-310. **Accepted as they stand (ruling 67, 2026-11-26).**
+The 10 days is the processor's own duty under 501.171(6)(a), these are self-serve agreements we cannot
+negotiate, and step 6 runs our clock without relying on them.
 
 | Processor | Agreement term | Meets 10 days? |
 |---|---|---|
