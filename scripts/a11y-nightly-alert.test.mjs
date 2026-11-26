@@ -16,6 +16,7 @@ import {
   issueTitle,
   loadSummary,
   main,
+  missingPartsSection,
 } from './a11y-nightly-alert.mjs';
 import { ASSIGNEE_EMAIL, BUG_LABEL, LINEAR_GRAPHQL_URL } from './lighthouse-alert.mjs';
 
@@ -245,6 +246,68 @@ test('a missing summary files the issue with "no test summary, see the run log"'
   const input = calls[2].variables.input;
   assert.equal(input.title, 'Accessibility nightly failed on main: no test summary');
   assert.match(input.description, /No test summary, see the run log/);
+});
+
+/** A merged summary whose suite shard 3 never uploaded: every test that arrived passed. */
+const MERGED_MISSING = {
+  ...SUMMARY,
+  totals: { passed: 2, failed: 0, skipped: 0, expectedFailures: 0 },
+  tests: SUMMARY.tests.filter((t) => t.outcome === 'passed'),
+  parts: [
+    {
+      file: 'a11y-parts/a11y-nightly-summary-suite-1/a11y-nightly-summary.json',
+      found: true,
+      error: null,
+    },
+    {
+      file: 'a11y-parts/a11y-nightly-summary-suite-3/a11y-nightly-summary.json',
+      found: false,
+      error: 'does not exist',
+    },
+  ],
+};
+
+test('a merged summary with a missing part names it, even with no failing test', () => {
+  const s = loadSummary(writeSummary('missing-part', MERGED_MISSING));
+  assert.deepEqual(s.missingParts, [
+    {
+      file: 'a11y-parts/a11y-nightly-summary-suite-3/a11y-nightly-summary.json',
+      error: 'does not exist',
+    },
+  ]);
+  assert.equal(issueTitle(s), 'Accessibility nightly failed on main: 1 summary file(s) missing');
+  const section = missingPartsSection(s).join('\n');
+  assert.match(section, /## Missing summaries/);
+  assert.match(section, /suite-3\/a11y-nightly-summary\.json`: does not exist/);
+  // A single shard's summary has no parts, so nothing is missing.
+  assert.deepEqual(loadSummary(writeSummary('no-parts', SUMMARY)).missingParts, []);
+});
+
+test('the filed issue lists the missing summaries before the failing tests', async () => {
+  const { calls, fetchImpl } = linearMock({
+    A11yNightlyAlertContext: context(),
+    A11yNightlyAlertLabel: labelCreated,
+    A11yNightlyAlertIssue: created,
+  });
+  const path = writeSummary('missing-part-main', {
+    ...MERGED_MISSING,
+    tests: SUMMARY.tests,
+    totals: SUMMARY.totals,
+  });
+  const code = await main(
+    ['linear', '--outcome=failure', `--summary=${path}`],
+    { ...ENV, LINEAR_API_KEY: 'k' },
+    { fetchImpl, log: () => {} },
+  );
+  assert.equal(code, 0);
+  const input = calls[2].variables.input;
+  assert.equal(
+    input.title,
+    'Accessibility nightly failed on main: 1 summary file(s) missing, login, vendor-index',
+  );
+  const d = input.description;
+  assert.ok(d.indexOf('## Missing summaries') < d.indexOf('## Failing tests'));
+  assert.match(d, /suite-3/);
 });
 
 test('an open issue gets a comment and no new issue', async () => {

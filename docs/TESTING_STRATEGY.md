@@ -1588,6 +1588,7 @@ At 320px none is. Nothing else on any of the 22 surfaces fails between 315 and 3
 | List | Entry | Reason |
 |---|---|---|
 | `CLIP_ALLOW_LIST` | The product hero lede, `line-clamp-2` | Intentional. It is `aria-hidden` and repeats the start of the description, whose full text is in the About band of the same page |
+| `CLIP_ALLOW_LIST` | The term card description on `/categories`, `/audiences` and `/phases`, `line-clamp-3` (`TERM_DESCRIPTION`, anchored on `aec-browse-layout [aeccard]`) | Intentional. Each card links to its term page, which holds the full description. Kept and allow-listed by Chris on 2026-11-26 (AECI-2108) |
 | `SCROLLER_ALLOW_LIST` | The vendor page's products table, `vendor-products-scroller` | A data table that scrolls inside its own box at 320px. 1.4.10 excepts data tables. The entry holds only while the scroller still holds a table |
 
 The browse table is not in the manifest: the listing surfaces load the card view. Checked by hand on
@@ -1605,7 +1606,6 @@ red.
 |---|---|
 | `CARD_NAME` (AECI-1889) | `aec-product-card-grid [aeccard]`: a card in the product card grid |
 | `FILTER_LABEL` (AECI-2106) | `aec-search-refinement-list`: a row of the filter panel |
-| `TERM_DESCRIPTION` (AECI-2108) | `aec-browse-layout [aeccard]`: a term card, projected into the browse layout |
 | `RAIL_VENDOR` (AECI-2107) | `aec-review-form` and `[data-testid="context-rail"]` |
 | `MAILING_OVERLAP` (AECI-2105) | `[data-testid="mailing-list-card"]` |
 | `NAV_ROW` (AECI-2109) | The row's own link names |
@@ -1616,10 +1616,10 @@ red.
 | AECI-2105 | At 200% text the mailing list card's text column shrinks to one word a line and the form paints over it | 13 public surfaces |
 | AECI-2106 | At 200% text every browse filter label is cut to a few letters | Listings and term pages |
 | AECI-2107 | The review form side panel cuts the vendor name | Review submission, at 400% and 200% |
-| AECI-2108 | Taxonomy index cards clamp each description to three lines. A ruling: does the term page count as the full text? (`ACCESSIBILITY_AUDIT.md` §11.4 P2) | The three index pages, at every enlargement |
 | AECI-2109 | Nav rows scroll sideways at 320px, by the house rule in `DESIGN.md`. A ruling: does that meet 1.4.10? | Product page section nav, both vendor portal tab rows |
 
-The two rulings move their findings to an allow-list or to a fix. Orientation found nothing.
+Chris ruled on 2026-11-26. AECI-2108's term card clamp stays and is on `CLIP_ALLOW_LIST` above.
+AECI-2109 stays a known failure, kept as a medium follow-up. Orientation found nothing.
 
 **The citation reflow checks stay in the PR suite.** `e2e/home.spec.ts` "printed citations" pins each
 citation inside the viewport at five widths on every PR. Moving it here would drop that PR guard, and the
@@ -1677,7 +1677,7 @@ the manifest, public pages included. `e2e-a11y/interaction-flows.spec.ts` runs c
 | 5b | Reduced motion | 2.3.3 (AAA), and 2.2.2 | With `reducedMotion: 'reduce'`, any animation or transition the page ran, from its first frame, lasted more than 100ms |
 | 6a | Forced colours, axe | WCAG 2 A and AA rules | With `forcedColors: 'active'`, axe with the sweep's tags and exclusions (`e2e/axe-sweep.ts`) finds a gate violation |
 | 6b | Forced colours, focus ring | 2.4.7, 1.4.11, 2.4.11 | With `forcedColors: 'active'`, the focus ring check of §8.4.5 fails on a Tab stop |
-| 7 | Error prevention | 3.3.4 | The claim, checkout, account delete, reject, remove or ban writes with no confirm or review step first. Approve is a pending ruling (below) |
+| 7 | Error prevention | 3.3.4 | The claim, checkout, account delete or a moderation action (approve, reject, remove, ban) writes with no confirm or review step first |
 
 **How each surface runs.** Each surface is loaded twice, each time in a `beforeAll` that runs the
 checks and records their problems. Each check is then its own test, which judges the record with
@@ -1713,28 +1713,22 @@ night the summary matters most. The site header and footer are checked once per 
   check focuses the control with `focus()`, because it tests the change, not how focus got there.
 - Check 7: the flows are scripted by hand (below).
 
-**Pending rulings.** Two kinds of finding wait for Chris. Both pass today and assert exactly what
-happens now, so a change in either direction turns a test red.
-
-Check 3's on-input list is `ON_INPUT_LIST` in `support/on-input-list.ts`. A listed control may change
-the page the way its entry says. An entry that stops matching turns the test red. Every entry is
-**pending Chris's ruling**:
+**Check 3's on-input list** is `ON_INPUT_LIST` in `support/on-input-list.ts`. A listed control may
+change the page the way its entry says. An entry that stops matching turns the test red. Chris ruled on
+2026-11-26 that every entry may act on change, so every entry is `allowed`. The `pending-ruling` status
+stays in the code so a future entry that waits for a ruling has a home, and a pending entry passes and
+is listed here as pending.
 
 | Entry | Surfaces | What it does on change | Status |
 |---|---|---|---|
-| `facet-filters` | `/products` and the three browse pages | A facet box filters the results at once and writes the filter to the address (`?categories=…`). Focus stays on the box | Pending Chris's ruling |
-| `listing-sort` | The same | Choosing a sort reorders the results at once and writes it to the address (`?sort=…`) | Pending Chris's ruling |
-| `portal-integration-filters` | Vendor portal integrations | The Search box filters as you type, and "Integrates with" on change. Both write the filter to the address | Pending Chris's ruling |
+| `facet-filters` | `/products` and the three browse pages | A facet box filters the results at once and writes the filter to the address (`?categories=…`). Focus stays on the box | Allowed, ruled by Chris on 2026-11-26 |
+| `listing-sort` | The same | Choosing a sort reorders the results at once and writes it to the address (`?sort=…`) | Allowed, ruled by Chris on 2026-11-26 |
+| `portal-integration-filters` | Vendor portal integrations | The Search box filters as you type, and "Integrates with" on change. Both write the filter to the address | Allowed, ruled by Chris on 2026-11-26 |
 
 No control on any surface loads a new page, opens a window or moves focus on change. The sort on
-`/categories`, `/audiences` and `/phases` reorders in place and does not write to the address, while
-the sort on the listing pages does. That is a difference under `DESIGN.md` "The Same-Behavior Rule",
-reported to Chris, not decided here.
-
-Check 7's Approve is the other: one click on Approve sends the approve, with no confirm step and no
-undo (AECI-2121). The test asserts one click, one call to the stub and no dialog, and carries the
-annotation "pending Chris's ruling, AECI-2121". If Chris rules that Approve needs a confirm, the test
-changes then.
+`/categories`, `/audiences` and `/phases` reorders in place and does not write to the address. Chris
+ruled on 2026-11-26 that it must write `?sort=` like the listing pages (AECI-2188). When that lands, the
+check will see it change the address, and `listing-sort` must cover the three index pages too.
 
 **Check 7, the flows.** Each test proves the step is there and stops on it. `blockWrites` runs first,
 so no write reaches the network, the local API included. A count of every write the page tried is how
@@ -1749,7 +1743,7 @@ so no write reaches the network, the local API included. A count of every write 
 | Reject | `/admin/reviews` | Reject opens a reason and "Confirm rejection". Nothing is sent | "Confirm rejection" |
 | Remove | The same, Approved tab | A reason, then "Continue to removal", then "Remove permanently". Nothing is sent | "Remove permanently" |
 | Ban | The same | A stubbed reject raises "Ban reviewer", which opens a dialog with a reason and "Confirm ban". Only the stubbed reject was sent | "Confirm ban" |
-| Approve | The same | One click sends the approve, to a stub, with no confirm step. Pending Chris's ruling (AECI-2121) | Nothing else |
+| Approve | The same | Must confirm before it sends (Chris, 2026-11-26). Today one click sends it, to a stub: a known barrier, AECI-2121 | Nothing else |
 
 The checkout tests reach no Stripe route and no route that creates a Checkout Session or charges a
 card. The vendor test account is a member seat and the local API has no Stripe key, so three reads are
@@ -1773,6 +1767,7 @@ Not covered:
 | AECI-2119 | 1 | Escape does not close an admin nav dropdown opened by hover, at both widths | Both admin surfaces |
 | AECI-2120 | 2 | A press on "Browse" dragged off and released leaves the Browse panel open | The header owner of each persona |
 | AECI-2097 | 6b | The vendor portal section nav clips its links' focus ring, in forced colours too. The mark covers only a strong ring that is too short (`isClippedPortalRing`), so any other contrast finding on those links still fails | Both vendor portal surfaces |
+| AECI-2121 | 7 | One click on Approve sends the approve. Chris ruled on 2026-11-26 that it must confirm first. Marked in `interaction-flows.spec.ts`, after the setup, so a broken setup stays red | Admin moderation queue |
 
 AECI-2099 (a click closes what hover opened) is why checks 1 and 2 never click a hover trigger.
 

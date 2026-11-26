@@ -15,7 +15,9 @@
  *
  * The failing tests come from `apps/web/a11y-nightly-summary.json`, written by
  * `apps/web/e2e-a11y/summary-reporter.ts`. A missing or unreadable summary still alerts, with
- * "no test summary, see the run log".
+ * "no test summary, see the run log". The merged summary names each shard's file in `parts`
+ * (`scripts/a11y-nightly-merge-summary.mjs`). A part that was never uploaded fails the run
+ * with no failing test, so the alert names the missing parts instead (AECI-1874).
  *
  * The transport, the dry-run client, the label picker and the run URL come from
  * `scripts/lighthouse-alert.mjs`. Only the GraphQL operation names, the label and the copy
@@ -117,7 +119,7 @@ export const COMMENT_CREATE_MUTATION = `mutation A11yNightlyAlertComment($input:
  * before the reporter wrote it (boot failure, timeout), which is still an alert.
  */
 export function loadSummary(path) {
-  const out = { found: false, error: null, totals: null, failing: [] };
+  const out = { found: false, error: null, totals: null, failing: [], missingParts: [] };
   if (!existsSync(path)) {
     out.error = `${path} does not exist`;
     return out;
@@ -139,6 +141,15 @@ export function loadSummary(path) {
         // AECI-1876: an e2e sweep test has no surface. Its spec file names it instead.
         file: t.file ? String(t.file) : null,
       }));
+    // Only the merged summary has `parts`. A single shard's file has none.
+    out.missingParts = Array.isArray(parsed.parts)
+      ? parsed.parts
+          .filter((part) => part && part.found === false)
+          .map((part) => ({
+            file: String(part.file ?? 'unknown'),
+            error: part.error ? String(part.error) : null,
+          }))
+      : [];
   } catch (err) {
     out.error = `${path} is unreadable: ${err?.message ?? err}`;
   }
@@ -180,8 +191,24 @@ function commitLink(meta) {
 export function failureSummary(summary) {
   if (!summary.found) return 'no test summary';
   const surfaces = [...new Set(summary.failing.map((f) => f.surfaceId ?? f.file ?? f.title))];
-  if (surfaces.length === 0) return 'run failed outside the tests';
-  return surfaces.join(', ');
+  const missing = summary.missingParts?.length ?? 0;
+  const parts = missing > 0 ? [`${missing} summary file(s) missing`] : [];
+  if (surfaces.length === 0 && parts.length === 0) return 'run failed outside the tests';
+  return [...parts, ...surfaces].join(', ');
+}
+
+/** The shard summaries the merge expected and never got, as a section. Empty when none. */
+export function missingPartsSection(summary) {
+  const missing = summary.missingParts ?? [];
+  if (missing.length === 0) return [];
+  return [
+    '## Missing summaries',
+    '',
+    `${missing.length} shard summary file(s) never arrived, so the run failed even if every test it read passed. The shard either did not finish or did not upload. Read its job log.`,
+    '',
+    ...missing.map((p) => `- \`${cell(p.file)}\`${p.error ? `: ${cell(p.error)}` : ''}`),
+    '',
+  ];
 }
 
 export function issueTitle(summary) {
@@ -204,14 +231,19 @@ function failingSection(summary) {
     ].join('\n');
   }
   const totals = totalsLine(summary.totals);
+  const missing = missingPartsSection(summary);
   if (summary.failing.length === 0) {
     return [
+      ...missing,
       '## Failing tests',
       '',
-      `None recorded.${totals ? ` ${totals}` : ''} The run failed outside the tests. Read the run log.`,
+      missing.length > 0
+        ? `None recorded in the summaries that arrived.${totals ? ` ${totals}` : ''}`
+        : `None recorded.${totals ? ` ${totals}` : ''} The run failed outside the tests. Read the run log.`,
     ].join('\n');
   }
   return [
+    ...missing,
     '## Failing tests',
     '',
     ...(totals ? [totals, ''] : []),
@@ -365,7 +397,7 @@ export async function main(argv, env, { fetchImpl = fetch, log = console.log } =
   const summary =
     outcome === 'failure'
       ? loadSummary(summaryPath)
-      : { found: false, error: null, totals: null, failing: [] };
+      : { found: false, error: null, totals: null, failing: [], missingParts: [] };
   const meta = {
     sha: env.MEASURED_SHA || summary.commitSha || undefined,
     runUrl: runUrlFromEnv(env),
