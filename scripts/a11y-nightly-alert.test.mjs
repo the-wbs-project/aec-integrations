@@ -13,10 +13,12 @@ import { after, test } from 'node:test';
 import {
   REGRESSION_LABEL,
   failingTable,
+  issueDescription,
   issueTitle,
   loadSummary,
   main,
   missingPartsSection,
+  singleOtherBrowser,
 } from './a11y-nightly-alert.mjs';
 import { ASSIGNEE_EMAIL, BUG_LABEL, LINEAR_GRAPHQL_URL } from './lighthouse-alert.mjs';
 
@@ -163,6 +165,49 @@ test('an e2e sweep test has no surface, so its spec file names it', () => {
   );
   assert.equal(issueTitle(s), 'Accessibility nightly failed on main: e2e/home.spec.ts');
   assert.ok(failingTable(s.failing).includes('| `e2e/home.spec.ts` | `/` | home > renders |'));
+});
+
+test('each failing row names its browser, and a night red in one other browser says it may be the harness (AECI-1885)', () => {
+  const row = (title, browser) => ({
+    title,
+    surfaceId: 'login',
+    route: '/auth/login',
+    file: 'e2e-a11y/support/keyboard-suite.ts',
+    outcome: 'failed',
+    knownFailure: null,
+    browser,
+  });
+  const meta = { sha: SHA, runUrl: 'https://example.test/run/1' };
+  const webkitOnly = loadSummary(
+    writeSummary('webkit-only', { ...SUMMARY, tests: [row('a', 'webkit'), row('b', 'webkit')] }),
+  );
+  assert.deepEqual(
+    webkitOnly.failing.map((f) => f.browser),
+    ['webkit', 'webkit'],
+  );
+  assert.ok(failingTable(webkitOnly.failing).includes('| Browser |'));
+  assert.ok(failingTable(webkitOnly.failing).includes('| a | webkit |'));
+  assert.equal(singleOtherBrowser(webkitOnly.failing), 'webkit');
+  assert.match(issueDescription(webkitOnly, meta), /ran in webkit only\. This may be a difference/);
+  assert.match(
+    issueDescription(webkitOnly, meta),
+    /First run on Linux, and a red night in one browser/,
+  );
+  // Chromium, or two browsers, or a summary from before the lane: no such note.
+  for (const tests of [
+    [row('a', 'chromium')],
+    [row('a', 'webkit'), row('b', 'firefox')],
+    [row('a', undefined)],
+  ]) {
+    const s = loadSummary(writeSummary('mixed', { ...SUMMARY, tests }));
+    assert.equal(singleOtherBrowser(s.failing), null);
+    assert.doesNotMatch(issueDescription(s, meta), /may be a difference/);
+  }
+  assert.ok(
+    failingTable(
+      loadSummary(writeSummary('old', { ...SUMMARY, tests: [row('a', undefined)] })).failing,
+    ).includes('| a | - |'),
+  );
 });
 
 test('a missing or unreadable summary is still an alert, with a reason', () => {

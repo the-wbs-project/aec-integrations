@@ -504,15 +504,30 @@ function issueNumber(id) {
 /**
  * Every known-failure ID in the run, once, with the number of tests that carry it.
  * In issue number order. A test with three marks counts once for each of the three.
+ * `tests` is the total over every browser, as before. `byBrowser` splits it by each
+ * test row's `browser` (AECI-1885): a check marked in three browsers is three tests.
+ * A row from before the field counts under `unknown`.
  */
 export function knownFailureCounts(tests) {
   const byIssue = new Map();
   for (const t of tests) {
-    for (const id of new Set(knownFailuresOf(t))) byIssue.set(id, (byIssue.get(id) ?? 0) + 1);
+    const browser = typeof t?.browser === 'string' && t.browser ? t.browser : 'unknown';
+    for (const id of new Set(knownFailuresOf(t))) {
+      const entry = byIssue.get(id) ?? { tests: 0, byBrowser: {} };
+      entry.tests++;
+      entry.byBrowser[browser] = (entry.byBrowser[browser] ?? 0) + 1;
+      byIssue.set(id, entry);
+    }
   }
   return [...byIssue.entries()]
-    .map(([issue, n]) => ({ issue, tests: n }))
+    .map(([issue, e]) => ({ issue, tests: e.tests, byBrowser: sortedByBrowser(e.byBrowser) }))
     .sort((a, b) => issueNumber(a.issue) - issueNumber(b.issue) || (a.issue < b.issue ? -1 : 1));
+}
+
+function sortedByBrowser(counts) {
+  return Object.fromEntries(
+    Object.entries(counts).sort(([a], [b]) => browserRank(a) - browserRank(b) || byText(a, b)),
+  );
 }
 
 /** The per-browser table (AECI-1885). Empty when the run has no test rows. */
@@ -533,13 +548,21 @@ function browserMarkdown(rows) {
 
 function knownFailureMarkdown(counts) {
   if (counts.length === 0) return [];
+  const browsers = [...new Set(counts.flatMap((k) => Object.keys(k.byBrowser ?? {})))].sort(
+    (a, b) => browserRank(a) - browserRank(b) || byText(a, b),
+  );
   return [
     '',
     `### Known failures (${counts.length} issues)`,
     '',
-    '| Issue | Tests |',
-    '|---|---|',
-    ...counts.map((k) => `| ${cell(k.issue)} | ${k.tests} |`),
+    `| Issue | Tests |${browsers.map((b) => ` ${cell(b)} |`).join('')}`,
+    `|---|---|${browsers.map(() => '---|').join('')}`,
+    ...counts.map(
+      (k) =>
+        `| ${cell(k.issue)} | ${k.tests} |${browsers
+          .map((b) => ` ${k.byBrowser?.[b] ?? 0} |`)
+          .join('')}`,
+    ),
   ];
 }
 

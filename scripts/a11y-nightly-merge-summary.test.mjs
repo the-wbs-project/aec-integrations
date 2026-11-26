@@ -520,7 +520,9 @@ test('the CLI writes a summary the alert can read', () => {
   assert.equal(main([`--out=${out}`, `--markdown=${md}`, a], { log: (l) => logs.push(l) }), 0);
   const loaded = loadSummary(out);
   assert.equal(loaded.found, true);
-  assert.deepEqual(loaded.failing, [{ title: 'x', surfaceId: null, route: '/x', file: null }]);
+  assert.deepEqual(loaded.failing, [
+    { title: 'x', surfaceId: null, route: '/x', file: null, browser: null },
+  ]);
   assert.match(readFileSync(md, 'utf8'), /## Accessibility nightly/);
 });
 
@@ -561,17 +563,21 @@ test('every known-failure ID a test carries is counted, and the job summary list
       'b.json',
     ),
   ]);
+  // Rows with no `browser` count under `unknown`.
   assert.deepEqual(m.knownFailures, [
-    { issue: 'AECI-1889', tests: 2 },
-    { issue: 'AECI-2105', tests: 3 },
-    { issue: 'AECI-2106', tests: 2 },
+    { issue: 'AECI-1889', tests: 2, byBrowser: { unknown: 2 } },
+    { issue: 'AECI-2105', tests: 3, byBrowser: { unknown: 3 } },
+    { issue: 'AECI-2106', tests: 2, byBrowser: { unknown: 2 } },
   ]);
   // The rows keep both fields as written.
   assert.deepEqual(m.tests[0].knownFailures, ['AECI-1889', 'AECI-2105', 'AECI-2106']);
   assert.equal(m.tests[0].knownFailure, 'AECI-1889');
   const md = summaryMarkdown(m);
   assert.match(md, /### Known failures \(3 issues\)/);
-  assert.match(md, /\| AECI-1889 \| 2 \|\n\| AECI-2105 \| 3 \|\n\| AECI-2106 \| 2 \|/);
+  assert.match(
+    md,
+    /\| AECI-1889 \| 2 \| 2 \|\n\| AECI-2105 \| 3 \| 3 \|\n\| AECI-2106 \| 2 \| 2 \|/,
+  );
   assert.equal(md.match(/AECI-2106/g).length, 1, 'each ID once');
 });
 
@@ -579,9 +585,37 @@ test('a test with a repeated mark counts once, and a clean run has no section', 
   assert.deepEqual(knownFailuresOf({ knownFailures: ['AECI-7'] }), ['AECI-7']);
   assert.deepEqual(knownFailuresOf({ knownFailure: null }), []);
   assert.deepEqual(knownFailureCounts([{ knownFailures: ['AECI-7', 'AECI-7'] }]), [
-    { issue: 'AECI-7', tests: 1 },
+    { issue: 'AECI-7', tests: 1, byBrowser: { unknown: 1 } },
   ]);
   const clean = mergeSummaries([part(summary())]);
   assert.deepEqual(clean.knownFailures, []);
   assert.doesNotMatch(summaryMarkdown(clean), /### Known failures/);
+});
+
+test('a known failure splits by browser, and the total keeps its meaning (AECI-1885)', () => {
+  const row = (browser, ids) => ({
+    title: 't',
+    outcome: 'expected-failure',
+    knownFailures: ids,
+    browser,
+  });
+  const counts = knownFailureCounts([
+    row('webkit', ['AECI-2097']),
+    row('chromium', ['AECI-2097']),
+    row('firefox', ['AECI-2097', 'AECI-2196']),
+    row('webkit', ['AECI-2197']),
+    row('webkit', ['AECI-2197']),
+  ]);
+  assert.deepEqual(counts, [
+    { issue: 'AECI-2097', tests: 3, byBrowser: { chromium: 1, firefox: 1, webkit: 1 } },
+    { issue: 'AECI-2196', tests: 1, byBrowser: { firefox: 1 } },
+    { issue: 'AECI-2197', tests: 2, byBrowser: { webkit: 2 } },
+  ]);
+  const md = summaryMarkdown(
+    mergeSummaries([
+      part(summary({ tests: [row('webkit', ['AECI-2197']), row('chromium', ['AECI-2097'])] })),
+    ]),
+  );
+  assert.match(md, /\| Issue \| Tests \| chromium \| webkit \|/);
+  assert.match(md, /\| AECI-2097 \| 1 \| 1 \| 0 \|\n\| AECI-2197 \| 1 \| 0 \| 1 \|/);
 });
