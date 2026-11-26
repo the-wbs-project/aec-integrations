@@ -468,16 +468,7 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
     }
 
     @if (actionError(); as message) {
-      <!-- Focusable so a refused remove or revoke can move focus here: the confirm
-           that held focus has closed (AECI-2129). -->
-      <p
-        id="vendor-seats-action-error"
-        class="mt-4 text-sm font-semibold text-(--text-primary) focus:outline-none"
-        role="alert"
-        tabindex="-1"
-      >
-        {{ message }}
-      </p>
+      <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">{{ message }}</p>
     }
     @if (actionStatus(); as message) {
       <!-- Plain text. The same sentence goes to the portal's one live region
@@ -628,7 +619,8 @@ export class VendorSeatRoster {
       const name = this.seatName(seat);
       this.settle($localize`:@@vendor.seats.remove.done:Seat removed for ${name}:name:.`);
       await this.store.reload('seats');
-      this.focusAfterRemoval('seat', seat.user_id, before);
+      // A confirm opened on another row meanwhile keeps focus.
+      if (this.confirming() === null) this.focusAfterRemoval('seat', seat.user_id, before);
     } finally {
       this.busySeat.set(null);
     }
@@ -654,7 +646,7 @@ export class VendorSeatRoster {
       this.closeConfirm({ kind: 'invite', id: invite.id });
       this.settle($localize`:@@vendor.seats.revoke.done:Invite to ${invite.email}:email: revoked.`);
       await this.store.reload('seats');
-      this.focusAfterRemoval('invite', invite.id, before);
+      if (this.confirming() === null) this.focusAfterRemoval('invite', invite.id, before);
     } finally {
       this.busyInvite.set(null);
     }
@@ -705,13 +697,19 @@ export class VendorSeatRoster {
     this.confirming.set(next);
   }
 
-  /** A refused remove or revoke: close the confirm, show the alert, move focus to
-   *  it. The confirm that held focus is gone, so focus would otherwise drop to
-   *  the page. */
+  /** A refused remove or revoke: close the confirm, show the alert, and return
+   *  focus to the row's Remove or Revoke, which is still there. The alert is never
+   *  focused: a focused `role="alert"` is read twice (the contests-list rule). A
+   *  confirm opened on another row meanwhile keeps focus. */
   private refuse(which: Confirming, message: string): void {
     this.closeConfirm(which);
     this.actionError.set(message);
-    this.focusAfterRender('vendor-seats-action-error');
+    if (this.confirming() !== null) return;
+    this.focusAfterRender(
+      which.kind === 'seat'
+        ? `vendor-seat-remove-start-${which.id}`
+        : `vendor-invite-revoke-start-${which.id}`,
+    );
   }
 
   /**

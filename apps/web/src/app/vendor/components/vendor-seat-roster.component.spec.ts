@@ -710,7 +710,8 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
 
     const alert = q(fixture, '[role="alert"]')!;
     expect(alert.textContent?.trim()).toBe('Could not remove that seat. Try again.');
-    expect(document.activeElement).toBe(alert);
+    // Focus goes back to the row's Remove, never to the alert (read twice).
+    expect(document.activeElement).toBe(q(fixture, `#vendor-seat-remove-start-${PRIYA.user_id}`));
     expect(q(fixture, '[data-seat-confirm]')).toBeNull();
     expect(announce).not.toHaveBeenCalled();
     // Not re-read: nothing changed on the server.
@@ -734,7 +735,7 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
 
     const alert = q(fixture, '[role="alert"]')!;
     expect(alert.textContent?.trim()).toBe('Could not revoke that invite. Try again.');
-    expect(document.activeElement).toBe(alert);
+    expect(document.activeElement).toBe(q(fixture, `#vendor-invite-revoke-start-${invite.id}`));
     expect(q(fixture, '[data-invite-confirm]')).toBeNull();
   });
 
@@ -814,12 +815,18 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     buttonStartingWith(fixture, 'Remove seat').click();
     fixture.detectChanges();
     q(fixture, `#vendor-seat-remove-start-${BANNED.user_id}`)!.click();
-    fixture.detectChanges();
+    await settle(fixture);
+    const second = q(fixture, `#vendor-seat-remove-confirm-${BANNED.user_id}`)!;
+    expect(document.activeElement).toBe(second);
 
     release();
     await settle(fixture);
 
     expect(q(fixture, `[data-seat-confirm="${BANNED.user_id}"]`)).not.toBeNull();
+    // Finishing the first removal does not pull focus out of the second confirm.
+    expect(document.activeElement).toBe(
+      q(fixture, `#vendor-seat-remove-confirm-${BANNED.user_id}`),
+    );
   });
 });
 
