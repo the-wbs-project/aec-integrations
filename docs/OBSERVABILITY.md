@@ -1656,7 +1656,7 @@ The alert runs in the `alert` job of `.github/workflows/a11y-nightly.yml`, on sc
 
 | Nightly result | Linear (team AECI) |
 | --- | --- |
-| Red, no open `a11y-nightly-regression` issue | Files a Bug. Labels `Bug` and `a11y-nightly-regression`. Assigned to Chris. The title names the failing surfaces, or the spec files of failing e2e axe sweep tests (AECI-1876). The body has the SHA, the run link, any missing shard summaries, the totals, a table of failing tests, and a note that main regressed. |
+| Red, no open `a11y-nightly-regression` issue | Files a Bug. Labels `Bug` and `a11y-nightly-regression`. Assigned to Chris. The title names the failing surfaces, or the spec files of failing e2e axe sweep tests (AECI-1876). The body has the SHA, the run link, any missing shard summaries, the totals, a table of failing tests with the browser each ran in, and a note that main regressed. When every failing test ran in Firefox only, or in WebKit only, the body says it may be a difference in Playwright's build of that browser and points at `docs/TESTING_STRATEGY.md` §8.4.10, "First run on Linux, and a red night in one browser" (AECI-1885). |
 | Red, an open `a11y-nightly-regression` issue exists | Comments on it with the SHA, run link and failing tests. |
 | Green, an open issue exists | Comments "Recovered at `<sha>`, run `<url>`". Never closes the issue. |
 | Green, no open issue | Nothing |

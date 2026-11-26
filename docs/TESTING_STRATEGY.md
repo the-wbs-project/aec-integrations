@@ -892,7 +892,8 @@ PR. The sub-issues of AECI-1874 add the checks. The workflow, its skip rule and 
 `docs/CICD_PLAN.md` §11a-quater.
 
 **What the suite holds.** Nine suites over the 22 surfaces of the manifest, 600 tests in all. Counted
-with `playwright test -c playwright.a11y-nightly.config.ts --list` at `61eeafe65` (2026-11-25). The
+with `playwright test -c playwright.a11y-nightly.config.ts --list` at `61eeafe65` (2026-11-25). Since
+AECI-1885 review 4 the Chromium project holds 601: the login slow-press test (§8.4.4). The
 nightly also runs the e2e axe sweep lane (§8.4.2), the PR e2e suite's 838 tests from its own config.
 
 | Suite | Specs | Tests | Section |
@@ -1131,7 +1132,7 @@ the default workers.
 
 Each shard of each lane writes its own summary with the same reporter: `a11y-nightly-summary.json` for
 an `e2e-a11y/` shard and `a11y-e2e-axe-summary.json` for a sweep shard. The workflow's `report` job
-merges all twelve into the one `a11y-nightly-summary.json` the alert reads
+merges all eighteen (eight suite shards, four sweep shards, three for each of Firefox and WebKit) into the one `a11y-nightly-summary.json` the alert reads
 (`scripts/a11y-nightly-merge-summary.mjs`). The merge adds `parts`, which names each shard's file and
 whether it was found, and `knownFailures`, each known-failure ID once with its test count. The job
 summary prints that list as a table. A missing part makes the merged
@@ -1370,8 +1371,10 @@ its control through `activate` (`support/announcement-flows.ts`), after the reco
 and Firefox click, as before. In WebKit a click does not focus a button: focus goes to `main`, and the
 record hears all of `main`, with or without the new message, by timing. So in WebKit the control is
 reached by real Tab presses and activated by Enter, as a keyboard or screen-reader user does. The Tab
-presses are in the record, because what a field announces when Tab leaves it is what that user hears. The login bad-email flow is a known failure in Firefox (AECI-2196): the click is lost because
-the error moves the button. The record still proves only that the DOM changed.
+presses are in the record, because what a field announces when Tab leaves it is what that user hears. The login bad-email flow presses Enter outside Chromium. Its
+lost click is judged by its own test, the slow press: the mouse goes down on submit, waits 150 ms and comes
+up. It is a known failure in all three browsers (AECI-2196): the press blurs the field, the error pushes
+the button down, and the release misses it. The record still proves only that the DOM changed.
 No screen reader runs in any of the three.
 
 **Run it** with the rest of the nightly, or alone:
@@ -1479,8 +1482,10 @@ check, which needs no picture.
 reason. It is empty on landing. A real barrier never goes there.
 
 **Known barriers on landing (2026-11-24).** `KNOWN_FOCUS_BARRIERS` has the same shape as the keyboard
-suite's. A surface with a barrier gets a `known focus barriers: <check>` test, marked with
-`knownFailure`. It passes while the finding is there and turns red when it is fixed. The walk test
+suite's. A surface with a barrier gets one `known focus barriers: <check>, <issue>` test per check and
+issue, marked with `knownFailure`. Each entry of that issue must still match a finding, or the test
+fails unmarked. It passes while the finding is there and turns red when it is fixed, whatever other issue
+on the same check stays open (AECI-1885 review 4). The walk test
 ignores only the findings a barrier covers, so a new finding on the same surface still fails it.
 
 | Issue | What the check finds | Surfaces |
@@ -2265,9 +2270,9 @@ guard.
 
 | Browser | Tests | Snapshots |
 |---|---|---|
-| `chromium` | 600, every suite | `__snapshots__/chromium/` |
-| `firefox` | 176: the three suites, 174, and 2 barrier tests found only in Firefox | `__snapshots__/firefox/keyboard-*.txt`, 22 |
-| `webkit` | 199: the three suites, 174, and 25 barrier tests found only in WebKit | `__snapshots__/webkit/keyboard-*.txt`, 22 |
+| `chromium` | 601, every suite | `__snapshots__/chromium/` |
+| `firefox` | 177: the three suites, 175, and 2 barrier tests found only in Firefox | `__snapshots__/firefox/keyboard-*.txt`, 22 |
+| `webkit` | 203: the three suites, 175, and 28 barrier tests found only in WebKit | `__snapshots__/webkit/keyboard-*.txt`, 22 |
 
 **Per-browser expectations.** A difference by design is one entry in
 `e2e-a11y/support/browser-expectations.ts`, keyed by browser, with its reason and its source. The
@@ -2279,14 +2284,18 @@ check. All were measured on 2026-11-26 on a bare page and on the site.
 |---|---|---|---|---|
 | `sequentialKeys` | Tab | Tab | Option+Tab | WebKit follows Safari: Tab skips links and buttons unless "Press Tab to highlight each item" is on. A plain Tab walk of home reached only the two text fields. Option+Tab reaches every item, in the same order Firefox gives |
 | `sequentialFocusWraps` | yes | no | yes | Playwright Firefox leaves focus on the last stop when Tab is pressed there, and on the first on Shift+Tab. Real Firefox moves to its toolbar, which Playwright does not draw. The walk confirms the end with the opposite key, which must move focus, and then wraps by hand (below) |
-| `keyboardFocusableScrollers` | yes | yes | no | Whether an empty scroll container is a Tab stop |
+| `keyboardFocusableScrollers` | yes | yes | no | Whether an empty scroll container is a Tab stop. In WebKit it is not, so a scroll box that holds only text is unreachable by keyboard there, as in Safari, and the WebKit walk does not flag it. The Chromium and Firefox walks do: they predict the box as a stop, and the candidate diff fails if Tab misses it. No such box exists today |
 | `scrollersWithFocusableContent` | no | yes | no | Firefox also stops on a scroll container that holds a link. The account page's review list is one |
 | `pointerFocusesButtons` | yes | yes | no | A WebKit click does not focus a button. Focus goes to `main` (`tabindex="-1"`), and the record hears all of it. In WebKit the announcement flows reach the control by Tab and press Enter (`activate` in `support/announcement-flows.ts`) |
 
 **Wrapping by hand, in Firefox.** `tabWalk` and `tabTo` use real key presses only. When a press leaves
 focus where it was in a browser that does not wrap, the walk presses the opposite key. If focus does not
-move, the stop is a trap, as before. If it moves, the walk keeps pressing until focus stops at the other
-end of the document, and goes on from there. That is what the wrapping press does in Chromium. The way
+move, the stop is a trap, as before. The stop must also be the last one the prediction expects
+(`isLastCandidate` in `support/tab-candidates.ts`). A stop in the middle that Tab cannot leave is a trap
+even when Shift+Tab leaves it: a planted forward-only trap ends `stuck` in all three browsers. One case
+stays out of reach in Firefox: a forward-only trap on the very last stop looks like the end of the page.
+The Chromium and WebKit walks still catch it. If both checks pass, the walk keeps pressing until focus
+stops at the other end of the document, and goes on from there. That is what the wrapping press does in Chromium. The way
 back judges nothing. Coming up from below, the page is still scrolled, so a sticky bar can show stops a
 top-down walk never meets. The focus ring walk does not wrap by hand (`atDocumentEnd: 'stop'`). It
 checks the opposite key moves focus, puts focus back on the last stop and ends there. A climb up the whole
@@ -2303,8 +2312,8 @@ No Chromium test was added or skipped. Known on landing:
 | Issue | Browsers | What the run shows |
 |---|---|---|
 | AECI-2195 | Firefox, WebKit | Focus under the consent banner. Firefox does not scroll a link or card that is already inside the viewport, so the banner's scroll margin (AECI-1818) never applies: not found, account. WebKit skips it for text fields: login, review submission, account, vendor portal integrations, categories index |
-| AECI-2196 | Firefox | Login with a bad email: the press blurs the field, its error pushes the button down, and the release misses it. Real in every browser for a person's press. Playwright's Chromium click is instant, and WebKit activates by keyboard, so only the Firefox run sees it |
-| AECI-2197 | WebKit | A control styled only by the global `:focus-visible` colour keeps `outline-style: auto`, which WebKit draws as the system ring at about 2.1:1 |
+| AECI-2196 | Chromium, Firefox, WebKit | Login with a bad email: a 150 ms press blurs the field, its error pushes the button down, and the release misses it. 9 of 9 slow presses lost on 2026-11-26. Judged by the slow-press test in every browser |
+| AECI-2197 | WebKit | Three links keep `outline-style: auto`, which WebKit draws as the system ring at about 2.1:1: "Read our Privacy Policy" in the consent banner on every surface, "suggest a correction" on the product page, and the vendor link "Fixture Procore Technologies" on the integration and pair pages. Each is named in `AUTO_RING_LINKS`. A new control with no ring of its own is a new finding |
 | AECI-2097 | WebKit, one more link | The portal section nav clips "Seats" too |
 
 **What this lane does not prove.** Playwright WebKit is not Safari, and on the Linux runner it is not
@@ -2339,6 +2348,37 @@ gh run download --name a11y-keyboard-snapshots-webkit --dir apps/web/e2e-a11y/__
 
 The same works for `firefox`. The focus ring marks above were measured on macOS too. A mark whose
 finding does not reproduce on Linux turns red, by the known-failure rule. Then remove it, or narrow it.
+
+**First run on Linux, and a red night in one browser.** The WebKit snapshots and the lane's marks were
+captured on macOS. So the lane runs once on Linux, by dispatch on its branch, before it merges. The same
+steps apply on any night the alert says every failing test ran in one browser other than Chromium.
+
+1. Push the branch that carries the lane, so Actions can run it.
+2. Dispatch the nightly on that branch. A dispatch never alerts and never skips.
+
+   ```bash
+   gh workflow run a11y-nightly.yml --ref chris-walton-wbs/nightly-accessibility-suite
+   ```
+
+3. Open the run when it ends. Read the `report` job summary: the "By browser" table, the known failures
+   by browser, and the failing tests. In each `cross-browser` job, read the time of the install step,
+   the archive size the cache step logged, and the shard's wall clock.
+4. Sort each red test in Firefox or WebKit. It is a harness or platform difference when all three hold:
+   the same test is green in Chromium, the page did not change in the commits under test, and the same
+   project passes on a Mac at that commit (`--project=webkit --workers=1`, as above). Anything else is a
+   regression on the site: fix it, or file it under AECI-1069 with a mark for that browser.
+5. A `tab walk` test that fails only on its snapshot, every other check green, is a Linux walk that
+   differs. Rewrite that browser's snapshots on the runner: dispatch with `update_snapshots`, download the
+   artifact, and read the diff. Commit it when the new order is a real order. If the Linux walk misses
+   every link, Linux WebKit does not treat Option+Tab as Tab. Do not commit that. Change
+   `sequentialKeys` for WebKit first, with the run as its source.
+6. A test that reads "Expected to fail, but passed" is a mark whose finding does not appear on Linux.
+   Check that it still appears on a Mac. If it does, the barrier is real for macOS users only: add
+   `process.platform === 'darwin'` to the entry's `applies`, so it marks the Mac run and the runner
+   declares no test for it, and say so on its Linear issue. If it does not appear on a Mac
+   either, the issue is fixed: remove the entry. Never leave the night red on a mark.
+7. Dispatch again. Merge once the run is green. Then write the CI times into `docs/CICD_PLAN.md`
+   §11a-quater, in place of the local ones.
 
 **Update a browser's snapshots locally** after a deliberate change:
 

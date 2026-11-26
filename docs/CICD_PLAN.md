@@ -1527,7 +1527,8 @@ tests are added. It needs no workflow step, because `pnpm install` installs the 
 while the machine's load average was about 50. Both passed on a rerun. The run uses 18 runners at once
 with `e2e-axe` and `cross-browser` (AECI-1885). The organisation is on GitHub's Team plan, whose published
 limit is 60 concurrent jobs for the whole organisation, not 20 per repository. That is read from the plan,
-not measured. A job over the limit waits in the queue. It does not fail.
+not measured. A job over the limit waits in the queue. It does not fail. Raise `SUITE_SHARDS` and the
+`suite` matrix together when a shard passes about 15 minutes in Actions.
 
 **The Firefox and WebKit lane (AECI-1885, ADR 0060).** The `cross-browser` job runs each browser's
 project in `CROSS_BROWSER_SHARDS` (3) shards (`docs/TESTING_STRATEGY.md` §8.4.10). Measured locally on
@@ -1545,8 +1546,12 @@ The 14.3-minute Firefox run was under load from another stack on the same laptop
 announcements and most of the focus ring, the third only keyboard walks. No CI time exists yet: read
 each shard's wall clock and the cache save step's archive size off the first dispatch run. On macOS the
 two browsers took 35 seconds to install, 309 MB for Firefox and 299 MB for WebKit. `install-deps` was not
-measured, because macOS has no such step. Raise `SUITE_SHARDS` and the
-matrix together when a shard passes about 15 minutes in Actions.
+measured, because macOS has no such step. Raise `CROSS_BROWSER_SHARDS` and the `cross-browser` matrix
+together when one of its shards passes about 15 minutes in Actions. Since review 4 (2026-11-26) Firefox
+holds 177 tests (59 · 72 · 46) and WebKit 203 (68 · 89 · 46): one slow-press test in each, and WebKit's
+focus barriers judged one issue per test. The times above are from before that change and differ by
+seconds. Before the lane merges, run it once on Linux: `docs/TESTING_STRATEGY.md` §8.4.10, "First run
+on Linux".
 
 ---
 
