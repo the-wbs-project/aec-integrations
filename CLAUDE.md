@@ -100,7 +100,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Cloudflare Access for non-prod | `docs/access.md` |
 | Rate limiting, both layers (zone WAF + bot settings §0–§5; in-Worker limiter §6; which layer stopped a caller §6.4) | `docs/waf-rate-limits.md`; ADR 0026 |
 | Testing tools, coverage, patterns; writing unit tests | `docs/TESTING_STRATEGY.md`; `docs/UNIT_TESTING_GUIDE.md` |
-| Manual accessibility testing; audit results | `docs/a11y-manual-testing-checklist.md`; `docs/ACCESSIBILITY_AUDIT.md` |
+| Accessibility nightly; manual testing; audit results | `docs/TESTING_STRATEGY.md` §8.4; `docs/a11y-manual-testing-checklist.md`; `docs/ACCESSIBILITY_AUDIT.md` |
 | Reviewing code; accepted exemptions | `docs/CODE_REVIEW_CHECKLIST.md`; `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |

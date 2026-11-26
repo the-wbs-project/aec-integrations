@@ -1,6 +1,6 @@
 # ADR 0060: A nightly Firefox and WebKit lane for the keyboard, focus ring and announcement suites
 
-- Status: Proposed. Not built. Nothing under AECI-1885 lands until Chris accepts this record.
+- Status: Accepted. Chris accepted this record on 2026-11-26, with the recommended answer to each of the seven open questions. Built under AECI-1885.
 - Date: 2026-11-25
 - Issue: AECI-1885, sub-issue 11 of the epic AECI-1874. Chris accepted a nightly cross-browser lane in principle on 2026-11-19, ruling 1 on AECI-1874.
 - Supersedes: one sentence of ADR 0012's retirement note, named under "What this supersedes in ADR 0012".
