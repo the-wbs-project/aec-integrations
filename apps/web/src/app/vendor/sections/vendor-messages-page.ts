@@ -73,7 +73,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
         <div>
           <h2 i18n="@@vendor.section.messages">Messages</h2>
           <p
-            class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.messages.intro.contests"
           >
             Updates about your company: where your claim and correction requests stand, the change

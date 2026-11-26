@@ -113,7 +113,7 @@ import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
           }}</span>
         </h2>
       }
-      <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
+      <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
         These are the integrations on record for your products. Open one to check what data is
         shared and to fix anything that is wrong. The other company sees the same integration from
         their side.

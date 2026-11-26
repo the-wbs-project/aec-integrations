@@ -199,7 +199,7 @@ interface NeedsRow {
               What needs you
             </h2>
             <div class="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+              <p class="text-sm leading-relaxed text-(--text-secondary)">
                 {{ lede() }}
               </p>
               <p><aec-vendor-docs-link page="your-dashboard" /></p>

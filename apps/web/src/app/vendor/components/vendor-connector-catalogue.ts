@@ -84,7 +84,7 @@ function domId(value: string): string {
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-catalogue-heading" data-catalogue>
-      <div class="max-w-[30rem] space-y-2">
+      <div class="space-y-2">
         <h2 id="vendor-catalogue-heading" class="m-0">
           <!-- The size lives on the span: styles.css sizes h2 outside any cascade
                layer, so a text utility on the h2 itself is dead. -->

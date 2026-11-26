@@ -209,7 +209,7 @@ function documentLabel(document: string): string {
         <h2 i18n="@@vendor.section.billing">Billing</h2>
         @if (!isOwner()) {
           <p
-            class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+            class="mt-2 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
             data-testid="billing-owners-only"
             i18n="@@vendor.billing.ownersOnly"
           >
@@ -218,7 +218,7 @@ function documentLabel(document: string): string {
           </p>
         } @else {
           <p
-            class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+            class="mt-2 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
             i18n="@@vendor.billing.intro"
           >
             Your company's Managed subscriptions are held here. Put each one on a product to move
@@ -226,7 +226,7 @@ function documentLabel(document: string): string {
           </p>
           @if (billing()?.stripe_checkout_available && billing()?.billing_account) {
             <p
-              class="mt-1 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+              class="mt-1 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
               data-testid="billing-intro-card"
               i18n="@@vendor.billing.intro.card"
             >
@@ -389,7 +389,7 @@ function documentLabel(document: string): string {
                   Subscriptions waiting for you
                 </h3>
                 <p
-                  class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
+                  class="mt-2 text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
                   i18n="@@vendor.billing.grantPending.intro"
                 >
                   AEC Integrations granted your company these subscriptions. Each one starts only
