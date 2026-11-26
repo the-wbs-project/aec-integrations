@@ -144,4 +144,15 @@ describe('VendorBulletListEditor', () => {
     expect(inputs(f).every((i) => i.readOnly)).toBe(true);
     expect(f.nativeElement.querySelectorAll('button').length).toBe(0);
   });
+
+  it('never flags an over-cap point the vendor cannot edit', () => {
+    const f = create();
+    f.componentInstance.bullets.set([newBullet('x'.repeat(25))]);
+    f.componentInstance.disabled.set(true);
+    f.detectChanges();
+
+    expect(inputs(f)[0]!.getAttribute('aria-invalid')).toBeNull();
+    expect(inputs(f)[0]!.getAttribute('aria-describedby')).toBeNull();
+    expect(f.nativeElement.textContent).not.toContain('Shorten this point');
+  });
 });
