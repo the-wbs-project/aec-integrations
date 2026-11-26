@@ -182,6 +182,9 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'sync_service_pair_contests.submitter_vendor_id': 'fk-action',
   'sync_service_pair_contests.owner_vendor_id': 'fk-action',
   'sync_service_pair_vetoes.vendor_id': 'fk-action',
+  // AECI-2192 (0134): an objection the vendor filed to a removal is NULLed by SET NULL
+  // and survives, with its `vendor_name` snapshot.
+  'sync_service_veto_objections.vendor_id': 'fk-action',
 };
 
 /**

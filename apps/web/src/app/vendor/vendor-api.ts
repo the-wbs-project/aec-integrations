@@ -118,6 +118,9 @@ import type {
   AcceptLicenseGrantResponse,
   VetoWriteResponse,
   VendorVetoesResponse,
+  FileVetoObjectionInput,
+  RemovalReasonCode,
+  VetoObjectionResponse,
   SubmitPairContestInput,
   PairContestResponse,
   VendorPairContestsResponse,
@@ -1038,12 +1041,23 @@ export class VendorApi {
 
   // ── AECI-2042: an endpoint vendor's rights on a Sync Service pair ─────────
 
-  /** `POST /api/vendor/integrations/:id/veto` — take the pair off our product (201). */
-  fileVeto(integrationId: string, reason: string): Promise<VetoWriteResponse> {
+  /** `POST /api/vendor/integrations/:id/veto` — take the pair off our product (201).
+   *  Since AECI-2192 the reason is one code from the fixed list. */
+  fileVeto(integrationId: string, reasonCode: RemovalReasonCode): Promise<VetoWriteResponse> {
     return firstValueFrom(
       this.http.post<VetoWriteResponse>(
         `/api/vendor/integrations/${encodeURIComponent(integrationId)}/veto`,
-        { reason },
+        { reason_code: reasonCode },
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/vetoes/:id/objections` — the Sync Service objects (AECI-2192). */
+  fileVetoObjection(vetoId: string, body: FileVetoObjectionInput): Promise<VetoObjectionResponse> {
+    return firstValueFrom(
+      this.http.post<VetoObjectionResponse>(
+        `/api/vendor/vetoes/${encodeURIComponent(vetoId)}/objections`,
+        body,
       ),
     );
   }

@@ -5,17 +5,19 @@
  *   POST /api/vendor/integrations/:id/veto   — file a veto; the pair leaves the site (201).
  *   POST /api/vendor/vetoes/:id/withdraw     — the vetoing vendor withdraws it (200).
  *   GET  /api/vendor/vetoes                  — vetoes filed, and vetoes on pairs owned.
+ *   POST /api/vendor/vetoes/:id/objections   — the Sync Service objects (201, AECI-2192).
  *
  * ── THE GATE ────────────────────────────────────────────────────────────────
- * `requireVendor()` → `rateLimit('write')` on the two writes, then
+ * `requireVendor()` → `rateLimit('write')` on the three writes, then, on a veto,
  * `resolvePairRightTarget` (`lib/sync-service-pair-rights.ts`): an endpoint vendor of a
  * pair whose connector is a Sync Service, and not its owner. A seat is the whole gate.
- * The read is not rate-limited.
+ * An objection's gate is `vetoesOwnedByWhere`. The read is not rate-limited.
  *
- * ── NOT JUDGED ──────────────────────────────────────────────────────────────
- * A veto takes effect the moment it is filed (ruled 2026-11-24 on AECI-2042). AECi does
- * not check it first. The reason is required, so the owner learns why, and it is never
- * public.
+ * ── NOT CHECKED FIRST (ruling 66, after counsel's Q73 and Q74) ─────────────
+ * A veto takes effect the moment it is filed. AECi does not check it first. The vendor
+ * picks one reason from a fixed list (`REMOVAL_REASON_CODES`), recorded with the time.
+ * The Sync Service is told at once, with the reason and how to object. Nothing public
+ * carries the removal. AECi looks at an objection afterwards, on three grounds only.
  *
  * ── ONE BATCH ───────────────────────────────────────────────────────────────
  * The gate sentinel and the veto INSERT (or the guarded withdraw UPDATE and its
@@ -37,22 +39,35 @@
 
 import {
   ApiErrorCode,
+  FileVetoObjectionSchema,
   FileVetoSchema,
+  OBJECTION_GROUND_LABELS,
+  REMOVAL_REASON_LABELS,
   VendorVetoesResponseSchema,
+  VetoObjectionResponseSchema,
   VetoWriteResponseSchema,
+  isRemovalReasonCode,
   type VendorVetoesResponse,
+  type VetoObjectionResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
-import { syncServicePairVetoes, vendors } from '../db/schema';
+import { syncServicePairVetoes, syncServiceVetoObjections, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { sendVetoObjectionSubmittedNotification } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { ONE_ROW } from '../lib/integration-claims';
 import {
+  closeOpenObjectionStmt,
+  objectionWire,
+  pairProducts,
+  pairSlugsOf,
+  VETO_OBJECTION_ENTITY_TYPE,
   isVetoRaceError,
   pairKeyOf,
   pairRightTargetSentinel,
@@ -91,7 +106,10 @@ export function createFileVetoHandler(
     const vendorId = sessionVendorId(c);
     const { db } = writeDb(c, dbFor);
     const { target } = await resolvePairRightTarget(db, vendorId, param(c, 'id'));
-    const { reason } = await parseJsonBody(c, FileVetoSchema);
+    // AECI-2192 (ruling 66): one reason from the fixed list. The `reason` column keeps
+    // its NOT NULL and holds the code's English label, so the row reads on its own.
+    const { reason_code: reasonCode } = await parseJsonBody(c, FileVetoSchema);
+    const reason = REMOVAL_REASON_LABELS[reasonCode];
 
     // One veto in force per vendor per pair: answered here, and by the unique index
     // if two land at once.
@@ -132,6 +150,7 @@ export function createFileVetoHandler(
       vendorId,
       vendorName: vetoingName,
       reason,
+      reasonCode,
       filedBy: session.userId,
       filedAt: now,
       createdAt: now,
@@ -151,7 +170,8 @@ export function createFileVetoHandler(
         action: 'integration.vetoed',
         entityType: VETO_ENTITY_TYPE,
         entityId: id,
-        afterState: { vetoed_at: now, reason },
+        // The filed time and the fixed reason are the record ruling 66 asks for.
+        afterState: { vetoed_at: now, filed_at: now, reason_code: reasonCode },
         metadata: {
           source: AUDIT_SOURCE,
           vendorId,
@@ -162,7 +182,8 @@ export function createFileVetoHandler(
       event: 'vetoed',
       actingVendorId: vendorId,
       byVendorName: vetoingName,
-      ownerReason: reason,
+      ownerReason: null,
+      reasonCode,
       now,
       stamp: (entry) => vendorAuditEntry(c, entry),
       // The INSERT carries no `changes()` sentinel, so a "changed" abort is the gate's.
@@ -223,6 +244,7 @@ export function createWithdrawVetoHandler(
         .batch([
           update,
           vetoRowChangedSentinel(db),
+          closeOpenObjectionStmt(db, vetoId, now),
           auditInsert(db, vendorAuditEntry(c, audit)),
         ] as BatchTuple)
         .catch((error: unknown) => {
@@ -236,7 +258,8 @@ export function createWithdrawVetoHandler(
         key: vetoKeyOf(row),
         target,
         vetoId,
-        rowWrite: [update, vetoRowChangedSentinel(db)],
+        // A withdrawn removal closes any open objection to it (AECI-2192).
+        rowWrite: [update, vetoRowChangedSentinel(db), closeOpenObjectionStmt(db, vetoId, now)],
         audit,
         event: 'veto_withdrawn',
         actingVendorId: vendorId,
@@ -252,6 +275,160 @@ export function createWithdrawVetoHandler(
     const body = await vetoWriteBody(db, vetoId);
     validateResponseInDev(c.env, () => VetoWriteResponseSchema.parse(body));
     return json(body);
+  };
+}
+
+/** The token the objection gate raises. */
+const OBJECTION_GATE_TOKEN = 'veto-objection-gate';
+
+/** True when the open-objection unique index refused the INSERT (any depth of cause). */
+function isObjectionDuplicateError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/UNIQUE constraint failed: sync_service_veto_objections/i.test(text)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+function objectionDuplicateError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.VETO_OBJECTION_DUPLICATE,
+    'An objection to this removal is already with AEC Integrations.',
+  );
+}
+
+/**
+ * `POST /api/vendor/vetoes/:id/objections` (AECI-2192, ruling 66). The Sync Service
+ * objects to a removal on one of three grounds. 201 with the objection.
+ *
+ * The gate: the veto is in force, and the caller's vendor owns a row on its pair key
+ * or holds its connector product (`vetoesOwnedByWhere`, the predicate of the owner's
+ * "Removed from your integrations" list). Anyone else gets the 404 an unknown id gets.
+ * The gate is read here and asserted again in the batch, so a withdraw, a lift or an
+ * owner change that lands in between writes nothing (`409 VETO_NOT_IN_FORCE`). One
+ * open objection per removal, by the partial unique index (`409 VETO_OBJECTION_DUPLICATE`).
+ *
+ * It always routes to AECi. The batch writes the objection and its audit row and tells
+ * no vendor: like an AECi-routed contest (§11b.8), the removing vendor learns of an
+ * objection only when AECi accepts it. After commit the AECi alert email goes to
+ * `SUPPORT_EMAIL`. Filing hides and shows nothing, so nothing is purged.
+ */
+export function createFileVetoObjectionHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const session = c.get('auth');
+    const vendorId = sessionVendorId(c);
+    const { db } = writeDb(c, dbFor);
+    const vetoId = param(c, 'id');
+    const [veto] = await db
+      .select()
+      .from(syncServicePairVetoes)
+      .where(and(eq(syncServicePairVetoes.id, vetoId), vetoesOwnedByWhere(vendorId)))
+      .limit(1);
+    if (!veto) throw notFoundError('veto', { id: vetoId });
+    const payload = await parseJsonBody(c, FileVetoObjectionSchema);
+    if (veto.endedAt !== null) {
+      throw new ApiError(409, ApiErrorCode.VETO_NOT_IN_FORCE, 'This removal has already ended.');
+    }
+    const open = await db.query.syncServiceVetoObjections.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(syncServiceVetoObjections.vetoId, vetoId),
+        eq(syncServiceVetoObjections.status, 'open'),
+      ),
+    });
+    if (open) throw objectionDuplicateError();
+
+    const now = new Date().toISOString();
+    const objectorName =
+      (
+        await db.query.vendors.findFirst({
+          columns: { companyName: true },
+          where: eq(vendors.id, vendorId),
+        })
+      )?.companyName ?? null;
+    const id = crypto.randomUUID();
+    const sourceUrl = payload.ground === 'reason_plainly_false' ? payload.source_url! : null;
+    const audit: AuditLogEntry = {
+      actorId: session.userId,
+      actorType: auditActorType(session),
+      action: 'integration.veto_objection.filed',
+      entityType: VETO_OBJECTION_ENTITY_TYPE,
+      entityId: id,
+      afterState: { status: 'open', ground: payload.ground, source_url: sourceUrl },
+      metadata: { source: AUDIT_SOURCE, vendorId, vetoId, vetoVendorId: veto.vendorId },
+    };
+    const v = syncServicePairVetoes;
+    try {
+      await db.batch([
+        // The gate again, at commit: still in force, and the caller still owns a row on
+        // the key or holds the connector. Otherwise nothing is written.
+        db
+          .select({
+            guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${v} WHERE ${v.id} = ${vetoId} AND ${v.endedAt} IS NULL AND ${vetoesOwnedByWhere(vendorId)}) THEN json(${OBJECTION_GATE_TOKEN}) END`,
+          })
+          .from(ONE_ROW),
+        db.insert(syncServiceVetoObjections).values({
+          id,
+          vetoId,
+          vendorId,
+          vendorName: objectorName,
+          ground: payload.ground,
+          explanation: payload.explanation,
+          sourceUrl,
+          filedBy: session.userId,
+          status: 'open',
+          createdAt: now,
+          updatedAt: now,
+        }),
+        auditInsert(db, vendorAuditEntry(c, audit)),
+      ] as BatchTuple);
+    } catch (error) {
+      if (isObjectionDuplicateError(error)) throw objectionDuplicateError();
+      if (isVetoRaceError(error) === 'changed') {
+        throw new ApiError(
+          409,
+          ApiErrorCode.VETO_NOT_IN_FORCE,
+          'This removal ended, or your company’s link to it changed. Nothing was sent.',
+        );
+      }
+      throw error;
+    }
+
+    // The AECi alert, after commit. A failed send never changes the 201.
+    const key = vetoKeyOf(veto);
+    const target = await vetoNoticeTarget(db, veto);
+    const named = await pairProducts(db, key);
+    c.executionCtx.waitUntil(
+      sendVetoObjectionSubmittedNotification(c, {
+        objectionId: id,
+        integrationName: target?.name ?? 'this integration',
+        objectorVendorName: objectorName ?? 'A vendor',
+        removingVendorName: veto.vendorName ?? 'A vendor',
+        removalReason: isRemovalReasonCode(veto.reasonCode)
+          ? REMOVAL_REASON_LABELS[veto.reasonCode]
+          : veto.reason,
+        ground: OBJECTION_GROUND_LABELS[payload.ground],
+        explanation: payload.explanation,
+        sourceUrl,
+        pairSlugs: pairSlugsOf(key, named),
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    const row = await db.query.syncServiceVetoObjections.findFirst({
+      where: eq(syncServiceVetoObjections.id, id),
+    });
+    const body: VetoObjectionResponse = { objection: objectionWire(row!) };
+    validateResponseInDev(c.env, () => VetoObjectionResponseSchema.parse(body));
+    return json(body, { status: 201 });
   };
 }
 

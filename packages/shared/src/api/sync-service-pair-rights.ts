@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+import {
+  OBJECTION_EXPLANATION_MAX,
+  OBJECTION_GROUNDS,
+  OBJECTION_STATUSES,
+  REMOVAL_END_REASONS,
+  REMOVAL_REASON_CODES,
+} from './sync-service-removal';
+
 /**
  * An endpoint vendor's three rights on a pair a Sync Service delivers (AECI-2042,
  * rulings 8, 9 and 10 on AECI-2035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e,
@@ -51,15 +59,83 @@ export type PairRightPair = z.infer<typeof PairRightPairSchema>;
 
 // ─── Veto ────────────────────────────────────────────────────────────────────
 
-/** `POST /api/vendor/integrations/:id/veto`. The reason is required and goes to the
- *  pair's owner and to AECi. */
-export const FileVetoSchema = z.object({ reason: ReasonSchema }).strict();
+export const RemovalReasonCodeSchema = z.enum(REMOVAL_REASON_CODES);
+export const ObjectionGroundSchema = z.enum(OBJECTION_GROUNDS);
+export const RemovalEndReasonSchema = z.enum(REMOVAL_END_REASONS);
+export const ObjectionStatusSchema = z.enum(OBJECTION_STATUSES);
+
+/**
+ * `POST /api/vendor/integrations/:id/veto`. Since AECI-2192 (ruling 66) the vendor picks
+ * one reason from the fixed list. There is no free-text reason: the code is what the
+ * Sync Service is told, and it is never public. Strict, so the old `reason` key is a 400.
+ */
+export const FileVetoSchema = z.object({ reason_code: RemovalReasonCodeSchema }).strict();
 export type FileVetoInput = z.infer<typeof FileVetoSchema>;
 
-/** `POST /api/admin/vetoes/:id/lift`. The note is required: it is the record of why a
- *  veto filed through a seat stopped counting, and the vetoing vendor sees it. */
-export const AdminLiftVetoSchema = z.object({ note: ReasonSchema }).strict();
+/**
+ * `POST /api/admin/vetoes/:id/lift`. Since AECI-2192 the lift names why the removal
+ * ends (`end_reason`, the five cases of ruling 66) as well as a note. Both are
+ * required and both go to the vendors.
+ */
+export const AdminLiftVetoSchema = z
+  .object({ end_reason: RemovalEndReasonSchema, note: ReasonSchema })
+  .strict();
 export type AdminLiftVetoInput = z.infer<typeof AdminLiftVetoSchema>;
+
+const HttpsUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .max(2048)
+  .refine((v) => v.startsWith('https://'), { message: 'An https link is required' });
+
+/**
+ * `POST /api/vendor/vetoes/:id/objections` (AECI-2192). The Sync Service objects on one
+ * of three grounds, with an explanation. The "plainly false" ground also needs an https
+ * link to the removing vendor's own public material.
+ */
+export const FileVetoObjectionSchema = z
+  .object({
+    ground: ObjectionGroundSchema,
+    explanation: z.string().trim().min(1).max(OBJECTION_EXPLANATION_MAX),
+    source_url: HttpsUrlSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.ground === 'reason_plainly_false' && !value.source_url) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['source_url'],
+        message: 'A link to the vendor’s own public material is required',
+      });
+    }
+  });
+export type FileVetoObjectionInput = z.infer<typeof FileVetoObjectionSchema>;
+
+/** `PATCH /api/admin/veto-objections/:id`. The note is required either way and goes to
+ *  the vendors. An accept ends the removal with the objection's ground. */
+export const AdminDecideVetoObjectionSchema = z
+  .object({ decision: z.enum(['accept', 'decline']), note: ReasonSchema })
+  .strict();
+export type AdminDecideVetoObjectionInput = z.infer<typeof AdminDecideVetoObjectionSchema>;
+
+/** The latest objection to a removal. Never public. */
+export const VetoObjectionSchema = z.object({
+  id: z.string().uuid(),
+  ground: ObjectionGroundSchema,
+  explanation: z.string(),
+  source_url: z.string().nullable(),
+  vendor_name: z.string().nullable(),
+  status: ObjectionStatusSchema,
+  decision_note: z.string().nullable(),
+  decided_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VetoObjection = z.infer<typeof VetoObjectionSchema>;
+
+/** The answer of an objection write: the objection after it. */
+export const VetoObjectionResponseSchema = z.object({ objection: VetoObjectionSchema });
+export type VetoObjectionResponse = z.infer<typeof VetoObjectionResponseSchema>;
 
 export const VetoEndedHowSchema = z.enum(['withdrawn', 'lifted']);
 
@@ -68,13 +144,21 @@ export const SyncServicePairVetoSchema = z.object({
   pair: PairRightPairSchema,
   vendor_id: z.string().uuid().nullable(),
   vendor_name: z.string().nullable(),
+  /** The fixed reason (AECI-2192). `null` on a removal filed before the fixed list. */
+  reason_code: RemovalReasonCodeSchema.nullable(),
+  /** The text on record. On a row with `reason_code` it is that code's English label.
+   *  On an older row it is the vendor's own words, shown to the owner as recorded. */
   reason: z.string(),
   filed_at: z.string(),
   in_force: z.boolean(),
   ended_at: z.string().nullable(),
   ended_how: VetoEndedHowSchema.nullable(),
+  /** Why AECi ended it (AECI-2192). `null` on a withdraw and on an older lift. */
+  end_reason: RemovalEndReasonSchema.nullable(),
   /** An admin's lift note. Shown to the vetoing vendor and the owner. */
   end_note: z.string().nullable(),
+  /** The latest objection, if any (AECI-2192). */
+  objection: VetoObjectionSchema.nullable(),
   /** Other vendors' vetoes still in force on the same pair: the pair returns only when
    *  this is 0 and this veto has ended. */
   other_vetoes_in_force: z.number().int().nonnegative(),
@@ -284,6 +368,7 @@ export const PAIR_RIGHT_NOTIFICATION_EVENTS = [
   'report_declined',
   'protest_filed',
   'protest_decided',
+  'objection_declined',
 ] as const;
 export const PairRightNotificationEventSchema = z.enum(PAIR_RIGHT_NOTIFICATION_EVENTS);
 export type PairRightNotificationEvent = z.infer<typeof PairRightNotificationEventSchema>;
@@ -292,8 +377,10 @@ export type PairRightNotificationEvent = z.infer<typeof PairRightNotificationEve
  * One veto or report event addressed to this vendor (`kind: 'pair_right'`) on
  * `GET /api/vendor/notifications`. Written in the same batch as the write, as a
  * `notification.sent` audit row. `by_vendor_name` names the vendor that acted, or
- * `null` for AECi. `reason` is the veto's reason on a `vetoed` row to the owner, and
- * the admin's note on a lift; nothing else carries free text.
+ * `null` for AECi. Since AECI-2192 a `vetoed` row to the owner carries the fixed
+ * `reason_code` and no free text. `reason` is the admin's note on a lift and on an
+ * `objection_declined` row, and an older removal's own words. Nothing else carries
+ * free text.
  */
 export const VendorPairRightNotificationSchema = z.object({
   kind: z.literal('pair_right'),
@@ -304,6 +391,10 @@ export const VendorPairRightNotificationSchema = z.object({
   report_kind: PairContestKindSchema.nullable(),
   by_vendor_name: z.string().nullable(),
   reason: z.string().nullable(),
+  /** On a `vetoed` row to the owner: the vendor's fixed reason (AECI-2192). */
+  reason_code: RemovalReasonCodeSchema.nullable().optional(),
+  /** On a `veto_lifted` row: why AECi ended the removal (AECI-2192). */
+  end_reason: RemovalEndReasonSchema.nullable().optional(),
   /** True on a veto event when the pair is on the public site after it. */
   pair_public: z.boolean().nullable(),
   pair_path: z.string().nullable(),

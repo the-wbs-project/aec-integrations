@@ -3,7 +3,7 @@ title: For connector vendors
 description: The two kinds of connector product, the seat a company that makes one can have, how the Catalog tab works, and how integrations delivered through a connector are owned.
 section: vendors
 order: 15
-last_updated: November 25, 2026
+last_updated: November 26, 2026
 ---
 
 A connector product carries data between other products. This page is for the company that makes one. It also covers integrations delivered through a connector, which matter to the vendors at their ends too.
@@ -55,6 +55,8 @@ If your product is a Sync Service, its Integrations tab has **Add an integration
 
 The integration goes live without review. Your company owns it and has claimed it from the start. The vendors of both products are told that you added it. It then appears under **Integrations your company offers** on the same tab, where you add the data it syncs. If it is already on record through your Sync Service, you are told so and nothing is added. If it is retired, restore it instead.
 
+**Before you add one:** the vendor of either product can remove it from its product at any time, even when the listing is accurate. It must state one reason from a fixed list. You are told at once, and you can object to us on three narrow grounds. [When a product's vendor objects](/docs/vendors/connector-vendors#when-a-products-vendor-objects) explains how.
+
 ### The data rows on a Sync Service integration
 
 When the connector is a Sync Service, your company built and runs the integration, so it confirms the types of data it moves. Once you have claimed the integration, its card shows its rows under **Data that's shared**, on any plan:
@@ -73,7 +75,17 @@ Where your company does hold a product at one end and the connection later becom
 
 ### When a product's vendor objects
 
-The vendor of either product can remove an integration your Sync Service delivers from its product. Nobody reviews that removal, and it takes effect at once. The integration leaves the public site and stops counting. You are told in **Messages**, with the vendor's name and reason, under **Removed from your integrations**. You cannot restore it, and you cannot add it again: the add form tells you so. AEC Integrations' catalog updates will not bring it back either. It returns only when that vendor withdraws the removal, or when AEC Integrations ends it in one of the cases the [Listing Accuracy Policy](/legal/listing-accuracy) names. Retiring it changes nothing about the removal.
+The vendor of either product can remove an integration your Sync Service delivers from its product, even when the listing is accurate. We do not guarantee that an integration you deliver stays listed. Know this before you list anything here.
+
+The vendor must choose its reason from a fixed list: "We do not support this integration", "It is not offered for our product", "We have not authorised it for our product" or "We ended our relationship with this company". Nobody checks the removal first, and it takes effect at once. The integration leaves the public site and stops counting. The public pages show nothing about the removal. You are told at once in **Messages**, under **Removed from your integrations**, with the vendor's name, its reason and the time. You cannot restore it, and you cannot add it again: the add form tells you so. AEC Integrations' catalog updates will not bring it back either. Retiring it changes nothing about the removal.
+
+**How to object.** Choose **Object to this removal** under the removed integration in **Messages**. If your company has no account with us, email [support@aecintegrations.com](mailto:support@aecintegrations.com). We look at an objection on three grounds only:
+
+- The removal came from an account that should not have had access to that product.
+- It named the wrong product.
+- Its reason is plainly false on its face. For example, the vendor's own public pages show that it supports the integration. Give us the link.
+
+We do not decide whether the vendor should support your integration. If we agree, the removal ends, the integration returns on every page, and we tell both companies why. If we do not agree, we tell you why. We may also end a removal where the vendor's claim to its product ends or is suspended, or where the law requires it. The integration also returns if the vendor withdraws the removal.
 
 Either vendor can also report that the integration is not offered. AEC Integrations decides, and if we confirm it we take the integration off the site within five business days. And either vendor can report one wrong data flow. Once you have claimed the integration, those reports come to you in **Messages**, under **Data flow reports you received**. **Accept** changes the flow on the public page as the report asks. **Decline** leaves it. If you decline, the vendor can ask AEC Integrations to review it. Our view is advice, and you still decide the listing. A correction request under the [Listing Accuracy Policy](/legal/listing-accuracy) still applies to a data flow. If a public source shows the flow is wrong, we may take the integration off the site.
 

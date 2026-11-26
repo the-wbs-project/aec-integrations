@@ -8,7 +8,9 @@
  * timeline, both endpoint product pages (their lanes and `data_object_slugs`), the Sync
  * Service's own page, `readPairCounterpartSlugs`, `resolveMovedPair`, the Connectors
  * section, the admin connector screens, the stored counts, and the Algolia integrations
- * index (the by-id sync's delete arm). The `integrations` arm is covered on the same
+ * index (the by-id sync's delete arm). Since AECI-2192 (ruling 66) also the legacy
+ * integration detail, the closest matches, and a sweep of every public payload for any
+ * trace of a removal. The `integrations` arm is covered on the same
  * reads by a Sync Service row in that table.
  *
  * Beside each vetoed row sits a live row that must stay, so a predicate that empties
@@ -55,7 +57,9 @@ import {
   createAdminConnectorPairsHandler,
 } from './admin-connectors';
 import {
+  createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createPairAlternativesHandler,
   createPairTimelineHandler,
   createProductPairHandler,
 } from './integrations';
@@ -142,7 +146,7 @@ async function fileVeto(id: string, auth: AuthzVariables['auth']): Promise<void>
     `/api/vendor/integrations/${id}/veto`,
     createFileVetoHandler(t.factory) as Handler,
     auth,
-    { reason: 'Not authorised on our product.' },
+    { reason_code: 'not_authorised' },
   );
   expect(res.status).toBe(201);
   vetoIds.push((res.body as { veto: { id: string } }).veto.id);
@@ -404,6 +408,106 @@ describe('a vetoed Sync Service pair renders on no public read (AECI-2042)', () 
       createAdminConnectorPairsHandler(t.factory) as Handler,
     );
     expect((pairs.body as { total: number }).total).toBe(0);
+  });
+
+  // ── AECI-2192 (ruling 66): the public sees nothing ─────────────────────────
+
+  it('the legacy integration detail answers a removed row with its two slugs only, as a retired row', async () => {
+    const res = await get(
+      '/api/integrations/:id',
+      `/api/integrations/${INT_VETOED}`,
+      createIntegrationDetailHandler(t.factory) as Handler,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      id: INT_VETOED,
+      retired: true,
+      source: { slug: 'sage' },
+      target: { slug: 'ineight' },
+    });
+    expect(res.text).not.toContain('Vetoed sync row');
+  });
+
+  it('the empty pair page’s closest matches list no removed row', async () => {
+    const res = await get(
+      '/api/products/:slug/integrations/:otherSlug/alternatives',
+      '/api/products/procore/integrations/okta/alternatives',
+      createPairAlternativesHandler(t.factory) as Handler,
+    );
+    expect(res.status).toBe(200);
+    for (const id of [VETOED, VETOED_ALONE, INT_VETOED, ...DUPS]) {
+      expect(res.text).not.toContain(id);
+    }
+  });
+
+  it('no public payload carries a removal: no veto id, reason, remover, label or column', async () => {
+    const rows = await t.db.query.syncServicePairVetoes.findMany();
+    const vetoTraces = [
+      ...rows.map((r) => r.id),
+      'vetoed_at',
+      'vetoedAt',
+      'veto',
+      'reason_code',
+      'It is not offered',
+      'We have not authorised it',
+      'removed at the request',
+      'Removed by',
+    ];
+    const reads: Array<[string, string, Handler]> = [
+      [
+        '/api/integrations',
+        '/api/integrations',
+        createIntegrationsListHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug/integrations/:otherSlug',
+        '/api/products/procore/integrations/sage',
+        createProductPairHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug/integrations/:otherSlug',
+        '/api/products/procore/integrations/okta',
+        createProductPairHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug/integrations/:otherSlug/timeline',
+        '/api/products/procore/integrations/okta/timeline',
+        createPairTimelineHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug',
+        '/api/products/procore',
+        createProductDetailHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug',
+        '/api/products/sage',
+        createProductDetailHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/products/:slug',
+        '/api/products/rivets-sync',
+        createProductDetailHandler(t.factory) as Handler,
+      ],
+      [
+        '/api/integrations/:id',
+        `/api/integrations/${INT_VETOED}`,
+        createIntegrationDetailHandler(t.factory) as Handler,
+      ],
+    ];
+    for (const [path, url, handler] of reads) {
+      const { text } = await get(path, url, handler);
+      for (const trace of vetoTraces) expect(text, `${url} carries ${trace}`).not.toContain(trace);
+    }
+    const { xml } = await buildCatalogSitemap(t.db, 'https://www.example.test');
+    for (const trace of vetoTraces) expect(xml).not.toContain(trace);
+    // The Algolia records of a removed row are deleted, never written with a trace.
+    const { requests } = await buildIntegrationRequests(t.db, {
+      type: 'ids',
+      ids: [VETOED, VETOED_ALONE, INT_VETOED, LIVE, INT_LIVE, ...DUPS],
+    });
+    const written = JSON.stringify(requests.filter((r) => r.action !== 'deleteObject'));
+    for (const trace of vetoTraces) expect(written).not.toContain(trace);
   });
 
   it('a withdraw puts every row on the key back on the pair page', async () => {

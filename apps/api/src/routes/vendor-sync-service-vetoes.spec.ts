@@ -269,8 +269,8 @@ async function call(
   return { status: res.status, body: (await res.json()) as JsonBody, send };
 }
 
-const veto = (id: string, auth = AUTH_PROCORE, reason = 'We never authorised this.') =>
-  call(auth, `/api/vendor/integrations/${id}/veto`, 'POST', { reason });
+const veto = (id: string, auth = AUTH_PROCORE, reasonCode = 'not_authorised') =>
+  call(auth, `/api/vendor/integrations/${id}/veto`, 'POST', { reason_code: reasonCode });
 const withdraw = (vetoId: string, auth = AUTH_PROCORE) =>
   call(auth, `/api/vendor/vetoes/${vetoId}/withdraw`, 'POST');
 const pairRow = async (id: string) =>
@@ -350,11 +350,28 @@ describe('POST /api/vendor/integrations/:id/veto — who may veto', () => {
     expect(await t.db.select().from(syncServicePairVetoes)).toHaveLength(1);
   });
 
-  it('a reason is required', async () => {
-    const res = await call(AUTH_PROCORE, `/api/vendor/integrations/${PAIR}/veto`, 'POST', {
-      reason: '  ',
+  it('a reason from the fixed list is required, and free text is refused (ruling 66)', async () => {
+    for (const body of [{}, { reason: 'We never authorised this.' }, { reason_code: 'other' }]) {
+      const res = await call(AUTH_PROCORE, `/api/vendor/integrations/${PAIR}/veto`, 'POST', body);
+      expect(res.status).toBe(400);
+    }
+    expect(await t.db.select().from(syncServicePairVetoes)).toHaveLength(0);
+  });
+
+  it('stores the fixed reason and the time, and the row reads its label', async () => {
+    const res = await veto(PAIR, AUTH_PROCORE, 'not_offered_for_product');
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(syncServicePairVetoes);
+    expect(row).toMatchObject({
+      reasonCode: 'not_offered_for_product',
+      reason: 'It is not offered for our product',
     });
-    expect(res.status).toBe(400);
+    expect(row!.filedAt).toBe(res.body.veto.filed_at);
+    expect(res.body.veto).toMatchObject({
+      reason_code: 'not_offered_for_product',
+      objection: null,
+      end_reason: null,
+    });
   });
 });
 
@@ -373,7 +390,7 @@ describe('the veto batch', () => {
   });
 
   it('writes the audit row, and tells the owner who vetoed and why, and the other endpoint vendor only that it happened', async () => {
-    const res = await veto(PAIR, AUTH_PROCORE, 'We do not support this sync.');
+    const res = await veto(PAIR, AUTH_PROCORE, 'not_supported');
     const [audit] = await t.db
       .select()
       .from(auditLog)
@@ -389,11 +406,13 @@ describe('the veto batch', () => {
     expect(owner.metadata).toMatchObject({
       event: 'vetoed',
       byVendorName: 'Procore Inc',
-      reason: 'We do not support this sync.',
+      // Ruling 66: the Sync Service gets the fixed reason, never free text.
+      reason: null,
+      reasonCode: 'not_supported',
       pairPublic: false,
       notificationId: 'portal-sync-service-veto',
     });
-    expect(other.metadata).toMatchObject({ event: 'vetoed', reason: null });
+    expect(other.metadata).toMatchObject({ event: 'vetoed', reason: null, reasonCode: null });
     expect(sent.find((n) => n.vendorId === PROCORE)).toBeUndefined();
   });
 
@@ -465,6 +484,7 @@ describe('withdraw and lift', () => {
     );
     expect(noNote.status).toBe(400);
     const res = await call(AUTH_ADMIN, `/api/admin/vetoes/${filed.body.veto.id}/lift`, 'POST', {
+      end_reason: 'unauthorised_account',
       note: 'The seat that filed it was granted in error.',
     });
     expect(res.status).toBe(200);
@@ -475,6 +495,7 @@ describe('withdraw and lift', () => {
     );
     expect(told.map((n) => n.vendorId).sort()).toEqual([ACUMATICA, PROCORE, RIVETS].sort());
     const again = await call(AUTH_ADMIN, `/api/admin/vetoes/${filed.body.veto.id}/lift`, 'POST', {
+      end_reason: 'law_requires',
       note: 'again',
     });
     expect(again.status).toBe(409);
@@ -522,6 +543,7 @@ describe('a veto is not a retire: neither restore brings the pair back', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.error.code).toBe('INTEGRATION_VETOED');
     await call(AUTH_ADMIN, `/api/admin/vetoes/${filed.body.veto.id}/lift`, 'POST', {
+      end_reason: 'unauthorised_account',
       note: 'Filed in error.',
     });
     const restored = await call(AUTH_ADMIN, `/api/admin/integrations/${PAIR}/restore`, 'POST', {
@@ -717,6 +739,7 @@ describe('a veto hides every row on its pair key (review blocker 1)', () => {
     expect((await intRow(INT_SYNC)).vetoedAt).not.toBeNull();
     expect((await intRow(INT_TWIN)).vetoedAt).not.toBeNull();
     const lifted = await call(AUTH_ADMIN, `/api/admin/vetoes/${filed.body.veto.id}/lift`, 'POST', {
+      end_reason: 'unauthorised_account',
       note: 'Filed through a seat granted in error.',
     });
     expect(lifted.status).toBe(200);
@@ -755,7 +778,7 @@ describe('a veto hides every row on its pair key (review blocker 1)', () => {
   it('the owner of another row on the key is told, and sees the veto in its list', async () => {
     await veto(PAIR);
     const told = (await notices()).find((n) => n.vendorId === NOBODY);
-    expect(told?.metadata).toMatchObject({ event: 'vetoed', reason: 'We never authorised this.' });
+    expect(told?.metadata).toMatchObject({ event: 'vetoed', reasonCode: 'not_authorised' });
     const list = await call(AUTH_NOBODY, '/api/vendor/vetoes', 'GET');
     expect(list.body.received).toHaveLength(1);
   });

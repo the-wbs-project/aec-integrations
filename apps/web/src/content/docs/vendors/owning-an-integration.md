@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: November 25, 2026
+last_updated: November 26, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -81,7 +81,7 @@ Choose **Restore integration** in Settings to put it back. It returns as it was.
 
 AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the company that makes the other product are told. The notice to your company includes the reason AEC Integrations gave, and you find it in **Messages**. Settings then says "Retired by AEC Integrations", with no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
 
-On an integration a Sync Service delivers, the vendor of either product can also remove it from its product. That is not a retire, and **Restore** does not undo it. **Messages** says who removed it and why. It returns if that vendor withdraws the removal. AEC Integrations can also end a removal in a few cases the [Listing Accuracy Policy](/legal/listing-accuracy) sets out. See [For connector vendors](/docs/vendors/connector-vendors).
+On an integration a Sync Service delivers, the vendor of either product can also remove it from its product, even when the listing is accurate. That is not a retire, and **Restore** does not undo it. **Messages** says who removed it, its reason from a fixed list, and when. It returns if that vendor withdraws the removal. You can object to AEC Integrations from **Messages** on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face. AEC Integrations can also end a removal where the vendor's claim ends or is suspended, or where the law requires it, as the [Listing Accuracy Policy](/legal/listing-accuracy) sets out. See [For connector vendors](/docs/vendors/connector-vendors).
 
 ## If AEC Integrations changes something you hold
 

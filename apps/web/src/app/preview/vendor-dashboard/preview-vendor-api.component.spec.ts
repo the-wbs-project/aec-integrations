@@ -120,7 +120,7 @@ describe('PreviewVendorApi', () => {
     expect(
       before.connectors.some((g) => g.delivered.some((d) => d.id === PREVIEW_ENDPOINT_PAIR_ID)),
     ).toBe(true);
-    const { veto } = await api.fileVeto(PREVIEW_ENDPOINT_PAIR_ID, 'Not authorised');
+    const { veto } = await api.fileVeto(PREVIEW_ENDPOINT_PAIR_ID, 'not_authorised');
     expect((await api.listVetoes()).filed[0]).toMatchObject({ id: veto.id, in_force: true });
     const during = await api.listProductConnectors(PRIMARY);
     expect(

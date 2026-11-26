@@ -1078,6 +1078,41 @@ create table sync_service_pair_contests (
 - **Cascade.** `sync_service_pair_contests` is a cascade child of both edge tables and of `claims`; `sync_service_pair_vetoes` is a SET NULL child of both edge tables. `d1.spec.ts` pins both lists. Nothing references either table.
 - **Writers.** `routes/vendor-sync-service-vetoes.ts`, `routes/admin-sync-service-vetoes.ts` (through `lib/sync-service-veto-write.ts`), `routes/vendor-pair-contests.ts`, `routes/admin-pair-contests.ts`, and the `DELETE /api/account` erasure (the profile columns). Promote never writes them, nor `vetoed_at`. Nothing public reads them.
 
+### 5a.2c The removal's fixed reason and `sync_service_veto_objections` (AECI-2192, migration 0134)
+
+Ruling 66 on AECI-2035, after counsel's Q73 and Q74 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2a, §11e.2b). Migration `0134_shocking_xorn.sql`: one plain `CREATE TABLE` and two plain `ADD COLUMN`s on `sync_service_pair_vetoes`. No CHECK on an existing table changes, so nothing is recreated.
+
+```sql
+alter table sync_service_pair_vetoes add reason_code text;  -- REMOVAL_REASON_CODES; NULL on a row before 0134
+alter table sync_service_pair_vetoes add end_reason text;   -- REMOVAL_END_REASONS; set by an AECi lift or an accepted objection
+
+create table sync_service_veto_objections (
+  id text primary key,
+  veto_id text not null references sync_service_pair_vetoes(id) on delete cascade,
+  vendor_id text references vendors(id) on delete set null,   -- the objecting vendor
+  vendor_name text,
+  ground text not null,          -- 'unauthorised_account' | 'wrong_product' | 'reason_plainly_false'
+  explanation text not null,
+  source_url text,               -- required when ground = 'reason_plainly_false'
+  filed_by text references profiles(id) on delete set null,
+  status text not null default 'open',  -- 'open' | 'accepted' | 'declined' | 'closed'
+  decision_note text,
+  decided_by text references profiles(id) on delete set null,
+  decided_at text,
+  created_at text not null, updated_at text not null
+  -- CHECKs: ground; status; source_url present on reason_plainly_false.
+);
+create unique index sync_service_veto_objections_open_key
+  on sync_service_veto_objections(veto_id) where status = 'open';
+```
+
+- **No CHECK on the two new veto columns.** Drizzle's `enum` option on `text()` types them and emits no CHECK. `FileVetoSchema` and `AdminLiftVetoSchema` are the only validation they get.
+- **`reason` stays NOT NULL.** A new row stores the code's English label there. An older row keeps the vendor's own words and a NULL `reason_code`. Neither is read by a public reader.
+- **The time is `filed_at`**, which 0132 already stored.
+- **`closed`** marks an open objection whose removal ended another way (a withdraw, or a lift that was not its accept), in the same batch.
+- **Cascade and erasure.** A cascade child of its veto, which is deleted only when one of its three products is. `vendor_id` is SET NULL (`lib/retract-vendor.ts`). `filed_by` and `decided_by` are SET NULL and nulled explicitly by the `DELETE /api/account` batch (`AUTH_AND_RLS.md` §8).
+- **Writers.** `routes/vendor-sync-service-vetoes.ts` (file) and `routes/admin-sync-service-vetoes.ts` (decide, and the close on a lift). The withdraw closes one too.
+
 ### 5a.3 `product_versions`
 
 A release of one product, as its vendor names it (Stage 2 migration 2, AECI-607; `STAGE_2_ATTESTATIONS_SPEC.md` §8). AECI-303's "source-version × target-version" diff selects on these rows; the dormant ISO date stamps could not stand in, because dates cannot answer *"what flowed between Procore 2026.1 and BIM 360 v5"*.

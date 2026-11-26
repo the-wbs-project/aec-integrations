@@ -1,8 +1,15 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
-import { REMOVAL_ELECTION_FIELDS } from '@aeci/shared';
+import {
+  FileVetoObjectionSchema,
+  REMOVAL_ELECTION_FIELDS,
+  REMOVAL_REASON_LABELS,
+} from '@aeci/shared';
 import type {
+  FileVetoObjectionInput,
+  RemovalReasonCode,
+  VetoObjectionResponse,
   AcceptLegalVersionRequest,
   AcceptLegalVersionResponse,
   VendorLegalAcceptanceResponse,
@@ -203,6 +210,8 @@ import {
   PREVIEW_HYBRID_ENDPOINT_INTEGRATION,
   PREVIEW_RECEIVED_FLOW_REPORT,
   PREVIEW_RECEIVED_VETO,
+  PREVIEW_RECEIVED_VETO_DECIDED,
+  PREVIEW_RECEIVED_VETO_OBJECTED,
   PREVIEW_SYNC_EXTRA_OWNED,
   previewSyncConnectors,
 } from './preview-sync-fixtures';
@@ -671,7 +680,16 @@ function previewSyncRights(sync: boolean): {
 } {
   return sync
     ? {
-        vetoes: { filed: [], received: [clone(PREVIEW_RECEIVED_VETO)] },
+        // AECI-2192: a removal with no objection, one with an open objection, and an
+        // older one with free text and a declined objection, so every state renders.
+        vetoes: {
+          filed: [],
+          received: [
+            clone(PREVIEW_RECEIVED_VETO),
+            clone(PREVIEW_RECEIVED_VETO_OBJECTED),
+            clone(PREVIEW_RECEIVED_VETO_DECIDED),
+          ],
+        },
         reports: { submitted: [], received: [clone(PREVIEW_RECEIVED_FLOW_REPORT)] },
       }
     : { vetoes: { filed: [], received: [] }, reports: { submitted: [], received: [] } };
@@ -3224,7 +3242,10 @@ export class PreviewVendorApi extends VendorApi {
     }
   >();
 
-  override async fileVeto(integrationId: string, reason: string): Promise<VetoWriteResponse> {
+  override async fileVeto(
+    integrationId: string,
+    reasonCode: RemovalReasonCode,
+  ): Promise<VetoWriteResponse> {
     const { productId, group, target } = this.rightsTarget(integrationId);
     if (target.sync_service_rights!.veto_id) {
       throw apiError(409, 'VETO_DUPLICATE', 'Your company already removed this integration');
@@ -3251,12 +3272,15 @@ export class PreviewVendorApi extends VendorApi {
       },
       vendor_id: this.me!.vendor.id,
       vendor_name: this.me!.vendor.company_name,
-      reason,
+      reason_code: reasonCode,
+      reason: REMOVAL_REASON_LABELS[reasonCode],
       filed_at: now,
       in_force: true,
       ended_at: null,
       ended_how: null,
+      end_reason: null,
       end_note: null,
+      objection: null,
       other_vetoes_in_force: 0,
       updated_at: now,
     };
@@ -3302,6 +3326,36 @@ export class PreviewVendorApi extends VendorApi {
 
   override async listVetoes(): Promise<VendorVetoesResponse> {
     return clone(this.vetoes);
+  }
+
+  /** AECI-2192: the owner objects. The rules the API holds: in force, one open, the
+   *  three grounds, a link on "plainly false". Filing changes nothing else. */
+  override async fileVetoObjection(
+    vetoId: string,
+    body: FileVetoObjectionInput,
+  ): Promise<VetoObjectionResponse> {
+    const veto = this.vetoes.received.find((v) => v.id === vetoId);
+    if (!veto) throw apiError(404, 'NOT_FOUND', 'Removal not found');
+    if (!veto.in_force) throw apiError(409, 'VETO_NOT_IN_FORCE', 'This removal has ended');
+    if (veto.objection?.status === 'open') {
+      throw apiError(409, 'VETO_OBJECTION_DUPLICATE', 'An objection is already open');
+    }
+    const parsed = FileVetoObjectionSchema.safeParse(body);
+    if (!parsed.success) throw apiError(400, 'VALIDATION_FAILED', 'Invalid objection');
+    const now = new Date().toISOString();
+    veto.objection = {
+      id: this.syncId(),
+      ground: parsed.data.ground,
+      explanation: parsed.data.explanation,
+      source_url: parsed.data.source_url ?? null,
+      vendor_name: this.me!.vendor.company_name,
+      status: 'open',
+      decision_note: null,
+      decided_at: null,
+      created_at: now,
+    };
+    veto.updated_at = now;
+    return { objection: clone(veto.objection) };
   }
 
   override async submitPairContest(

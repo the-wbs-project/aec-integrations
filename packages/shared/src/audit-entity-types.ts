@@ -46,6 +46,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'retention',
   'sync_service_pair_contest',
   'sync_service_pair_veto',
+  'sync_service_veto_objection',
   'review',
   'review_response',
   'review_update',

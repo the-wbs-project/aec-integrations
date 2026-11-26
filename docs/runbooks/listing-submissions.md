@@ -282,6 +282,21 @@ A logo that is the vendor's own upload goes without an objection once its claim 
 
 An admin retire is not a veto. The Sync Service's restore refuses it, and its re-add is refused because the retired pair is still on record. If the vendor later gets a seat and files a veto in the portal, restore the admin retire only after the veto is in force.
 
+*(Amended 2026-11-26, AECI-2192, ruling 66.)* Since ruling 66 a removal names one reason from a fixed list. Ask an emailing vendor which one applies: "We do not support this integration", "It is not offered for our product", "We have not authorised it for our product" or "We ended our relationship with this company". Put it in the retire's internal note with the email's date and time. Still do not judge it.
+
+### 6c. An objection to a removal that arrives by email
+
+*(Added 2026-11-26, AECI-2192, ruling 66.)* A Sync Service with a seat objects in the portal, and the objection lands on `/admin/contests` with the alert email. A Sync Service with no seat cannot read the portal notice, so it usually learns of a removal from a customer. It writes to support@aecintegrations.com.
+
+1. Check the sender speaks for the Sync Service's company, as for a claim (§4 above).
+2. Find the removal on `/admin/contests`, Sync Service integrations, Removals in force. If it has ended, reply that the integration is back.
+3. Ask which of the three grounds the sender claims, if the email does not say. Any other complaint, such as "the listing is useful" or "the vendor should support us", is not a ground. Reply that we look only at the three, and stop.
+4. Test the ground as `ADMIN_PANEL_SPEC.md` §5.12 "Who owns the objection queue" says. For "plainly false", the sender gives a link to the removing vendor's own public page.
+5. **The ground holds:** use **End this removal** on the removal, with that ground as the end reason and a note saying what showed it. Both vendors with a seat are told in the portal. Email the sender the same note.
+6. **It does not hold:** leave the removal. Email the sender why, in one or two sentences.
+7. Point the sender at claiming its listing, so the next notice reaches it at once.
+8. Record the email, the ground and the outcome on the submission.
+
 ## 7. History
 
 The first inbound submission was NestFiles, on 2026-08-12. It was handled ad hoc, with no written

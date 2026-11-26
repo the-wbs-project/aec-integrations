@@ -1208,7 +1208,14 @@ export const syncServicePairVetoes = sqliteTable(
     vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
     /** The vendor's name at filing, so the owner's notice survives a vendor delete. */
     vendorName: text('vendor_name'),
+    /** The text on record. Since AECI-2192 (0134) it is the English label of
+     *  `reason_code`; on an older row it is the vendor's own words. */
     reason: text('reason').notNull(),
+    /** AECI-2192 (ruling 66): the fixed reason, one of `REMOVAL_REASON_CODES`. NULL on a
+     *  row filed before the fixed list. A plain ADD COLUMN with no CHECK: Zod validates. */
+    reasonCode: text('reason_code', {
+      enum: ['not_supported', 'not_offered_for_product', 'not_authorised', 'ended'],
+    }),
     filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
     filedAt: text('filed_at').notNull(),
     /** NULL while in force. */
@@ -1218,6 +1225,17 @@ export const syncServicePairVetoes = sqliteTable(
     endedBy: text('ended_by').references(() => profiles.id, { onDelete: 'set null' }),
     /** The admin's required note on a lift. */
     endNote: text('end_note'),
+    /** AECI-2192: why AECi ended it, one of `REMOVAL_END_REASONS`. NULL on a withdraw and
+     *  on a lift before 0134. A plain ADD COLUMN with no CHECK. */
+    endReason: text('end_reason', {
+      enum: [
+        'unauthorised_account',
+        'wrong_product',
+        'reason_plainly_false',
+        'claim_ended_or_suspended',
+        'law_requires',
+      ],
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1238,6 +1256,61 @@ export const syncServicePairVetoes = sqliteTable(
     index('sync_service_pair_vetoes_integration_idx').on(t.integrationId),
     index('sync_service_pair_vetoes_pair_idx').on(t.evidencedPairId),
     index('sync_service_pair_vetoes_vendor_idx').on(t.vendorId, t.updatedAt),
+  ],
+);
+
+// AECI-2192 (ruling 66 on AECI-2035, after counsel's Q73 and Q74): the Sync Service's
+// objection to a removal. One ground of three, an explanation, and for
+// `reason_plainly_false` a link to the removing vendor's own public material. AECi
+// decides it: an accept ends the removal (the veto's `end_reason` is the ground), a
+// decline leaves it standing. A removal that ends another way closes an open objection
+// in the same batch (`closed`). One open objection per removal, by the partial unique
+// index. A new table, so its CHECKs are safe (`docs/migrations.md` §0). Nothing public
+// reads it.
+export const syncServiceVetoObjections = sqliteTable(
+  'sync_service_veto_objections',
+  {
+    id: uuidPk(),
+    vetoId: text('veto_id')
+      .notNull()
+      .references(() => syncServicePairVetoes.id, { onDelete: 'cascade' }),
+    /** The objecting vendor (an owner of a row on the key, or the Sync Service's vendor).
+     *  SET NULL keeps the record when the vendor is deleted. */
+    vendorId: text('vendor_id').references(() => vendors.id, { onDelete: 'set null' }),
+    vendorName: text('vendor_name'),
+    ground: text('ground', {
+      enum: ['unauthorised_account', 'wrong_product', 'reason_plainly_false'],
+    }).notNull(),
+    explanation: text('explanation').notNull(),
+    sourceUrl: text('source_url'),
+    filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
+    status: text('status', { enum: ['open', 'accepted', 'declined', 'closed'] })
+      .notNull()
+      .default('open'),
+    decisionNote: text('decision_note'),
+    decidedBy: text('decided_by').references(() => profiles.id, { onDelete: 'set null' }),
+    decidedAt: text('decided_at'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      'sync_service_veto_objections_ground_check',
+      sql`"ground" IN ('unauthorised_account', 'wrong_product', 'reason_plainly_false')`,
+    ),
+    check(
+      'sync_service_veto_objections_status_check',
+      sql`"status" IN ('open', 'accepted', 'declined', 'closed')`,
+    ),
+    check(
+      'sync_service_veto_objections_source_check',
+      sql`"ground" <> 'reason_plainly_false' OR "source_url" IS NOT NULL`,
+    ),
+    uniqueIndex('sync_service_veto_objections_open_key')
+      .on(t.vetoId)
+      .where(sql`"status" = 'open'`),
+    index('sync_service_veto_objections_veto_idx').on(t.vetoId, t.createdAt),
+    index('sync_service_veto_objections_status_idx').on(t.status, t.createdAt),
   ],
 );
 
@@ -6630,6 +6703,8 @@ export const schema = {
   // AECI-2042. No relations entries: every read joins explicitly.
   syncServicePairVetoes,
   syncServicePairContests,
+  // AECI-2192.
+  syncServiceVetoObjections,
   vendorSuspensions,
   vendorAbuseCostEntries,
   vendorTerminationRefunds,

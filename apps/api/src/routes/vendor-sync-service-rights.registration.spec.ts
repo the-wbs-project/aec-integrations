@@ -58,6 +58,9 @@ const WRITES = [
   { method: 'POST', path: `/api/vendor/pair-contests/${ID}/protest` },
   { method: 'POST', path: `/api/vendor/pair-contests/${ID}/protest/withdraw` },
   { method: 'POST', path: `/api/admin/vetoes/${ID}/lift` },
+  // AECI-2192 (ruling 66): the objection and AECi's decision on it.
+  { method: 'POST', path: `/api/vendor/vetoes/${ID}/objections` },
+  { method: 'PATCH', path: `/api/admin/veto-objections/${ID}` },
   { method: 'PATCH', path: `/api/admin/pair-contests/${ID}` },
   { method: 'PATCH', path: `/api/admin/pair-contests/${ID}/protest` },
 ] as const;

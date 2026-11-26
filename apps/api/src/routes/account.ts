@@ -93,6 +93,7 @@ import {
   integrationFieldChallenges,
   syncServicePairContests,
   syncServicePairVetoes,
+  syncServiceVetoObjections,
   licenseReleaseRequests,
   licenses,
   listingRequests,
@@ -757,6 +758,16 @@ export function createDeleteAccountHandler(
         .update(syncServicePairVetoes)
         .set({ endedBy: null })
         .where(eq(syncServicePairVetoes.endedBy, userId)),
+      // AECI-2192: an objection to a removal, under the same rule. The objection
+      // survives as the Sync Service's record.
+      db
+        .update(syncServiceVetoObjections)
+        .set({ filedBy: null })
+        .where(eq(syncServiceVetoObjections.filedBy, userId)),
+      db
+        .update(syncServiceVetoObjections)
+        .set({ decidedBy: null })
+        .where(eq(syncServiceVetoObjections.decidedBy, userId)),
       // AECI-1175: two more, `ON DELETE SET NULL` and nulled explicitly under the
       // same rule. The REPLY survives: it is the vendor's record, not the person's
       // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). `updated_at` is pinned to itself

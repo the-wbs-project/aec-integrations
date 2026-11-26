@@ -190,14 +190,74 @@ export const PREVIEW_RECEIVED_VETO: SyncServicePairVeto = {
   },
   vendor_id: '00000000-0000-4000-8000-0000000052f3',
   vendor_name: 'Trimble',
-  reason: 'We have not certified this sync with Trimble Connect and do not support it.',
+  // AECI-2192 (ruling 66): a fixed reason, recorded with the time. No objection yet,
+  // so the owner sees "Object to this removal".
+  reason_code: 'not_authorised',
+  reason: 'We have not authorised it for our product',
   filed_at: '2026-11-21T09:30:00.000Z',
   in_force: true,
   ended_at: null,
   ended_how: null,
+  end_reason: null,
   end_note: null,
+  objection: null,
   other_vetoes_in_force: 0,
   updated_at: '2026-11-21T09:30:00.000Z',
+};
+
+/** AECI-2192: a removal the owner has objected to, with the objection open. */
+export const PREVIEW_RECEIVED_VETO_OBJECTED: SyncServicePairVeto = {
+  ...PREVIEW_RECEIVED_VETO,
+  id: '00000000-0000-4000-8000-0000000052a1',
+  pair: {
+    ...PREVIEW_RECEIVED_VETO.pair,
+    integration_id: '00000000-0000-4000-8000-0000000052a2',
+    name: 'Procore and Trimble Connect',
+    product_a: { id: PROCORE.id, slug: PROCORE.slug, name: PROCORE.name },
+  },
+  reason_code: 'not_supported',
+  reason: 'We do not support this integration',
+  filed_at: '2026-11-22T14:05:00.000Z',
+  objection: {
+    id: '00000000-0000-4000-8000-0000000052a3',
+    ground: 'reason_plainly_false',
+    explanation:
+      'Trimble lists this sync on its own App Xchange page as a supported Trimble Connect integration.',
+    source_url: 'https://apps.example.com/trimble-connect/summit-sync',
+    vendor_name: VENDOR_ME_FIXTURE.vendor.company_name,
+    status: 'open',
+    decision_note: null,
+    decided_at: null,
+    created_at: '2026-11-22T16:40:00.000Z',
+  },
+  updated_at: '2026-11-22T16:40:00.000Z',
+};
+
+/** AECI-2192: an older removal with the vendor's own words, and a declined objection. */
+export const PREVIEW_RECEIVED_VETO_DECIDED: SyncServicePairVeto = {
+  ...PREVIEW_RECEIVED_VETO,
+  id: '00000000-0000-4000-8000-0000000052a4',
+  pair: {
+    ...PREVIEW_RECEIVED_VETO.pair,
+    integration_id: '00000000-0000-4000-8000-0000000052a5',
+    name: 'Sage Intacct and Trimble Connect',
+    product_a: { id: SAGE.id, slug: SAGE.slug, name: SAGE.name },
+  },
+  reason_code: null,
+  reason: 'We have not certified this sync with Trimble Connect and do not support it.',
+  filed_at: '2026-11-18T11:00:00.000Z',
+  objection: {
+    id: '00000000-0000-4000-8000-0000000052a7',
+    ground: 'unauthorised_account',
+    explanation: 'The person who sent it no longer works at Trimble.',
+    source_url: null,
+    vendor_name: VENDOR_ME_FIXTURE.vendor.company_name,
+    status: 'declined',
+    decision_note: 'The seat that sent the removal was active and held by Trimble that day.',
+    decided_at: '2026-11-20T10:15:00.000Z',
+    created_at: '2026-11-19T08:30:00.000Z',
+  },
+  updated_at: '2026-11-20T10:15:00.000Z',
 };
 
 /** Acumatica's report on the Invoices flow of Procore and Acumatica (§11e.4). */

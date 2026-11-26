@@ -219,6 +219,12 @@ export const ApiErrorCode = {
   PAIR_CONTEST_CHANGED: 'PAIR_CONTEST_CHANGED',
   PAIR_PROTEST_NOT_ALLOWED: 'PAIR_PROTEST_NOT_ALLOWED',
   PAIR_PROTEST_NOT_OPEN: 'PAIR_PROTEST_NOT_OPEN',
+  // AECI-2192 (ruling 66): the Sync Service's objection to a removal.
+  // `VETO_OBJECTION_DUPLICATE` (409): an objection to this removal is already open.
+  // `VETO_OBJECTION_NOT_OPEN` (409): a decision on an objection already decided or
+  // closed, or one the removal's end closed meanwhile.
+  VETO_OBJECTION_DUPLICATE: 'VETO_OBJECTION_DUPLICATE',
+  VETO_OBJECTION_NOT_OPEN: 'VETO_OBJECTION_NOT_OPEN',
   // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
   // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
   // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)

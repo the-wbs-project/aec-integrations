@@ -918,6 +918,9 @@ export const integrationDetailConfig = {
     ...integrationListConfig.columns,
     // AECI-1010: a retired row answers only its two slugs (the legacy 301's needs).
     retiredAt: true,
+    // AECI-2192: a row a vendor's removal took off the site answers like a retired one.
+    // Read here only to decide that. `toIntegrationDetail` never serialises it.
+    vetoedAt: true,
     description: true,
     listingUrl: true,
     docsUrl: true,

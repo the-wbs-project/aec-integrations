@@ -5,7 +5,8 @@
  * What these pin:
  *   1. Nothing renders for a pair without `sync_service_rights` (another connector, or
  *      the owner).
- *   2. The removal needs a second step that says what happens, and a reason.
+ *   2. The removal needs a second step that says what happens, and a reason from the
+ *      fixed list (AECI-2192, ruling 66), never free text.
  *   3. Submit sends the veto, announces it, and asks the section to reload.
  *   4. The existence report says the pair stays listed, and sends `kind: existence`.
  *   5. A data flow report sends the claim and the proposed direction.
@@ -101,26 +102,39 @@ describe('VendorSyncServiceRights', () => {
     expect(el(fixture).querySelector('[data-sync-service-rights]')).toBeNull();
   });
 
-  it('the removal says what happens and needs a reason before it is sent', async () => {
+  it('the removal says what happens and needs a reason from the fixed list (ruling 66)', async () => {
     const { fixture, changed } = await mount();
     buttonByText(fixture, 'Remove this integration from our product').click();
     await settle(fixture);
-    const text = el(fixture).textContent ?? '';
+    const text = el(fixture).textContent?.replace(/\s+/g, ' ') ?? '';
     expect(text).toContain('off the public site at once');
-    expect(text).toContain('Rivets is told, with your reason');
+    expect(text).toContain('The public page shows nothing about the removal');
+    expect(text).toContain('Rivets is told at once, with the reason you pick and the time');
     expect(text).toContain('Rivets cannot bring it back or add it again');
+    expect(text).toContain('can object to AEC Integrations on three grounds only');
     expect(text).toContain('You can withdraw the removal later');
-    expect(text).not.toContain('Nobody else');
+    // No free text: the reason is a radio group of the four fixed reasons.
+    expect(el(fixture).querySelector('form textarea')).toBeNull();
+    const radios = [...el(fixture).querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((r) => r.value)).toEqual([
+      'not_supported',
+      'not_offered_for_product',
+      'not_authorised',
+      'ended',
+    ]);
+    expect(el(fixture).querySelector('fieldset legend')?.textContent).toContain('Your reason');
     expect(api['fileVeto']).not.toHaveBeenCalled();
 
     buttonByText(fixture, 'Remove it from our product').click();
     await settle(fixture);
     expect(api['fileVeto']).not.toHaveBeenCalled();
+    expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain('Choose a reason');
 
-    typeInto(el(fixture).querySelector('textarea')!, 'We never authorised it.', 'input');
+    radios[2]!.click();
+    await settle(fixture);
     buttonByText(fixture, 'Remove it from our product').click();
     await settle(fixture);
-    expect(api['fileVeto']).toHaveBeenCalledWith(TARGET.id, 'We never authorised it.');
+    expect(api['fileVeto']).toHaveBeenCalledWith(TARGET.id, 'not_authorised');
     expect(announced[0]).toContain('off the public site');
     expect(changed).toHaveBeenCalled();
   });
@@ -135,7 +149,7 @@ describe('VendorSyncServiceRights', () => {
       buttonByText(fixture, opener).click();
       await settle(fixture);
       el(fixture)
-        .querySelector('textarea')!
+        .querySelector('form textarea, form input')!
         .dispatchEvent(
           new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
         );
@@ -151,12 +165,13 @@ describe('VendorSyncServiceRights', () => {
     const { fixture } = await mount();
     buttonByText(fixture, 'Remove this integration from our product').click();
     await settle(fixture);
-    typeInto(el(fixture).querySelector('textarea')!, 'We never authorised it.', 'input');
+    el(fixture).querySelector<HTMLInputElement>('input[type="radio"]')!.click();
+    await settle(fixture);
     buttonByText(fixture, 'Remove it from our product').click();
     await settle(fixture);
     expect(api['fileVeto']).toHaveBeenCalled();
     el(fixture)
-      .querySelector('textarea')!
+      .querySelector('form input')!
       .dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
       );

@@ -181,6 +181,7 @@ import { createCreateVendorIntegrationHandler } from './vendor-integration-creat
 import { createCreateSyncServicePairHandler } from './vendor-sync-service-pair-create';
 import {
   createFileVetoHandler,
+  createFileVetoObjectionHandler,
   createListVendorVetoesHandler,
   createWithdrawVetoHandler,
 } from './vendor-sync-service-vetoes';
@@ -570,6 +571,12 @@ function makeApp() {
     createWithdrawVetoHandler(t.factory),
   );
   app.get('/api/vendor/vetoes', requireVendor(guard), createListVendorVetoesHandler(t.factory));
+  // AECI-2192 — seat only; the owner-or-Sync-Service check is inside.
+  app.post(
+    '/api/vendor/vetoes/:id/objections',
+    requireVendor(guard),
+    createFileVetoObjectionHandler(t.factory),
+  );
   app.post(
     '/api/vendor/integrations/:id/pair-contests',
     requireVendor(guard),
@@ -858,11 +865,18 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   {
     path: `/api/vendor/integrations/${uuid(994)}/veto`,
     method: 'POST',
-    body: { reason: 'No.' },
+    body: { reason_code: 'not_supported' },
     ok: 404,
   },
   { path: `/api/vendor/vetoes/${uuid(995)}/withdraw`, method: 'POST', ok: 404 },
   { path: '/api/vendor/vetoes', method: 'GET', ok: 200 },
+  // AECI-2192 — an unknown removal is its 404, which proves the guard passed.
+  {
+    path: `/api/vendor/vetoes/${uuid(995)}/objections`,
+    method: 'POST',
+    body: { ground: 'wrong_product', explanation: 'Wrong product.' },
+    ok: 404,
+  },
   {
     path: `/api/vendor/integrations/${uuid(994)}/pair-contests`,
     method: 'POST',
