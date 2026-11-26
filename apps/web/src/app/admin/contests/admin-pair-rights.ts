@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, inject, signal } from '@angular/core';
+import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
 
 import {
   REMOVAL_END_REASONS,
@@ -11,6 +11,7 @@ import {
 } from '@aeci/shared';
 
 import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import {
   objectionGroundLabel,
   removalEndReasonLabel,
@@ -25,6 +26,7 @@ import {
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
 import { AdminDangerAction } from '../console/danger-action';
+import { adminStatusTone } from '../console/status-tones';
 import { QUEUE_FORM_CLASS } from '../reviews/queue-classes';
 
 import { AdminContestsApi } from './admin-contests-api';
@@ -49,9 +51,10 @@ type Form = {
  *   contests' Decline above.
  * - **Reviews of an owner's answer**: protests. Upheld or rejected, with a note. Advice
  *   only: nothing on the listing changes.
- * - **Removals in force**: endpoint vetoes, with the fixed reason and the filed time.
- *   Not checked when sent (ruling 66). An open objection from the Sync Service shows its
- *   ground, explanation and link, with Accept (ends the removal, required note) and
+ * - **Removals in force**: endpoint vetoes, with "Reason the vendor gave" and the filed
+ *   time. Not checked when sent (ruling 66). An open objection from the Sync Service shows
+ *   its received date, its answer-by date (five business days, `objection_answer_due`), an
+ *   "Answer overdue" chip once that has passed, its ground, explanation and link, with Accept (ends the removal, required note) and
  *   Decline (the removal stands, required note), both the shared danger form.
  *   "End this removal" is a hand-built queue form because it carries a radio group: a
  *   required end reason from the five of ruling 66 and a required note. A radio inside
@@ -62,7 +65,7 @@ type Form = {
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [AdminDangerAction, AecButton, DatePipe],
+  imports: [AdminDangerAction, AecButton, Chip, DatePipe],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -321,10 +324,12 @@ type Form = {
           @for (v of vetoes(); track v.id) {
             <li class="rounded-panel border border-(--border-default) p-4 text-sm" data-admin-veto>
               <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by.v2">
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by.v3">
                 Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }} at
-                {{ v.filed_at | date: 'shortTime' }}. Reason:
-                {{ reasonText(v) }}
+                {{ v.filed_at | date: 'shortTime' }}.
+              </p>
+              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.reasonGiven">
+                Reason the vendor gave: {{ reasonText(v) }}
               </p>
               @if (v.owner_name) {
                 <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.owner">
@@ -342,6 +347,23 @@ type Form = {
                   >
                     Objection from {{ o.vendor_name }} on {{ o.created_at | date: 'mediumDate' }}
                   </p>
+                  <p class="text-t-13 text-(--text-secondary)">
+                    <span class="block" i18n="@@admin.pairRights.objection.received"
+                      >Received {{ o.created_at | date: 'mediumDate' }}</span
+                    >
+                    @if (v.objection_answer_due; as due) {
+                      <span class="block" i18n="@@admin.pairRights.objection.answerDue"
+                        >Answer by {{ dueDay(due) }}</span
+                      >
+                    }
+                  </p>
+                  @if (answerOverdue(v)) {
+                    <aec-chip density="dense" [tone]="overdueTone" data-testid="objection-overdue"
+                      ><span i18n="@@admin.pairRights.objection.overdue"
+                        >Answer overdue</span
+                      ></aec-chip
+                    >
+                  }
                   <p class="text-(--text-primary)" i18n="@@admin.pairRights.objection.ground">
                     Ground: {{ groundLabel(o.ground) }}
                   </p>
@@ -500,6 +522,12 @@ type Form = {
 })
 export class AdminPairRights {
   private readonly api = inject(AdminContestsApi);
+  private readonly locale = inject(LOCALE_ID);
+
+  /** An objection past its five business days is a missed policy clock: critical. */
+  protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
+  /** The instant the lists were read, for the overdue marker. Set on each load. */
+  protected readonly readAt = signal(0);
 
   protected readonly reports = signal<readonly PairContest[]>([]);
   protected readonly protests = signal<readonly PairContest[]>([]);
@@ -710,6 +738,27 @@ export class AdminPairRights {
     }
   }
 
+  /** An open objection whose answer window has fully passed. */
+  protected answerOverdue(v: AdminVeto): boolean {
+    if (v.objection?.status !== 'open' || !v.objection_answer_due) return false;
+    const due = Date.parse(v.objection_answer_due);
+    return !Number.isNaN(due) && due < this.readAt();
+  }
+
+  /**
+   * The last business day of the answer window, as a date. The server's due instant is
+   * the moment the window has fully passed (`businessWindowEnd`), so the day shown is the
+   * New York date just before it, as on the value hides.
+   */
+  protected dueDay(iso: string): string {
+    const at = Date.parse(iso);
+    if (Number.isNaN(at)) return iso;
+    return new Intl.DateTimeFormat(this.locale, {
+      dateStyle: 'medium',
+      timeZone: 'America/New_York',
+    }).format(new Date(at - 1));
+  }
+
   private async load(): Promise<void> {
     try {
       const [reports, protests, vetoes] = await Promise.all([
@@ -720,6 +769,7 @@ export class AdminPairRights {
       this.reports.set(reports.data);
       this.protests.set(protests.data);
       this.vetoes.set(vetoes.data);
+      this.readAt.set(Date.now());
     } catch {
       this.error.set(
         $localize`:@@admin.pairRights.err.load:Could not load the Sync Service lists.`,

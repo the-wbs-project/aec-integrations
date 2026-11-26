@@ -1214,7 +1214,7 @@ export const syncServicePairVetoes = sqliteTable(
     /** AECI-2192 (ruling 66): the fixed reason, one of `REMOVAL_REASON_CODES`. NULL on a
      *  row filed before the fixed list. A plain ADD COLUMN with no CHECK: Zod validates. */
     reasonCode: text('reason_code', {
-      enum: ['not_supported', 'not_offered_for_product', 'not_authorised', 'ended'],
+      enum: ['not_supported', 'not_authorised', 'no_longer_work_with'],
     }),
     filedBy: text('filed_by').references(() => profiles.id, { onDelete: 'set null' }),
     filedAt: text('filed_at').notNull(),

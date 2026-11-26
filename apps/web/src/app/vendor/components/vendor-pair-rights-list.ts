@@ -32,8 +32,9 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
  *
  * - **Your removals**: the vetoes this company filed, each with Withdraw while in force.
  * - **Removed from your integrations**: the owner's view. A pair a vendor removed is
- *   marked "Removed by {vendor}" with the date and time and its reason (since AECI-2192
- *   the fixed reason's label; an older removal's own words "as they wrote it"). There
+ *   marked "Removed by {vendor}" with the date and time and its reason, phrased as the
+ *   vendor's statement, "{vendor} gave this reason" (since AECI-2192 the fixed reason's
+ *   label; an older removal's own words "in its own words"). There
  *   is no Restore: only that vendor's withdraw, or AEC Integrations, ends it. "Object to
  *   this removal" opens an inline form with the three grounds of ruling 66, a required
  *   explanation and, for "plainly false", a required https link. An open or decided
@@ -123,12 +124,14 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                     </p>
                     <p class="text-(--text-secondary)">
                       @if (v.reason_code) {
-                        <span i18n="@@vendor.pairRights.received.reason"
-                          >Their reason: {{ reasonText(v) }}</span
+                        <span i18n="@@vendor.pairRights.received.reason.v2"
+                          >{{ v.vendor_name ?? unknownVendorStart }} gave this reason:
+                          {{ reasonText(v) }}</span
                         >
                       } @else {
-                        <span i18n="@@vendor.pairRights.received.reasonRecorded"
-                          >Their reason, as they wrote it: {{ v.reason }}</span
+                        <span i18n="@@vendor.pairRights.received.reasonRecorded.v2"
+                          >{{ v.vendor_name ?? unknownVendorStart }} gave this reason, in its own
+                          words: {{ v.reason }}</span
                         >
                       }
                     </p>
@@ -176,12 +179,14 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                       >
                         <p
                           class="max-w-prose text-(--text-primary)"
-                          i18n="@@vendor.pairRights.objection.explain"
+                          i18n="@@vendor.pairRights.objection.explain.v2"
                         >
                           AEC Integrations looks at an objection on three grounds only. We do not
                           decide whether {{ v.vendor_name ?? unknownVendor }} should support the
-                          integration. If we agree, the integration returns on every page, and we
-                          tell both companies why. The integration stays off the site while we look.
+                          integration. We answer within five business days of receiving it. If we
+                          agree, the integration returns on every page, and we tell both companies
+                          why. If we do not agree, we tell you why. The integration stays off the
+                          site while we look.
                         </p>
                         <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
                           <legend [class]="labelClass" i18n="@@vendor.pairRights.objection.ground">
@@ -423,6 +428,8 @@ export class VendorPairRightsList {
   protected readonly error = signal<string | null>(null);
 
   protected readonly unknownVendor = $localize`:@@vendor.pairRights.unknownVendor:a vendor`;
+  /** The same, at the start of a sentence. */
+  protected readonly unknownVendorStart = $localize`:@@vendor.pairRights.unknownVendorStart:A vendor`;
 
   constructor() {
     afterNextRender(() => void this.load());
@@ -537,7 +544,7 @@ export class VendorPairRightsList {
       });
       this.objectingId.set(null);
       this.announcer.announce(
-        $localize`:@@vendor.pairRights.objection.sent:Objection sent to AEC Integrations. The integration stays off the site while we look.`,
+        $localize`:@@vendor.pairRights.objection.sent.v2:Objection sent to AEC Integrations. We answer within five business days. The integration stays off the site while we look.`,
       );
     } catch (e) {
       const code = (e as { error?: { error?: { code?: string } } }).error?.error?.code;
@@ -583,7 +590,7 @@ export class VendorPairRightsList {
       case 'open':
         return $localize`:@@vendor.pairRights.protest.open:With AEC Integrations for review.`;
       case 'upheld':
-        return $localize`:@@vendor.pairRights.protest.upheld:AEC Integrations agrees with the report. This is advice: the Sync Service decides the listing.`;
+        return $localize`:@@vendor.pairRights.protest.upheld.v2:AEC Integrations agrees with the report. This is advice. The Sync Service decides the listing of that data flow.`;
       case 'rejected':
         return $localize`:@@vendor.pairRights.protest.rejected:AEC Integrations agrees with the Sync Service.`;
       default:

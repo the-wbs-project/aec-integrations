@@ -1576,8 +1576,9 @@ pessimistic like the contest queue. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.
   with the owner", with a required note. The screen says the answer is advice and does not
   change the listing.
 - **Removals in force**, over `GET /api/admin/vetoes`: each endpoint veto with the vetoing
-  vendor, the filed date and time, its fixed reason (or an older removal's own words) and the
-  owner. _As built on 2026-11-24 a removal was "not reviewed", and "End this removal" existed
+  vendor, the filed date and time, "Reason the vendor gave" with its fixed reason (or an older
+  removal's own words, or "The vendor gave another reason" for a stored code outside today's
+  list) and the owner. _As built on 2026-11-24 a removal was "not reviewed", and "End this removal" existed
   only for a seat that should not have had it._ Since ruling 66 (AECI-2192, after counsel's
   Q73 and Q74) a removal is still not checked when it is sent, but AECi decides an objection
   and may end a removal on five grounds. "End this removal" is a hand-built queue form with a
@@ -1585,7 +1586,11 @@ pessimistic like the contest queue. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.
   (`POST /api/admin/vetoes/:id/lift`). The admin restore on the vendor's Integrations tab
   refuses a vetoed row until then.
 - **Objections** (AECI-2192), inside the removal they object to: the objecting vendor, the
-  date, the ground, the explanation and the link. "Accept and end the removal" and "Decline"
+  date it was received, its "Answer by" date, the ground, the explanation and the link. The
+  answer-by date is `objection_answer_due` on the list row: `businessWindowEnd(created_at, 5)`,
+  the helper the value-hide clocks use (`apps/api/src/lib/business-days.ts`). The screen shows
+  the New York date before that instant. Once it has passed, an "Answer overdue" chip in the
+  `overdue` tone marks the objection. "Accept and end the removal" and "Decline"
   are the shared danger form, each with a required note
   (`PATCH /api/admin/veto-objections/:id`). An accept ends the removal with the ground as its
   end reason and every row on the pair key returns. A decline leaves it standing. A declined
@@ -1601,7 +1606,8 @@ new report or a new objection reaches the inbox.
   support and claims inbox, with the subject `[AECi] Objection to a removal: <integration>`.
 - **Who sees it.** AECi admins. Nothing about it is public, and the removing vendor is not
   told it exists unless it is accepted.
-- **Who decides.** The AECi operator, today Chris.
+- **Who decides.** The AECi operator, today Chris. The operator owns the queue and its
+  five-business-day deadline.
 - **What each ground needs.** An account that should not have had access: check the seat
   that filed it (`filed_by`) and its grant on `/admin/vendors/:id`, and whether the company
   held the product that day. The wrong product: compare the removal's product with the
@@ -1610,9 +1616,14 @@ new report or a new objection reaches the inbox.
   supports the integration. Quote it in the note.
 - **What we decide nothing else on.** Not whether the vendor should support the integration,
   and not whether the listing is useful. A ground that does not hold is a decline.
-- **Time to answer.** The policy promises none for an objection, as it promises none for a
-  contest, so none is published and none is set here. Whether to set an internal target is
-  open for Chris.
+- **Time to answer.** Within five business days of receipt, accepted or declined. The Listing
+  Accuracy Policy promises it, after the legal agent's read of ruling 66 (2026-11-26). Business
+  days are Monday to Friday, US federal holidays excluded, as the policy defines them. Receipt
+  is the objection's `created_at` for a portal objection, and the day the email arrived for one
+  by email. The alert email on filing is the trigger: the operator opens the queue from it. The
+  queue shows the answer-by date and marks an overdue objection. Nothing escalates on its own.
+  An email objection has no row, so its five days are tracked by hand
+  (`docs/runbooks/listing-submissions.md` §6c).
 - **No seat.** An objection from a Sync Service with no seat arrives by email. Follow
   `docs/runbooks/listing-submissions.md` §6c: check the sender, test the ground the same
   way, and use "End this removal" with that ground as the end reason, or reply with the

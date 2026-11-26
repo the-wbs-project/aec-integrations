@@ -1401,7 +1401,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e',
     summary:
-      'Tells the owner of a Sync Service pair, and the other endpoint vendors, that an endpoint vendor removed it from its product, withdrew a removal, or that AECi ended one (rulings 8 and 66 on AECI-2035). The removal row to the owner names the vendor, its fixed reason and the time, and the portal shows how to object. An AECi end names its ground and note. A declined objection tells the objecting vendor why.',
+      'Tells the owner of a Sync Service pair, and the other endpoint vendors, that an endpoint vendor removed it from its product, withdrew a removal, or that AECi ended one (rulings 8 and 66 on AECI-2035). The removal row to the owner names the vendor and the time, and gives the fixed reason as a statement by that vendor ("{vendor} gave this reason"). The portal shows how to object. An AECi end names its ground and note. A declined objection tells the objecting vendor why.',
     note: 'Not pausable: a portal row, not email. No vendor is emailed: the Sync Service with a seat reads it in its portal at once, and one with no seat has nobody to read it (the operator steps are in docs/runbooks/listing-submissions.md §6c). An end also tells the vendor whose removal ended and, on an accepted objection, the objecting vendor. A removal is keyed to the pair, so the owner of every other row on the same connector and endpoint pair is told as an owner too.',
   },
   'portal-sync-service-pair-report': {

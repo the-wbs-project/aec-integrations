@@ -46,7 +46,7 @@ import {
   VendorVetoesResponseSchema,
   VetoObjectionResponseSchema,
   VetoWriteResponseSchema,
-  isRemovalReasonCode,
+  removalReasonEnglish,
   type VendorVetoesResponse,
   type VetoObjectionResponse,
 } from '@aeci/shared';
@@ -411,9 +411,8 @@ export function createFileVetoObjectionHandler(
         integrationName: target?.name ?? 'this integration',
         objectorVendorName: objectorName ?? 'A vendor',
         removingVendorName: veto.vendorName ?? 'A vendor',
-        removalReason: isRemovalReasonCode(veto.reasonCode)
-          ? REMOVAL_REASON_LABELS[veto.reasonCode]
-          : veto.reason,
+        // A code outside today's list reads as the generic line, never the old text.
+        removalReason: removalReasonEnglish(veto.reasonCode) ?? veto.reason,
         ground: OBJECTION_GROUND_LABELS[payload.ground],
         explanation: payload.explanation,
         sourceUrl,

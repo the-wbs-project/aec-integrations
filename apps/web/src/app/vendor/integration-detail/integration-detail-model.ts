@@ -13,6 +13,7 @@ import type {
 } from '@aeci/shared';
 import { isAwaitingCounterpartAnswer, ownerFlowsAwaitingAnswer } from '@aeci/shared';
 
+import { removalReasonText } from '../components/removal-labels';
 import { noteAudienceHint } from '../components/vendor-attestation-labels';
 
 /**
@@ -1443,10 +1444,11 @@ export function ownedNeedsItems(
   const waiting: NeedItem[] = rights.vetoes.map((veto) => {
     const vendor =
       veto.vendor_name ?? $localize`:@@vendor.im.owned.veto.unknownVendor:Another vendor`;
-    const reason = veto.reason;
+    // The vendor's statement, not our finding (the legal agent's read of ruling 66).
+    const reason = removalReasonText(veto);
     return {
       key: `veto-${veto.id}`,
-      text: $localize`:@@vendor.im.needs.vetoed:${vendor}:vendor: removed this integration from its product: ${reason}:reason:`,
+      text: $localize`:@@vendor.im.needs.vetoed.v2:${vendor}:vendor: removed this integration from its product. ${vendor}:vendor: gave this reason: ${reason}:reason:`,
       target: 'change-requests-heading',
       inRequests: false,
     };

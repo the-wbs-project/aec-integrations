@@ -43,6 +43,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
+import { businessWindowEnd } from '../lib/business-days';
 import { sendVetoObjectionSubmittedNotification } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -50,6 +51,7 @@ import {
   createAdminDecideVetoObjectionHandler,
   createAdminLiftVetoHandler,
   createAdminListVetoesHandler,
+  objectionAnswerDue,
 } from './admin-sync-service-vetoes';
 import { createProductPairHandler } from './integrations';
 import {
@@ -461,6 +463,38 @@ describe('AECi ends a removal on one of five grounds (ruling 66)', () => {
       vendor_name: 'Procore Inc',
       objection: { status: 'open', explanation: FALSE_ON_ITS_FACE.explanation },
     });
+    // Five business days from receipt, on the value-hide clocks' own helper.
+    const created = res.body.data[0].objection.created_at as string;
+    expect(res.body.data[0].objection_answer_due).toBe(businessWindowEnd(created, 5));
+  });
+
+  it('gives no answer due once the objection is decided', () => {
+    const at = '2026-11-23T15:00:00.000Z';
+    expect(objectionAnswerDue(null)).toBeNull();
+    expect(objectionAnswerDue({ status: 'declined', created_at: at })).toBeNull();
+    // Filed Monday 23 November 2026. The filing day does not count and Thanksgiving
+    // (26th) is skipped, so day 5 is Tuesday 1 December. The window has passed at
+    // 05:00 UTC on 2 December.
+    expect(objectionAnswerDue({ status: 'open', created_at: at })).toBe('2026-12-02T05:00:00.000Z');
+  });
+});
+
+describe('a stored reason code outside the list', () => {
+  it('reads as unrecognised to the owner and the admin, never the stored text', async () => {
+    const vetoId = await removal();
+    await t.db
+      .update(syncServicePairVetoes)
+      .set({
+        reasonCode: 'not_offered_for_product' as never,
+        reason: 'It is not offered for our product',
+      })
+      .where(eq(syncServicePairVetoes.id, vetoId));
+    const list = await call(AUTH_RIVETS, '/api/vendor/vetoes', 'GET');
+    expect(list.status).toBe(200);
+    expect(list.body.received[0]).toMatchObject({ reason_code: 'unrecognised' });
+    const admin = await call(AUTH_ADMIN, '/api/admin/vetoes', 'GET');
+    expect(admin.status).toBe(200);
+    expect(admin.body.data[0]).toMatchObject({ reason_code: 'unrecognised' });
   });
 });
 

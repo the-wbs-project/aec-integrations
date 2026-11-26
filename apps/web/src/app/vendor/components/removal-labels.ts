@@ -1,4 +1,9 @@
-import type { ObjectionGround, RemovalEndReason, RemovalReasonCode } from '@aeci/shared';
+import {
+  REMOVAL_REASON_UNRECOGNISED,
+  type ObjectionGround,
+  type RemovalEndReason,
+  type RemovalReasonWireCode,
+} from '@aeci/shared';
 
 /**
  * The portal's and the console's words for a Sync Service removal's fixed lists
@@ -8,17 +13,22 @@ import type { ObjectionGround, RemovalEndReason, RemovalReasonCode } from '@aeci
  * admin queue say the same thing. None of this is ever shown on a public page.
  */
 
-/** A removal's reason, as the removing vendor states it about its own product. */
-export function removalReasonLabel(code: RemovalReasonCode): string {
+/**
+ * A removal's reason, as the removing vendor states it about its own product. A stored
+ * code outside today's list (`unrecognised`), or any value this build does not know,
+ * reads as a generic line and never throws.
+ */
+export function removalReasonLabel(code: RemovalReasonWireCode | string): string {
   switch (code) {
     case 'not_supported':
       return $localize`:@@removal.reason.notSupported:We do not support this integration`;
-    case 'not_offered_for_product':
-      return $localize`:@@removal.reason.notOfferedForProduct:It is not offered for our product`;
     case 'not_authorised':
       return $localize`:@@removal.reason.notAuthorised:We have not authorised it for our product`;
-    case 'ended':
-      return $localize`:@@removal.reason.ended:We ended our relationship with this company`;
+    case 'no_longer_work_with':
+      return $localize`:@@removal.reason.noLongerWorkWith:We no longer work with this company`;
+    case REMOVAL_REASON_UNRECOGNISED:
+    default:
+      return $localize`:@@removal.reason.unrecognised:The vendor gave another reason`;
   }
 }
 
@@ -50,7 +60,7 @@ export function removalEndReasonLabel(reason: RemovalEndReason): string {
 
 /** The removal's reason, or an older removal's own words as recorded. */
 export function removalReasonText(v: {
-  readonly reason_code: RemovalReasonCode | null;
+  readonly reason_code: RemovalReasonWireCode | null;
   readonly reason: string;
 }): string {
   return v.reason_code ? removalReasonLabel(v.reason_code) : v.reason;

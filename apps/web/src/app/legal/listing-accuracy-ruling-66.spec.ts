@@ -53,6 +53,33 @@ describe('ruling 66 in the Listing Accuracy Policy', () => {
     expect(POLICY).toContain('within five business days');
   });
 
+  it("carries the legal agent's read of the final text (2026-11-26)", () => {
+    expect(POLICY).toContain('has three rights, sent from its vendor account:');
+    expect(POLICY).toContain(
+      'Our view is advice, and the Sync Service decides the listing of that data flow.',
+    );
+    expect(POLICY).toContain(
+      'On an integration the Sync Service has claimed, the Sync Service maintains its data flows and we cannot change one. So we take the integration off the public site.',
+    );
+    expect(POLICY).toContain(
+      'If we do not agree with an objection, we tell the Sync Service why. We answer an objection within five business days of receiving it.',
+    );
+    expect(POLICY).toContain('Business days are Monday to Friday, excluding US federal holidays.');
+  });
+
+  it('no user-facing page keeps a replaced sentence or a dropped reason', () => {
+    for (const text of USER_FACING) {
+      expect(text).not.toContain('three more rights');
+      expect(text).not.toContain('It is not offered for our product');
+      expect(text).not.toContain('ended our relationship');
+      expect(text).not.toMatch(/decides the listing\./);
+      expect(text).not.toContain('we do that by taking the integration off');
+    }
+    for (const text of USER_FACING.slice(1)) {
+      expect(text).toContain('within five business days of receiving it');
+    }
+  });
+
   it('no user-facing page offers a neutrality disclaimer', () => {
     for (const text of USER_FACING) expect(text.toLowerCase()).not.toContain('neutral');
   });

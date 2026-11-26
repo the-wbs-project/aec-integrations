@@ -115,12 +115,13 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               </p>
               <p
                 class="max-w-prose text-sm text-(--text-primary)"
-                i18n="@@vendor.syncRights.veto.objection"
+                i18n="@@vendor.syncRights.veto.objection.v2"
               >
                 {{ ownerName() }} can object to AEC Integrations on three grounds only: the removal
                 came from an account that should not have had access, it named the wrong product, or
-                its reason is plainly false on its face. If we agree, the integration returns and we
-                tell you why. You can withdraw the removal later from Change requests.
+                its reason is plainly false on its face. We answer an objection within five business
+                days of receiving it. If we agree, the integration returns and we tell you why. You
+                can withdraw the removal later from Change requests.
               </p>
               <fieldset
                 class="m-0 max-w-2xl space-y-2 border-0 p-0"

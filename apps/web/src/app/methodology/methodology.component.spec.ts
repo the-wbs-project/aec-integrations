@@ -204,7 +204,9 @@ describe('MethodologyPage', () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain('even when the listing is accurate');
       expect(text).toContain('choose its reason from a fixed list');
-      expect(text).toContain('with the reason and how to object');
+      expect(text).toContain("with the vendor's reason and how to object");
+      expect(text).toContain('We answer an objection within five business days of receiving it.');
+      expect(text).toContain('it maintains the data rows and we cannot change one');
       expect(text).toContain('on three grounds only');
       expect(text).toContain('plainly false on its face');
       expect(text).toContain('We tell both vendors why.');

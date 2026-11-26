@@ -6,6 +6,7 @@ import {
   OBJECTION_STATUSES,
   REMOVAL_END_REASONS,
   REMOVAL_REASON_CODES,
+  REMOVAL_REASON_UNRECOGNISED,
 } from './sync-service-removal';
 
 /**
@@ -60,6 +61,12 @@ export type PairRightPair = z.infer<typeof PairRightPairSchema>;
 // ─── Veto ────────────────────────────────────────────────────────────────────
 
 export const RemovalReasonCodeSchema = z.enum(REMOVAL_REASON_CODES);
+/** A reason code as a reader receives it: a fixed code, or `unrecognised` for a stored
+ *  value outside the list. Reads only: a write takes {@link RemovalReasonCodeSchema}. */
+export const RemovalReasonWireCodeSchema = z.union([
+  RemovalReasonCodeSchema,
+  z.literal(REMOVAL_REASON_UNRECOGNISED),
+]);
 export const ObjectionGroundSchema = z.enum(OBJECTION_GROUNDS);
 export const RemovalEndReasonSchema = z.enum(REMOVAL_END_REASONS);
 export const ObjectionStatusSchema = z.enum(OBJECTION_STATUSES);
@@ -144,8 +151,9 @@ export const SyncServicePairVetoSchema = z.object({
   pair: PairRightPairSchema,
   vendor_id: z.string().uuid().nullable(),
   vendor_name: z.string().nullable(),
-  /** The fixed reason (AECI-2192). `null` on a removal filed before the fixed list. */
-  reason_code: RemovalReasonCodeSchema.nullable(),
+  /** The fixed reason (AECI-2192). `null` on a removal filed before the fixed list.
+   *  `unrecognised` on a stored code outside today's list. */
+  reason_code: RemovalReasonWireCodeSchema.nullable(),
   /** The text on record. On a row with `reason_code` it is that code's English label.
    *  On an older row it is the vendor's own words, shown to the owner as recorded. */
   reason: z.string(),
@@ -182,7 +190,15 @@ export const ListAdminVetoesQuerySchema = z.object({
     .transform((v) => v === 'true'),
 });
 export const AdminVetoesResponseSchema = z.object({
-  data: z.array(SyncServicePairVetoSchema.extend({ owner_name: z.string().nullable() })),
+  data: z.array(
+    SyncServicePairVetoSchema.extend({
+      owner_name: z.string().nullable(),
+      /** When an open objection's answer is due: the moment its window of
+       *  `OBJECTION_ANSWER_BUSINESS_DAYS` from `created_at` has fully passed. `null` when
+       *  no objection is open. Admin only. */
+      objection_answer_due: z.string().nullable(),
+    }),
+  ),
 });
 export type AdminVetoesResponse = z.infer<typeof AdminVetoesResponseSchema>;
 export type AdminVeto = AdminVetoesResponse['data'][number];
@@ -391,8 +407,9 @@ export const VendorPairRightNotificationSchema = z.object({
   report_kind: PairContestKindSchema.nullable(),
   by_vendor_name: z.string().nullable(),
   reason: z.string().nullable(),
-  /** On a `vetoed` row to the owner: the vendor's fixed reason (AECI-2192). */
-  reason_code: RemovalReasonCodeSchema.nullable().optional(),
+  /** On a `vetoed` row to the owner: the vendor's fixed reason (AECI-2192), or
+   *  `unrecognised` for a stored code outside today's list. */
+  reason_code: RemovalReasonWireCodeSchema.nullable().optional(),
   /** On a `veto_lifted` row: why AECi ended the removal (AECI-2192). */
   end_reason: RemovalEndReasonSchema.nullable().optional(),
   /** True on a veto event when the pair is on the public site after it. */

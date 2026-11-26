@@ -48,8 +48,8 @@
 import {
   ApiErrorCode,
   isRemovalEndReason,
-  isRemovalReasonCode,
   isSyncService,
+  removalReasonWireCode,
   orderedPairSlugs,
   type PairRightNotificationEvent,
   type PairRightPair,
@@ -704,7 +704,8 @@ export async function vetoWireRows(
       pair,
       vendor_id: r.vendorId,
       vendor_name: r.vendorName,
-      reason_code: isRemovalReasonCode(r.reasonCode) ? r.reasonCode : null,
+      // A stored code outside today's list reads as `unrecognised`, never the old text.
+      reason_code: removalReasonWireCode(r.reasonCode),
       reason: r.reason,
       filed_at: r.filedAt,
       in_force: r.endedAt === null,

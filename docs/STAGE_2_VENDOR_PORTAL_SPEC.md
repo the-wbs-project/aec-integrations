@@ -4600,19 +4600,22 @@ A vendor with no seat keeps the email route. The operator steps for a veto that 
 
 ### 11e.2a The fixed reason and the notice (ruling 66)
 
-**The reason is one code** from `REMOVAL_REASON_CODES` in `packages/shared/src/api/sync-service-removal.ts` (zod-free, with the Zod schema in `sync-service-pair-rights.ts`, as `connector-kind` is split). Each is a statement the vendor makes about its own product, so an objection can test it as "plainly false on its face" against the vendor's own public material. **Proposed list, waiting for Chris to confirm the wording:**
+**The reason is one code** from `REMOVAL_REASON_CODES` in `packages/shared/src/api/sync-service-removal.ts` (zod-free, with the Zod schema in `sync-service-pair-rights.ts`, as `connector-kind` is split). Each is a statement the vendor makes about its own product, so an objection can test it as "plainly false on its face" against the vendor's own public material. **The list, in this order, after the legal agent's read (2026-11-26):**
 
 | Code | Label |
 | --- | --- |
 | `not_supported` | We do not support this integration |
-| `not_offered_for_product` | It is not offered for our product |
 | `not_authorised` | We have not authorised it for our product |
-| `ended` | We ended our relationship with this company |
+| `no_longer_work_with` | We no longer work with this company |
+
+_The first built list had four codes._ The legal agent dropped `not_offered_for_product` ("It is not offered for our product"): it claims the integration does not exist, and the separate "Not offered" report (§11e.3) covers that. It reworded `ended` ("We ended our relationship with this company") to `no_longer_work_with`. The branch had never deployed, so no stored row carries either old code. `reason_code` has no CHECK, so the change needs no migration.
+
+- **A stored code outside the list** reads as `unrecognised` on every wire (`removalReasonWireCode`, `RemovalReasonWireCodeSchema`). The owner and the admin queue show "The vendor gave another reason", never the stored text, and the AECi alert email uses the same English line. It is never public. A write still takes only the three codes.
 
 - **`FileVetoSchema` is `{ reason_code }`, strict.** Free text, an empty body and an unknown code are all `400`. There is no private note: none was needed, because the code is the record and AECi's own notes live on the lift and the objection.
 - **Storage.** `sync_service_pair_vetoes.reason_code`, a plain `ADD COLUMN` in `0135_shocking_xorn.sql`, with no CHECK (Zod validates). The old `reason` column keeps its NOT NULL and holds the code's English label on a new row, so a raw row reads on its own. The time is `filed_at`, which the table already stored. The audit row's `afterState` carries `filed_at` and `reason_code`.
-- **A row filed before the fixed list** has `reason_code` NULL and its free text in `reason`. The owner sees it "as they wrote it" in its list. It never reached a public reader and still does not.
-- **The notice to the Sync Service** is the `vetoed` row of `portal-sync-service-veto`, in the same batch as before. Since ruling 66 it carries `metadata.reasonCode` and no free text (`reason` is NULL). Its time is the row's `created_at`. The portal renders the reason's label and one sentence on how to object and on which three grounds. No vendor is emailed (§11e.7).
+- **A row filed before the fixed list** has `reason_code` NULL and its free text in `reason`. The owner sees it as "{vendor} gave this reason, in its own words" in its list. It never reached a public reader and still does not.
+- **The notice to the Sync Service** is the `vetoed` row of `portal-sync-service-veto`, in the same batch as before. Since ruling 66 it carries `metadata.reasonCode` and no free text (`reason` is NULL). Its time is the row's `created_at`. The portal renders the reason as the vendor's statement, "{vendor} gave this reason: {reason}", never as our finding, with one sentence on how to object and on which three grounds. The owner's "Removed from your integrations" list and the owned pair page's "Waiting on someone else" item use the same phrasing. The admin queue labels it "Reason the vendor gave". No vendor is emailed (§11e.7).
 - **A Sync Service with no seat** gets the same `notification.sent` row, which nobody can read until it has a seat. We hold no address for an unclaimed company, so nothing is emailed. Its objection can arrive by email to the support inbox (`docs/runbooks/listing-submissions.md` §6c).
 
 ### 11e.2b The objection and AECi's end of a removal (ruling 66)
@@ -4628,6 +4631,7 @@ A vendor with no seat keeps the email route. The operator steps for a veto that 
 - **Accept** is the lift in the same batch: the objection's guarded `UPDATE … WHERE status = 'open'` and its `changes()` sentinel, then the veto's guarded UPDATE with `end_reason` = the ground, the key-wide `vetoed_at` recompute (every row on the key returns, unless another removal is in force or a row is retired), the counts, `integration.veto_lifted` and `integration.veto_objection.accepted`, and `veto_lifted` notices to the remover, the owners, the other endpoint vendors and the objecting vendor. After commit, the retire tail (purge, Algolia sync, re-crawl).
 - **Decline** leaves the removal in force. One batch: the guarded objection UPDATE and its sentinel, a sentinel that the removal is still in force, `integration.veto_objection.declined`, and one `objection_declined` notice to the objecting vendor with the note.
 - A decided, closed or raced objection answers `409 VETO_OBJECTION_NOT_OPEN` and writes nothing.
+- **Time to answer.** AECi answers an objection, accepted or declined, within five business days of receiving it (the Listing Accuracy Policy, after the legal agent's read of ruling 66). `OBJECTION_ANSWER_BUSINESS_DAYS` holds the 5. `GET /api/admin/vetoes` gives each open objection `objection_answer_due`, `businessWindowEnd(created_at, 5)`, so the queue shows the answer-by date and marks one overdue. Nothing escalates on its own. The operator owns the deadline (`ADMIN_PANEL_SPEC.md` §5.12).
 
 **A removal that ends another way closes an open objection** (`status = 'closed'`) in the same batch: the vendor's withdraw and an admin lift that is not the accept (`closeOpenObjectionStmt`).
 

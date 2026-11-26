@@ -351,7 +351,13 @@ describe('POST /api/vendor/integrations/:id/veto — who may veto', () => {
   });
 
   it('a reason from the fixed list is required, and free text is refused (ruling 66)', async () => {
-    for (const body of [{}, { reason: 'We never authorised this.' }, { reason_code: 'other' }]) {
+    for (const body of [
+      {},
+      { reason: 'We never authorised this.' },
+      { reason_code: 'other' },
+      { reason_code: 'not_offered_for_product' },
+      { reason_code: 'ended' },
+    ]) {
       const res = await call(AUTH_PROCORE, `/api/vendor/integrations/${PAIR}/veto`, 'POST', body);
       expect(res.status).toBe(400);
     }
@@ -359,16 +365,16 @@ describe('POST /api/vendor/integrations/:id/veto — who may veto', () => {
   });
 
   it('stores the fixed reason and the time, and the row reads its label', async () => {
-    const res = await veto(PAIR, AUTH_PROCORE, 'not_offered_for_product');
+    const res = await veto(PAIR, AUTH_PROCORE, 'no_longer_work_with');
     expect(res.status).toBe(201);
     const [row] = await t.db.select().from(syncServicePairVetoes);
     expect(row).toMatchObject({
-      reasonCode: 'not_offered_for_product',
-      reason: 'It is not offered for our product',
+      reasonCode: 'no_longer_work_with',
+      reason: 'We no longer work with this company',
     });
     expect(row!.filedAt).toBe(res.body.veto.filed_at);
     expect(res.body.veto).toMatchObject({
-      reason_code: 'not_offered_for_product',
+      reason_code: 'no_longer_work_with',
       objection: null,
       end_reason: null,
     });

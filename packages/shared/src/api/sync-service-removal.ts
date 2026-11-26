@@ -21,14 +21,31 @@
  * admin console render their own `$localize` copy.
  */
 
-/** The reasons a vendor may give for a removal, in display order. */
+/**
+ * The reasons a vendor may give for a removal, in display order. The legal agent's
+ * read of ruling 66 (2026-11-26) dropped "It is not offered for our product": it is a
+ * claim that the integration does not exist, and the separate "Not offered" report
+ * covers that. It also reworded the last reason, so its code is `no_longer_work_with`.
+ */
 export const REMOVAL_REASON_CODES = [
   'not_supported',
-  'not_offered_for_product',
   'not_authorised',
-  'ended',
+  'no_longer_work_with',
 ] as const;
 export type RemovalReasonCode = (typeof REMOVAL_REASON_CODES)[number];
+
+/**
+ * The wire value for a stored `reason_code` outside {@link REMOVAL_REASON_CODES}: a row
+ * written under an older list. The reader shows a generic line for it, never the stored
+ * text. Never accepted on a write (`FileVetoSchema` takes the fixed list only).
+ */
+export const REMOVAL_REASON_UNRECOGNISED = 'unrecognised' as const;
+/** A removal's reason as it reaches a reader: a fixed code, or the unrecognised marker. */
+export type RemovalReasonWireCode = RemovalReasonCode | typeof REMOVAL_REASON_UNRECOGNISED;
+
+/** AECi answers an objection, accepted or declined, within this many business days of
+ *  receiving it (the Listing Accuracy Policy, after the legal agent's read of ruling 66). */
+export const OBJECTION_ANSWER_BUSINESS_DAYS = 5;
 
 /** The three grounds an objection may name, in display order. */
 export const OBJECTION_GROUNDS = [
@@ -54,6 +71,16 @@ export function isRemovalReasonCode(value: unknown): value is RemovalReasonCode 
   return (REMOVAL_REASON_CODES as readonly unknown[]).includes(value);
 }
 
+/**
+ * A stored `reason_code` for the wire: the code when it is on the list, `null` when no
+ * code was stored (a removal filed before the fixed list, read with its own words), and
+ * {@link REMOVAL_REASON_UNRECOGNISED} for any other stored value.
+ */
+export function removalReasonWireCode(value: unknown): RemovalReasonWireCode | null {
+  if (value === null || value === undefined) return null;
+  return isRemovalReasonCode(value) ? value : REMOVAL_REASON_UNRECOGNISED;
+}
+
 export function isObjectionGround(value: unknown): value is ObjectionGround {
   return (OBJECTION_GROUNDS as readonly unknown[]).includes(value);
 }
@@ -65,10 +92,21 @@ export function isRemovalEndReason(value: unknown): value is RemovalEndReason {
 /** The reason as the vendor states it. Shown to the Sync Service and AECi, never public. */
 export const REMOVAL_REASON_LABELS: Readonly<Record<RemovalReasonCode, string>> = {
   not_supported: 'We do not support this integration',
-  not_offered_for_product: 'It is not offered for our product',
   not_authorised: 'We have not authorised it for our product',
-  ended: 'We ended our relationship with this company',
+  no_longer_work_with: 'We no longer work with this company',
 };
+
+/** The English line for a stored code outside the list. Shown to the owner and AECi. */
+export const REMOVAL_REASON_UNRECOGNISED_LABEL = 'The vendor gave another reason';
+
+/** The English label of a stored reason code, for the API's own text. */
+export function removalReasonEnglish(value: unknown): string | null {
+  const code = removalReasonWireCode(value);
+  if (code === null) return null;
+  return code === REMOVAL_REASON_UNRECOGNISED
+    ? REMOVAL_REASON_UNRECOGNISED_LABEL
+    : REMOVAL_REASON_LABELS[code];
+}
 
 /** An objection ground in plain words. */
 export const OBJECTION_GROUND_LABELS: Readonly<Record<ObjectionGround, string>> = {

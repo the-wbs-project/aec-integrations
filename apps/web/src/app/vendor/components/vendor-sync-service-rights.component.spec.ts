@@ -113,15 +113,17 @@ describe('VendorSyncServiceRights', () => {
     expect(text).toContain('Rivets cannot bring it back or add it again');
     expect(text).toContain('can object to AEC Integrations on three grounds only');
     expect(text).toContain('You can withdraw the removal later');
-    // No free text: the reason is a radio group of the four fixed reasons.
+    // No free text: the reason is a radio group of the three fixed reasons.
     expect(el(fixture).querySelector('form textarea')).toBeNull();
     const radios = [...el(fixture).querySelectorAll<HTMLInputElement>('input[type="radio"]')];
     expect(radios.map((r) => r.value)).toEqual([
       'not_supported',
-      'not_offered_for_product',
       'not_authorised',
-      'ended',
+      'no_longer_work_with',
     ]);
+    expect(el(fixture).querySelector('fieldset')?.textContent).toContain(
+      'We no longer work with this company',
+    );
     expect(el(fixture).querySelector('fieldset legend')?.textContent).toContain('Your reason');
     expect(api['fileVeto']).not.toHaveBeenCalled();
 
@@ -130,7 +132,7 @@ describe('VendorSyncServiceRights', () => {
     expect(api['fileVeto']).not.toHaveBeenCalled();
     expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain('Choose a reason');
 
-    radios[2]!.click();
+    radios[1]!.click();
     await settle(fixture);
     buttonByText(fixture, 'Remove it from our product').click();
     await settle(fixture);

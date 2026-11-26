@@ -33,6 +33,7 @@ import {
   AdminVetoesResponseSchema,
   ApiErrorCode,
   ListAdminVetoesQuerySchema,
+  OBJECTION_ANSWER_BUSINESS_DAYS,
   VetoObjectionResponseSchema,
   VetoWriteResponseSchema,
   type AdminVetoesResponse,
@@ -54,6 +55,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { businessWindowEnd } from '../lib/business-days';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
 import {
@@ -123,11 +125,24 @@ export function createAdminListVetoesHandler(
       data: wire.map((v) => ({
         ...v,
         owner_name: v.pair.integration_id ? (ownerOf.get(v.pair.integration_id) ?? null) : null,
+        objection_answer_due: objectionAnswerDue(v.objection),
       })),
     };
     validateResponseInDev(c.env, () => AdminVetoesResponseSchema.parse(body));
     return json(body);
   };
+}
+
+/**
+ * When AECi must answer an open objection: five business days from when it was received
+ * (the Listing Accuracy Policy), through the same `businessWindowEnd` the value-hide
+ * clocks use. `null` once the objection is decided or closed.
+ */
+export function objectionAnswerDue(
+  objection: { status: string; created_at: string } | null,
+): string | null {
+  if (!objection || objection.status !== 'open') return null;
+  return businessWindowEnd(objection.created_at, OBJECTION_ANSWER_BUSINESS_DAYS);
 }
 
 function notInForceError(): ApiError {

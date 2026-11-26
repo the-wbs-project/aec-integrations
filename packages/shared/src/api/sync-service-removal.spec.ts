@@ -13,16 +13,24 @@ import {
   REMOVAL_END_REASONS,
   REMOVAL_REASON_CODES,
   REMOVAL_REASON_LABELS,
+  REMOVAL_REASON_UNRECOGNISED,
+  REMOVAL_REASON_UNRECOGNISED_LABEL,
+  removalReasonEnglish,
+  removalReasonWireCode,
 } from './sync-service-removal';
 
 describe('the fixed removal lists', () => {
-  it('has four reasons, three grounds, and five end reasons that start with the grounds', () => {
+  it('has three reasons, three grounds, and five end reasons that start with the grounds', () => {
     expect(REMOVAL_REASON_CODES).toEqual([
       'not_supported',
-      'not_offered_for_product',
       'not_authorised',
-      'ended',
+      'no_longer_work_with',
     ]);
+    expect(REMOVAL_REASON_LABELS).toEqual({
+      not_supported: 'We do not support this integration',
+      not_authorised: 'We have not authorised it for our product',
+      no_longer_work_with: 'We no longer work with this company',
+    });
     expect(OBJECTION_GROUNDS).toEqual([
       'unauthorised_account',
       'wrong_product',
@@ -41,13 +49,32 @@ describe('the fixed removal lists', () => {
     }
     for (const ground of OBJECTION_GROUNDS) expect(OBJECTION_GROUND_LABELS[ground]).toBeTruthy();
   });
+
+  it('reads a stored code outside the list as unrecognised, and no code as null', () => {
+    expect(removalReasonWireCode('not_authorised')).toBe('not_authorised');
+    expect(removalReasonWireCode('not_offered_for_product')).toBe(REMOVAL_REASON_UNRECOGNISED);
+    expect(removalReasonWireCode('ended')).toBe(REMOVAL_REASON_UNRECOGNISED);
+    expect(removalReasonWireCode(null)).toBeNull();
+    expect(removalReasonEnglish('ended')).toBe(REMOVAL_REASON_UNRECOGNISED_LABEL);
+    expect(removalReasonEnglish('not_supported')).toBe('We do not support this integration');
+    expect(removalReasonEnglish(null)).toBeNull();
+  });
 });
 
 describe('the schemas', () => {
   it('a removal takes one code and refuses free text', () => {
-    expect(FileVetoSchema.safeParse({ reason_code: 'ended' }).success).toBe(true);
+    expect(FileVetoSchema.safeParse({ reason_code: 'no_longer_work_with' }).success).toBe(true);
+    expect(FileVetoSchema.safeParse({ reason_code: 'ended' }).success).toBe(false);
+    expect(FileVetoSchema.safeParse({ reason_code: 'not_offered_for_product' }).success).toBe(
+      false,
+    );
+    expect(FileVetoSchema.safeParse({ reason_code: REMOVAL_REASON_UNRECOGNISED }).success).toBe(
+      false,
+    );
     expect(FileVetoSchema.safeParse({ reason: 'We never authorised it.' }).success).toBe(false);
-    expect(FileVetoSchema.safeParse({ reason_code: 'ended', reason: 'x' }).success).toBe(false);
+    expect(FileVetoSchema.safeParse({ reason_code: 'not_supported', reason: 'x' }).success).toBe(
+      false,
+    );
     expect(FileVetoSchema.safeParse({ reason_code: 'other' }).success).toBe(false);
   });
 

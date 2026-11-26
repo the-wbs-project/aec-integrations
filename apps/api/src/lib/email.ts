@@ -3861,7 +3861,7 @@ export function sendVetoObjectionSubmittedNotification(
   const rows: Array<[string, string]> = [
     ['Integration', opts.integrationName],
     ['Removed by', opts.removingVendorName],
-    ['Reason given for the removal', opts.removalReason],
+    ['Reason the vendor gave', opts.removalReason],
     ['Objection from', opts.objectorVendorName],
     ['Ground', opts.ground],
     ['Explanation', opts.explanation],

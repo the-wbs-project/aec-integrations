@@ -49,6 +49,8 @@ const VETO: AdminVeto = {
   other_vetoes_in_force: 0,
   updated_at: '2026-11-22T09:30:00.000Z',
   owner_name: 'Rivets',
+  // Received Sunday 22 November 2026: day 5 is Monday 30 November (Thanksgiving skipped).
+  objection_answer_due: '2026-12-01T05:00:00.000Z',
 };
 
 let api: Record<string, ReturnType<typeof vi.fn>>;
@@ -100,7 +102,7 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
     const fixture = await mount();
     const t = text(fixture);
     expect(t).toContain('Removed by Procore Inc on');
-    expect(t).toContain('Reason: We do not support this integration');
+    expect(t).toContain('Reason the vendor gave: We do not support this integration');
     expect(t).toContain('Objection from Rivets');
     expect(t).toContain('Ground: Its reason is plainly false on its face');
     expect(t).toContain('Procore lists this sync on its marketplace.');
@@ -108,6 +110,33 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
       'https://procore.example/apps/rivets',
     );
     expect(t).toContain('not whether the vendor should support the integration');
+  });
+
+  it("shows the objection's received date and its answer-by date, and marks it overdue once past", async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-12-02T12:00:00.000Z'));
+    const fixture = await mount();
+    const t = text(fixture);
+    expect(t).toContain('Received Nov 22, 2026');
+    expect(t).toContain('Answer by Nov 30, 2026');
+    expect(el(fixture).querySelector('[data-testid="objection-overdue"]')?.textContent).toContain(
+      'Answer overdue',
+    );
+  });
+
+  it('does not mark an objection overdue before its answer-by date', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-25T12:00:00.000Z'));
+    const fixture = await mount();
+    expect(el(fixture).querySelector('[data-testid="objection-overdue"]')).toBeNull();
+  });
+
+  it('a stored reason outside the list reads as the generic line', async () => {
+    api['listVetoes']!.mockResolvedValue({
+      data: [{ ...VETO, reason_code: 'unrecognised', reason: 'It is not offered for our product' }],
+    });
+    const fixture = await mount();
+    const t = text(fixture);
+    expect(t).toContain('Reason the vendor gave: The vendor gave another reason');
+    expect(t).not.toContain('It is not offered for our product');
   });
 
   it('accepting an objection needs a note and sends the decision', async () => {

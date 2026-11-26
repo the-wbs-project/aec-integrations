@@ -786,8 +786,11 @@ function noteOf(
  */
 function pairRightNote(notification: VendorPairRightNotification): string | null {
   if (notification.event === 'vetoed' && notification.reason_code) {
+    // The vendor's statement, not our finding (the legal agent's read of ruling 66).
+    const vendor =
+      notification.by_vendor_name ?? $localize`:@@vendor.pairRights.notify.someone:A vendor`;
     const reason = removalReasonLabel(notification.reason_code);
-    return $localize`:@@vendor.pairRights.notify.vetoedNote:Their reason: ${reason}:reason:. The public page shows nothing about it. You can object to AEC Integrations, from Change requests, on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face.`;
+    return $localize`:@@vendor.pairRights.notify.vetoedNote.v2:${vendor}:vendor: gave this reason: ${reason}:reason:. The public page shows nothing about it. You can object to AEC Integrations, from Change requests, on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face.`;
   }
   if (notification.event === 'veto_lifted' && notification.end_reason) {
     const why = removalEndReasonLabel(notification.end_reason);

@@ -1083,7 +1083,7 @@ create table sync_service_pair_contests (
 Ruling 66 on AECI-2035, after counsel's Q73 and Q74 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2a, §11e.2b). Migration `0135_shocking_xorn.sql`: one plain `CREATE TABLE` and two plain `ADD COLUMN`s on `sync_service_pair_vetoes`. No CHECK on an existing table changes, so nothing is recreated.
 
 ```sql
-alter table sync_service_pair_vetoes add reason_code text;  -- REMOVAL_REASON_CODES; NULL on a row before 0135
+alter table sync_service_pair_vetoes add reason_code text;  -- REMOVAL_REASON_CODES: 'not_supported' | 'not_authorised' | 'no_longer_work_with'; NULL on a row before 0135
 alter table sync_service_pair_vetoes add end_reason text;   -- REMOVAL_END_REASONS; set by an AECi lift or an accepted objection
 
 create table sync_service_veto_objections (
@@ -1106,7 +1106,7 @@ create unique index sync_service_veto_objections_open_key
   on sync_service_veto_objections(veto_id) where status = 'open';
 ```
 
-- **No CHECK on the two new veto columns.** Drizzle's `enum` option on `text()` types them and emits no CHECK. `FileVetoSchema` and `AdminLiftVetoSchema` are the only validation they get.
+- **No CHECK on the two new veto columns.** Drizzle's `enum` option on `text()` types them and emits no CHECK. `FileVetoSchema` and `AdminLiftVetoSchema` are the only validation they get. So the legal agent's change to the reason list (2026-11-26: `not_offered_for_product` dropped, `ended` renamed `no_longer_work_with`) needed no migration. A stored value outside the list reads as `unrecognised`, never as its stored text.
 - **`reason` stays NOT NULL.** A new row stores the code's English label there. An older row keeps the vendor's own words and a NULL `reason_code`. Neither is read by a public reader.
 - **The time is `filed_at`**, which 0132 already stored.
 - **`closed`** marks an open objection whose removal ended another way (a withdraw, or a lift that was not its accept), in the same batch.

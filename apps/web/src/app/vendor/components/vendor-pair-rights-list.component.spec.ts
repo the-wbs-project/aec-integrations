@@ -3,8 +3,9 @@
  * Messages (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.6, §11e.2b).
  *
  * What these pin:
- *   1. A removed pair shows who removed it, the fixed reason's label and when. An older
- *      removal shows its own words "as they wrote it".
+ *   1. A removed pair shows who removed it, the fixed reason's label and when, as the
+ *      vendor's statement ("{vendor} gave this reason"). An older removal shows its own
+ *      words "in its own words". A stored code outside the list reads as a generic line.
  *   2. "Object to this removal" opens a form with exactly the three grounds.
  *   3. The form refuses no ground, no explanation, and "plainly false" with no https link.
  *   4. A valid objection sends one call with the ground, the explanation and the link.
@@ -117,7 +118,8 @@ describe('VendorPairRightsList — a removal and its objection (AECI-2192)', () 
     const fixture = await mount();
     const t = text(fixture);
     expect(t).toContain('Removed by Procore Inc on');
-    expect(t).toContain('Their reason: We do not support this integration');
+    expect(t).toContain('Procore Inc gave this reason: We do not support this integration');
+    expect(t).not.toContain('Their reason');
     expect(t).toContain('The public page shows nothing about the removal');
     expect(buttonByText(fixture, 'Object to this removal')).toBeDefined();
   });
@@ -127,8 +129,17 @@ describe('VendorPairRightsList — a removal and its objection (AECI-2192)', () 
       { ...VETO, reason_code: null, reason: 'Our own words from before the list.' },
     ]);
     expect(text(fixture)).toContain(
-      'Their reason, as they wrote it: Our own words from before the list.',
+      'Procore Inc gave this reason, in its own words: Our own words from before the list.',
     );
+  });
+
+  it('reads a stored reason outside the list as a generic line, never the stored text', async () => {
+    const fixture = await mount([
+      { ...VETO, reason_code: 'unrecognised', reason: 'It is not offered for our product' },
+    ]);
+    const t = text(fixture);
+    expect(t).toContain('Procore Inc gave this reason: The vendor gave another reason');
+    expect(t).not.toContain('It is not offered for our product');
   });
 
   it('offers exactly the three grounds and refuses an incomplete objection', async () => {
