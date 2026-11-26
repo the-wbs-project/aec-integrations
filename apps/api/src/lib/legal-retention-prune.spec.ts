@@ -43,7 +43,23 @@ import {
   workflowTransitions,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { pruneAuditIds } from './acceptance-chain';
+import {
+  ACCEPTANCE_CHAIN_PREFIX,
+  ACCEPTANCE_CHAIN_SCHEMA,
+  applyEntries,
+  chainKey,
+  type ChainFile,
+  diffRows,
+  FINGERPRINT_VERSION,
+  fingerprintRows,
+  type PriorRow,
+  pruneAuditIds,
+  type RawRow,
+  serializeChainFile,
+  stateSha256,
+  verifyAcceptanceChain,
+} from './acceptance-chain';
+import { sha256HexBytes } from './hash';
 import {
   emitLegalRetentionPruneMetrics,
   isLegalRetentionRaceError,
@@ -253,17 +269,18 @@ describe('the four-year audit part', () => {
     });
   });
 
+  // The `agreement.*` and `terms.*` prefixes are exempt here too, but a row of theirs that no
+  // acceptance names is an orphan and goes at four years (AECI-1971): see "orphan acceptance
+  // audit rows" below.
   it('keeps every exempt action whatever its age, and escapes the underscore in a prefix', async () => {
     const ancient = shift(CUT.audit, -900);
     const kept = [
       ...AUDIT_LOG_PRUNE_EXEMPT_ACTIONS,
       'litigation_hold.placed',
       'litigation_hold.released',
-      'agreement.accepted',
-      'agreement.linked',
-      'agreement.evidence_removed',
-      'terms.accepted',
-      'terms.evidence_removed',
+      // Exempt prefixes, but not one of the five acceptance actions, so never an orphan.
+      'agreement.other',
+      'terms.other',
     ];
     const keptIds = await Promise.all(kept.map((action) => seedAudit(action, ancient)));
     // `_` is a LIKE wildcard. Unescaped, this lookalike would be exempt too.
@@ -476,7 +493,7 @@ describe('the acceptance part', () => {
         createdAt: ancient,
       },
       {
-        // No `acceptance_ids` array, so it can never be matched: kept.
+        // No `acceptance_ids` array: it names no acceptance, so it is an orphan (AECI-1971).
         id: 'au-linked',
         actorType: 'admin',
         action: 'agreement.linked',
@@ -501,10 +518,12 @@ describe('the acceptance part', () => {
     expect(ids).not.toContain('au-old');
     // Its only acceptance went in this batch, so the evidence row goes too.
     expect(ids).not.toContain('au-evidence');
-    expect(ids).toEqual(expect.arrayContaining(['au-young', 'au-linked']));
+    expect(ids).toContain('au-young');
+    expect(ids).not.toContain('au-linked');
     expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
-      rowsDeleted: 2,
+      rowsDeleted: 3,
       companionRowsDeleted: 2,
+      orphanRowsDeleted: 1,
     });
   });
 
@@ -1015,7 +1034,7 @@ describe('the agreement.* rows that list acceptance ids', () => {
     expect(ids).not.toContain('au-ev-both');
   });
 
-  it('never matches a row whose acceptance list is missing, empty, not an array or malformed', async () => {
+  it('treats a missing, empty, non-array or malformed list as naming no acceptance, without aborting the batch', async () => {
     await seedVendor('v-two', { claimEndedAt: yearsAgo(8) });
     await seedAcceptance('acc-claim', 'v-two', { acceptedAt: yearsAgo(10) });
     await t.db
@@ -1036,13 +1055,402 @@ describe('the agreement.* rows that list acceptance ids', () => {
     await runLegalRetentionPrune(t.db, NOW);
 
     expect(await acceptanceIds()).toEqual([]);
-    // Read raw: Drizzle's JSON column would refuse to parse the malformed row.
+    // Read raw: Drizzle's JSON column would refuse to parse the malformed row. None was a
+    // companion: each names no acceptance, so each is an orphan four years past (AECI-1971).
     const left = (t.raw.prepare('SELECT id FROM audit_log').all() as { id: string }[]).map(
       (r) => r.id,
     );
-    expect(left).toEqual(
-      expect.arrayContaining(['au-l-empty', 'au-l-string', 'au-e-empty', 'au-l-bad']),
-    );
+    for (const id of ['au-l-empty', 'au-l-string', 'au-e-empty', 'au-l-bad']) {
+      expect(left).not.toContain(id);
+    }
+  });
+});
+
+describe('orphan acceptance audit rows, four years after the action (AECI-1971, ruling 60)', () => {
+  const OLD = shift(CUT.audit, -1);
+  const YOUNG = shift(CUT.audit, 1);
+
+  /** One audit row of the five acceptance actions. */
+  async function seedRow(
+    id: string,
+    action: string,
+    createdAt: string,
+    opts: {
+      entityId?: string | null;
+      vendorId?: string | null;
+      actorId?: string | null;
+      afterState?: Record<string, unknown> | null;
+      metadata?: Record<string, unknown> | null;
+    } = {},
+  ) {
+    await t.db.insert(auditLog).values({
+      id,
+      actorId: opts.actorId ?? null,
+      actorType: opts.actorId ? 'user' : 'system',
+      action,
+      entityType: action.startsWith('terms.')
+        ? 'terms_acceptance'
+        : action === 'agreement.linked'
+          ? 'vendor_request'
+          : 'agreement_acceptance',
+      entityId: opts.entityId ?? null,
+      vendorId: opts.vendorId ?? null,
+      afterState: opts.afterState ?? null,
+      metadata: opts.metadata ?? null,
+      createdAt,
+    });
+    return id;
+  }
+
+  async function seedTermsRow(id: string, profileId: string) {
+    await t.db.insert(termsAcceptances).values({
+      id,
+      document: 'terms',
+      version: id,
+      profileId,
+      email: 'reader@example.test',
+      acceptedAt: yearsAgo(1),
+      checkboxLabel: 'By signing in, you agree to our Terms of Service and Privacy Policy.',
+      checkboxLabelSha256: 'a'.repeat(64),
+      checkboxDefaultUnticked: false,
+    });
+  }
+
+  /** One row of each of the five kinds, none naming a live acceptance, at `createdAt`. */
+  async function seedEveryOrphan(createdAt: string, tag: string) {
+    return [
+      await seedRow(`${tag}-accepted`, 'agreement.accepted', createdAt, { entityId: 'acc-gone' }),
+      await seedRow(`${tag}-terms`, 'terms.accepted', createdAt, { entityId: 'tos-gone' }),
+      await seedRow(`${tag}-linked`, 'agreement.linked', createdAt, {
+        entityId: 'claim-1',
+        afterState: { acceptance_ids: ['acc-gone', 'acc-gone-2'] },
+      }),
+      await seedRow(`${tag}-ev-empty`, 'agreement.evidence_removed', createdAt, {
+        metadata: { acceptance_ids: [] },
+      }),
+      await seedRow(`${tag}-ev-gone`, 'agreement.evidence_removed', createdAt, {
+        metadata: { acceptance_ids: ['acc-gone'] },
+      }),
+      await seedRow(`${tag}-tev-gone`, 'terms.evidence_removed', createdAt, {
+        metadata: { acceptance_ids: ['tos-gone'] },
+      }),
+      await seedRow(`${tag}-tev-none`, 'terms.evidence_removed', createdAt, { metadata: null }),
+    ];
+  }
+
+  it('deletes each orphan kind past four years and keeps each one inside them', async () => {
+    const old = await seedEveryOrphan(OLD, 'old');
+    const young = await seedEveryOrphan(YOUNG, 'young');
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of old) expect(ids).not.toContain(id);
+    for (const id of young) expect(ids).toContain(id);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      rowsDeleted: old.length,
+      orphanRowsDeleted: old.length,
+      truncated: false,
+    });
+    const [prune] = await pruneRows();
+    const meta = prune!.metadata as { tables: { table: string; orphanRowsDeleted?: number }[] };
+    expect(meta.tables.find((x) => x.table === 'audit_log')?.orphanRowsDeleted).toBe(old.length);
+  });
+
+  it('keeps a row whose acceptance record is live, however old', async () => {
+    await seedVendor('v-live', { claimEndedAt: null });
+    await seedAcceptance('acc-live', 'v-live', { acceptedAt: yearsAgo(10) });
+    await t.db.insert(profiles).values({ id: 'reader-live' });
+    await seedTermsRow('tos-live', 'reader-live');
+    const ancient = yearsAgo(10);
+    const kept = [
+      await seedRow('k-accepted', 'agreement.accepted', ancient, { entityId: 'acc-live' }),
+      await seedRow('k-terms', 'terms.accepted', ancient, { entityId: 'tos-live' }),
+      // One live id is enough.
+      await seedRow('k-linked', 'agreement.linked', ancient, {
+        entityId: 'claim-1',
+        afterState: { acceptance_ids: ['acc-gone', 'acc-live'] },
+      }),
+      await seedRow('k-ev', 'agreement.evidence_removed', ancient, {
+        metadata: { acceptance_ids: ['acc-live'] },
+      }),
+      await seedRow('k-tev', 'terms.evidence_removed', ancient, {
+        metadata: { acceptance_ids: ['tos-live'] },
+      }),
+    ];
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of kept) expect(ids).toContain(id);
+  });
+
+  it('keeps vendor.deleted while only a grant names the deleted company, and account.deleted while a Terms row names the profile', async () => {
+    // v-gone has no vendors row and no acceptance, only a grant never accepted.
+    await seedVendor('v-billing', { claimEndedAt: null });
+    await seedGrant('g-pending', 'v-gone', {
+      status: 'pending_acceptance',
+      billingAccountId: 'ba-v-billing',
+    });
+    const vendorDeleted = await seedVendorDeleted('v-gone', yearsAgo(10));
+    // The profile is gone, its Terms row stays, and its deletion is younger than six years.
+    await seedTermsRow('tos-kept', 'p-deleted');
+    await t.db.insert(auditLog).values({
+      id: 'ad-kept',
+      actorType: 'user',
+      action: 'account.deleted',
+      entityType: 'profile',
+      entityId: 'p-deleted',
+      createdAt: yearsAgo(5),
+    });
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).toContain(vendorDeleted);
+    expect(ids).toContain('ad-kept');
+  });
+
+  it('deletes an account.deleted row with no Terms acceptance at four years, as an ordinary row', async () => {
+    const seed = (id: string, createdAt: string) =>
+      t.db.insert(auditLog).values({
+        id,
+        actorType: 'user',
+        action: 'account.deleted',
+        entityType: 'profile',
+        entityId: `p-${id}`,
+        createdAt,
+      });
+    await seed('ad-old', OLD);
+    await seed('ad-young', YOUNG);
+
+    await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain('ad-old');
+    expect(ids).toContain('ad-young');
+  });
+
+  it('a vendor hold keeps the held company’s orphans, by any tie, and no other row', async () => {
+    for (const v of ['v-a', 'v-b']) await seedVendor(v, { claimEndedAt: null });
+    await t.db.insert(profiles).values({ id: 'seat-a', vendorId: 'v-a', role: 'vendor_admin' });
+    await t.db.insert(profiles).values({ id: 'reader-1' });
+    await seedClaim('claim-a', { status: 'rejected', resolvedAt: yearsAgo(9), targetId: 'v-a' });
+    await seedHold('vendor', 'v-a');
+
+    const held = [
+      await seedRow('h-column', 'agreement.accepted', OLD, { entityId: 'x1', vendorId: 'v-a' }),
+      // A claim-time acceptance: no vendor column, the company only in `after_state`.
+      await seedRow('h-claim', 'agreement.accepted', OLD, {
+        entityId: 'x2',
+        afterState: { vendor_id: null, vendor_request_id: 'claim-a' },
+      }),
+      await seedRow('h-billing', 'agreement.accepted', OLD, {
+        entityId: 'x3',
+        afterState: { billing_account_id: 'ba-v-a' },
+      }),
+      await seedRow('h-after-vendor', 'agreement.accepted', OLD, {
+        entityId: 'x4',
+        afterState: { vendor_id: 'v-a' },
+      }),
+      await seedRow('h-linked', 'agreement.linked', OLD, {
+        entityId: 'claim-a',
+        vendorId: 'v-a',
+        afterState: { acceptance_ids: [] },
+      }),
+      await seedRow('h-seat', 'terms.accepted', OLD, { entityId: 'tos-x', actorId: 'seat-a' }),
+    ];
+    const gone = [
+      await seedRow('g-other', 'agreement.accepted', OLD, { entityId: 'x5', vendorId: 'v-b' }),
+      await seedRow('g-reader', 'terms.accepted', OLD, { entityId: 'tos-y', actorId: 'reader-1' }),
+      // An evidence-removed row names no company: only a global hold keeps it.
+      await seedRow('g-evidence', 'agreement.evidence_removed', OLD, {
+        metadata: { acceptance_ids: ['acc-gone'] },
+      }),
+    ];
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of held) expect(ids).toContain(id);
+    for (const id of gone) expect(ids).not.toContain(id);
+    expect(result).toMatchObject({ status: 'pruned', vendorHolds: 1 });
+  });
+
+  it('a global hold keeps every orphan', async () => {
+    const old = await seedEveryOrphan(OLD, 'old');
+    await seedHold('global', null);
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'litigation_hold' });
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of old) expect(ids).toContain(id);
+  });
+
+  it('deletes companions and orphans of the same vendor in one run, without a replan', async () => {
+    // acc-claim is due this run. Each JSON kind has a companion naming it and an orphan
+    // naming only an acceptance gone before the run, both on the same vendor.
+    await seedVendor('v-two', { claimEndedAt: yearsAgo(8) });
+    await seedAcceptance('acc-claim', 'v-two', { acceptedAt: yearsAgo(10) });
+    const ancient = yearsAgo(10);
+    await seedRow('c-linked', 'agreement.linked', ancient, {
+      entityId: 'claim-1',
+      vendorId: 'v-two',
+      afterState: { acceptance_ids: ['acc-claim'] },
+    });
+    await seedRow('o-linked', 'agreement.linked', ancient, {
+      entityId: 'claim-2',
+      vendorId: 'v-two',
+      afterState: { acceptance_ids: ['acc-gone'] },
+    });
+    await seedRow('c-ev', 'agreement.evidence_removed', ancient, {
+      metadata: { acceptance_ids: ['acc-claim'] },
+    });
+    await seedRow('o-ev', 'agreement.evidence_removed', ancient, {
+      metadata: { acceptance_ids: ['acc-gone'] },
+    });
+
+    const result = await runLegalRetentionPruneWithReplan(t.db, NOW);
+
+    expect(result.status).toBe('pruned');
+    expect(result).not.toHaveProperty('replanned');
+    const ids = (await auditRows()).map((r) => r.id);
+    for (const id of ['c-linked', 'o-linked', 'c-ev', 'o-ev']) expect(ids).not.toContain(id);
+    expect(result.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      companionRowsDeleted: 2,
+      orphanRowsDeleted: 2,
+    });
+  });
+
+  it('aborts and replans when an acceptance goes after the plan read it', async () => {
+    // A row the plan saw as live becomes an orphan before the batch: the count sentinel
+    // must abort rather than delete a row the run record does not name.
+    await seedVendor('v-live', { claimEndedAt: null });
+    await seedAcceptance('acc-live', 'v-live', { acceptedAt: yearsAgo(10) });
+    await seedRow('o-1', 'agreement.accepted', OLD, { entityId: 'acc-gone' });
+    await seedRow('k-1', 'agreement.accepted', OLD, { entityId: 'acc-live' });
+    const batch = t.db.batch.bind(t.db);
+    let first = true;
+    const spy = vi.spyOn(t.db, 'batch').mockImplementation(async (stmts) => {
+      if (first) {
+        first = false;
+        t.raw.prepare(`DELETE FROM agreement_acceptances WHERE id = 'acc-live'`).run();
+      }
+      return batch(stmts);
+    });
+
+    const result = await runLegalRetentionPruneWithReplan(t.db, NOW);
+    spy.mockRestore();
+
+    expect(result).toMatchObject({ status: 'pruned', replanned: true });
+    const ids = (await auditRows()).map((r) => r.id);
+    expect(ids).not.toContain('o-1');
+    expect(ids).not.toContain('k-1');
+  });
+
+  it('continues a truncated orphan plan the next night', async () => {
+    const cap = MAX_CHUNKS_PER_TABLE * PRUNE_CHUNK_ROWS;
+    t.raw
+      .prepare(
+        `WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM s WHERE i < ?)
+         INSERT INTO audit_log (id, actor_type, action, entity_type, entity_id, created_at)
+         SELECT printf('o-%06d', i), 'system', 'agreement.accepted', 'agreement_acceptance', 'acc-gone', ? FROM s`,
+      )
+      .run(cap + 5, OLD);
+
+    const first = await runLegalRetentionPrune(t.db, NOW);
+    expect(first.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      orphanRowsDeleted: cap,
+      truncated: true,
+    });
+    const second = await runLegalRetentionPrune(t.db, NOW);
+    expect(second.tables.find((x) => x.table === 'audit_log')).toMatchObject({
+      orphanRowsDeleted: 5,
+      truncated: false,
+    });
+    const left = t.raw.prepare(`SELECT count(*) AS n FROM audit_log WHERE id LIKE 'o-%'`).get() as {
+      n: number;
+    };
+    expect(left.n).toBe(0);
+  });
+
+  it('leaves the acceptance chain verify with nothing missing', async () => {
+    // acc-old went in an earlier run, which named it in its retention.pruned row. Its
+    // agreement.accepted row is now an orphan. acc-due goes in this run.
+    await seedVendor('v-old', { claimEndedAt: yearsAgo(8) });
+    await seedAcceptance('acc-old', 'v-old', { acceptedAt: yearsAgo(10) });
+    await seedAcceptance('acc-due', 'v-old', { acceptedAt: yearsAgo(10) });
+    await seedRow('o-acc-old', 'agreement.accepted', OLD, { entityId: 'acc-old' });
+    const rawRows = () => ({
+      agreement_acceptances: t.raw.prepare('SELECT * FROM agreement_acceptances').all() as RawRow[],
+      license_grants: t.raw.prepare('SELECT * FROM license_grants').all() as RawRow[],
+    });
+    const before = rawRows();
+    t.raw.prepare(`DELETE FROM agreement_acceptances WHERE id = 'acc-old'`).run();
+    await t.db.insert(auditLog).values({
+      actorType: 'system',
+      action: 'retention.pruned',
+      entityType: 'retention',
+      metadata: {
+        source: 'legal-retention-prune',
+        rowsDeleted: 1,
+        tables: [{ table: 'agreement_acceptances', cutoff: 'x', rowsDeleted: 1, ids: ['acc-old'] }],
+      },
+      createdAt: yearsAgo(1),
+    });
+    const middle = rawRows();
+
+    const result = await runLegalRetentionPrune(t.db, NOW);
+    expect(result.tables.find((x) => x.table === 'audit_log')?.orphanRowsDeleted).toBe(1);
+    const after = rawRows();
+
+    const files: { key: string; bytes: Uint8Array }[] = [];
+    const ledger = new Map<string, PriorRow>();
+    let prev: string | null = null;
+    for (const [i, rows] of [before, middle, after].entries()) {
+      const live = [
+        ...(await fingerprintRows('agreement_acceptances', rows.agreement_acceptances)),
+        ...(await fingerprintRows('license_grants', rows.license_grants)),
+      ];
+      const file: ChainFile = {
+        schema: ACCEPTANCE_CHAIN_SCHEMA,
+        seq: i + 1,
+        day: `2034-06-${String(10 + i).padStart(2, '0')}`,
+        created_at: `2034-06-${String(10 + i).padStart(2, '0')}T18:00:00.000Z`,
+        prev_sha256: prev,
+        fingerprint_version: FINGERPRINT_VERSION,
+        entries: diffRows(live, [...ledger.values()]),
+        state_sha256: await stateSha256(live),
+      };
+      applyEntries(ledger, file.entries);
+      const bytes = serializeChainFile(file);
+      prev = await sha256HexBytes(bytes);
+      files.push({ key: chainKey(file.seq), bytes });
+    }
+    const metadatas = (
+      t.raw.prepare(`SELECT metadata FROM audit_log WHERE action = 'retention.pruned'`).all() as {
+        metadata: string;
+      }[]
+    ).map((r) => r.metadata);
+
+    const verdict = await verifyAcceptanceChain({
+      lockRules: [
+        {
+          name: 'acceptance-chain',
+          enabled: true,
+          prefix: ACCEPTANCE_CHAIN_PREFIX,
+          condition: 'indefinitely',
+        },
+      ],
+      files,
+      d1Rows: after,
+      pruneAuditIds: pruneAuditIds(metadatas),
+    });
+
+    const codes = verdict.findings.filter((f) => f.level !== 'info').map((f) => f.code);
+    expect(codes).toEqual([]);
+    expect(verdict.ok).toBe(true);
   });
 });
 

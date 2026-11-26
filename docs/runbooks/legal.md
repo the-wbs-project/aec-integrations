@@ -437,8 +437,9 @@ production Cloudflare, Supabase, GitHub or PostHog access.
 records four years after the action and acceptance records six years after a vendor account ends
 (ADR 0058). Since AECI-1914 it also deletes an acceptance of a claim never approved six years
 after the claim was rejected, an acceptance with no company or claim six years after it was given,
-and the acceptances of a deleted company six years after the deletion. A litigation hold is its
-off switch, and the only one any job has.
+and the acceptances of a deleted company six years after the deletion. Since AECI-1971 it also
+deletes, four years after the action, an acceptance audit record that no acceptance names any
+more. A litigation hold is its off switch, and the only one any job has.
 
 1. Open `/admin/legal` and scroll to **Litigation holds**. Choose **Place a hold**.
 2. Pick the scope. For any real legal process, start with **Everything (global)**. Narrow it to
@@ -459,7 +460,8 @@ off switch, and the only one any job has.
    keeps that vendor's agreement acceptances and subscription grants, including the acceptances of a
    rejected claim on that company and of a deleted company with that id. An acceptance with no
    company or claim, such as a listing request's, has no vendor to hold: only a global hold keeps
-   it. A vendor hold also keeps that company's workflow history, the record of who moved its
+   it. An evidence-removed audit record whose acceptances are gone names no company either, so
+   only a global hold keeps it (AECI-1971). A vendor hold also keeps that company's workflow history, the record of who moved its
    claims, contests, review moderation and seat bans, by the same kind of ties (AECI-1913,
    `docs/DATABASE_SCHEMA.md` §8.4). A global hold keeps everything: the
    nightly run records `skipped`. Check the next morning: `/admin/system` shows the

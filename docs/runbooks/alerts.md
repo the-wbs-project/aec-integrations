@@ -1780,8 +1780,14 @@ also deletes a Terms of Service acceptance (`terms_acceptances`) six years after
 deleted, dated by the account's `account.deleted` row, which goes in the same batch as the
 account's last Terms acceptance. Since AECI-1913 it also deletes workflow history four years after
 the action: a `workflow_transitions` row once it is four years old, and a `workflow_instances` row,
-with its transitions, once its latest action is. It writes one `retention.pruned` row
-per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
+with its transitions, once its latest action is. Since AECI-1971 (ruling 60) the exempt
+`agreement.*` and `terms.*` rows end too: one that no acceptance names any more, because its
+acceptance was already gone or its id list is empty, malformed or names no live row, goes four
+years after the action. These orphans go first in the batch, and only a global hold keeps an
+orphan that names no company. The `audit_log` entry of the run record and of `job_runs.detail`
+counts them as `orphanRowsDeleted`, inside `rowsDeleted`, beside `companionRowsDeleted`. It
+writes one `retention.pruned` row per run with `metadata.source = 'legal-retention-prune'`, and
+lists the acceptance and grant ids in it.
 Nothing falls due before about 2030.
 
 **Metrics:**
@@ -1796,8 +1802,9 @@ Nothing falls due before about 2030.
   `agreement_acceptances`, `license_grants`, `litigation_holds` (holds released four years
   ago), `terms_acceptances`, `workflow_instances` and `workflow_transitions` (cascaded rows
   included), every run, zeros included.
-- `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, 200
-  acceptances, 200 grants, 200 Terms acceptances, 200 workflow instances, 200 direct workflow
+- `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, and
+  10,000 more for the orphan part, 200 acceptances, 200 grants, 200 Terms acceptances, 200
+  workflow instances, 200 direct workflow
   transitions). The next night continues.
 
 **Skipped is expected while a global hold is open.** Check `/admin/legal` "Litigation holds". If no
