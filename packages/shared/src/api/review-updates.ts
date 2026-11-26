@@ -131,10 +131,10 @@ export const AdminReviewUpdateSchema = z.object({
   rejection_reason: z.string().nullable(),
   /** The moderation triage signal, as on reviews. `null` when unscored. */
   toxicity_score: z.number().nullable(),
-  /** `null` when the review was anonymized or the GoTrue seam is unavailable. */
   /** AECI-1949: the reviewer's profile id, for the link to `/admin/users/:id`.
    *  `null` once the account is erased. Optional for deploy skew. */
   reviewer_id: z.string().uuid().nullable().optional(),
+  /** `null` when the review was anonymized or the GoTrue seam is unavailable. */
   reviewer_email: z.string().nullable(),
   product: ProductLinkSchema,
   /** The original review, exactly as it was published. */
