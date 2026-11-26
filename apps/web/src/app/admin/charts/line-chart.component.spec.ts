@@ -39,7 +39,7 @@ function moves(d: string): number {
 }
 
 function tableRows(el: HTMLElement): string[][] {
-  return [...el.querySelectorAll('table.sr-only tbody tr')].map((r) =>
+  return [...el.querySelectorAll('aec-chart-data-table tbody tr')].map((r) =>
     [...r.children].map((c) => (c.textContent ?? '').trim()),
   );
 }
@@ -174,6 +174,36 @@ describe('LineChart gaps (AECI-822)', () => {
     fixture.detectChanges();
     expect(tooltip()).toContain('20%');
     expect(tooltip()).not.toContain('so far');
+  });
+
+  // AECI-2125's relief legend writes a low-contrast series' latest value. With a
+  // gap or a rate, that value follows the table: never a 0 for a null, and in
+  // the chart's own unit.
+  function reliefLegend(el: HTMLElement): string[] {
+    const legend = el.querySelector('aec-chart-legend');
+    return legend
+      ? [...legend.querySelectorAll('li span:not([aria-hidden])')].map(
+          (s) => s.textContent?.trim() ?? '',
+        )
+      : [];
+  }
+
+  it('a relief legend prints the gap label, not 0, when the last value is null', () => {
+    const el = render({
+      series: [{ ...series([5, 4, 3, 2, 1, null]), slot: 4 }],
+      gapLabel: 'Not recorded',
+    });
+    expect(reliefLegend(el)).toEqual(['google', 'Not recorded']);
+  });
+
+  it('a relief legend prints a percent chart in percent, with the open-week label', () => {
+    const el = render({
+      series: [{ ...series([0.1, 0.2, 0.3, 0.2, 0.1, 0.27]), slot: 3 }],
+      unit: 'percent',
+      openLast: true,
+      openLabel: 'so far',
+    });
+    expect(reliefLegend(el)).toEqual(['google', '27% so far']);
   });
 
   it('a percent axis always runs to 100%', () => {

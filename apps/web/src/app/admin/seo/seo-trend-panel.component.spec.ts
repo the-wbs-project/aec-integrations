@@ -124,7 +124,7 @@ function text(el: Element | null | undefined): string {
 
 /** The visible week table, not the charts' hidden ones. */
 function weekTable(el: HTMLElement): HTMLTableElement {
-  const t = [...el.querySelectorAll('table')].find((x) => !x.classList.contains('sr-only'));
+  const t = [...el.querySelectorAll('table')].find((x) => !x.closest('aec-chart-data-table'));
   if (!t) throw new Error('No week table');
   return t;
 }
@@ -236,13 +236,13 @@ describe('SeoTrendPanel', () => {
     const charts = el.querySelectorAll('aec-line-chart');
     expect(charts).toHaveLength(2);
 
-    const rateRows = [...charts[0]!.querySelectorAll('table.sr-only tbody tr')].map((r) =>
+    const rateRows = [...charts[0]!.querySelectorAll('aec-chart-data-table tbody tr')].map((r) =>
       [...r.children].map((c) => text(c)),
     );
     expect(rateRows[3]).toEqual(['23 Nov', 'No pages published', 'No pages published']);
     expect(rateRows[4]).toEqual(['30 Nov', '27% so far', '60% so far']);
 
-    const depthRows = [...charts[1]!.querySelectorAll('table.sr-only tbody tr')].map((r) =>
+    const depthRows = [...charts[1]!.querySelectorAll('aec-chart-data-table tbody tr')].map((r) =>
       [...r.children].map((c) => text(c)),
     );
     expect(depthRows[0]).toEqual(['2 Nov', 'Not recorded', 'Not recorded']);

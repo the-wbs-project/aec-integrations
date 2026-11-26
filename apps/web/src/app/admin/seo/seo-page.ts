@@ -30,11 +30,7 @@ import { SeoTrendPanel } from './seo-trend-panel';
   template: `
     <section aria-labelledby="admin-seo-heading" class="space-y-12">
       <div>
-        <h2
-          id="admin-seo-heading"
-          class="text-xl font-bold text-(--text-primary)"
-          i18n="@@admin.seo.heading"
-        >
+        <h2 id="admin-seo-heading" class="text-(--text-primary)" i18n="@@admin.seo.heading">
           Search
         </h2>
         <p
