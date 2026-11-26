@@ -46,6 +46,17 @@ const legalSwitchedResolver: ResolveFn<boolean> = (route) => {
   );
 };
 
+/**
+ * AECI-2237 — every slug's answer for the `/legal` index, decided as each document page
+ * decides its own. Lazy for the same reason as `legalSwitchedResolver`.
+ */
+const legalSwitchedAllResolver: ResolveFn<Readonly<Record<string, boolean>>> = () => {
+  const injector = inject(Injector);
+  return import('./legal/legal-in-force.resolver').then((m) =>
+    runInInjectionContext(injector, () => m.resolveLegalSwitchedAll()),
+  );
+};
+
 export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
   // page (both via the service binding; hydration reads from TransferState):
@@ -648,6 +659,15 @@ export const routes: Routes = [
   {
     path: 'docs',
     loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),
+  },
+  // AECI-2237 — the `/legal` index: one row per document, linking its page, with the
+  // version in force and its effective date. Same `/legal/*` cache rules, indexable,
+  // in `sitemap.xml`. `legalSwitched` here is every slug's answer.
+  {
+    path: 'legal',
+    pathMatch: 'full',
+    loadComponent: () => import('./legal/legal-index').then((m) => m.LegalIndexPage),
+    resolve: { legalSwitched: legalSwitchedAllResolver },
   },
   // AECI-237 — Phase 7.2 legal pages. Four counsel-tracked documents
   // (`STAGE_1_SPEC.md` §13/§27) rendered from Markdown (`src/content/legal/`) by

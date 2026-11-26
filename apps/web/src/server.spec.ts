@@ -464,6 +464,11 @@ describe('legal effective-moment TTL (AECI-1689)', () => {
       edge: 60,
       browser: 0,
     });
+    // AECI-2237: the `/legal` index shows the version in force too.
+    expect(legalPageTtl(STATIC_TTL, '/legal', moment, true, [entry], [])).toEqual({
+      edge: 60,
+      browser: 0,
+    });
   });
 
   it("today's data: the /legal/* TTL is the route's", () => {

@@ -121,7 +121,7 @@ describe('SiteFooter', () => {
     expect(link?.textContent?.trim()).toBe('Vendor guide');
   });
 
-  it('carries all six Legal pages, then the accessibility statement once published (AECI-1673, AECI-1687)', () => {
+  it('carries all six Legal pages, the accessibility statement once published, then the index (AECI-1673, AECI-1687, AECI-2237)', () => {
     expect(column(render(), 'Legal')).toEqual([
       '/legal/terms',
       '/legal/privacy',
@@ -130,6 +130,7 @@ describe('SiteFooter', () => {
       '/legal/vendor-terms',
       '/legal/managed-plan-agreement',
       ...(ACCESSIBILITY_STATEMENT_PUBLISHED ? ['/accessibility'] : []),
+      '/legal',
       '/third-party-notices.txt',
     ]);
   });

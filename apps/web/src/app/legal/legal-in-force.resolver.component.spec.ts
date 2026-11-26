@@ -24,9 +24,11 @@ import { type ServerApiClient } from '../../server-api-client';
 import { createRequestContext, type AeciRequestContext } from '../../server/request-context';
 import {
   LEGAL_PUBLISHED_PATH,
+  decideAllOnServer,
   decideOnServer,
   legalSwitchedKey,
   resolveLegalSwitched,
+  resolveLegalSwitchedAll,
 } from './legal-in-force.resolver';
 import type { LegalUpcomingEntry } from './legal-manifest';
 import { LEGAL_UPCOMING_ENTRIES } from './legal-upcoming-token';
@@ -74,6 +76,7 @@ function setup(opts: {
     http: TestBed.inject(HttpTestingController),
     run: (route: ActivatedRouteSnapshot) =>
       TestBed.runInInjectionContext(() => resolveLegalSwitched(route)),
+    runAll: () => TestBed.runInInjectionContext(() => resolveLegalSwitchedAll()),
   };
 }
 
@@ -174,5 +177,82 @@ describe('browser (invariant 4)', () => {
       .expectOne(LEGAL_PUBLISHED_PATH)
       .flush('down', { status: 503, statusText: 'Service Unavailable' });
     expect(await pending).toBe(false);
+  });
+});
+
+// AECI-2237: the `/legal` index asks for every slug at once.
+describe('every slug at once (the /legal index)', () => {
+  const BOTH_ROWS: LegalPublishedResponse = {
+    now: new Date(MOMENT).toISOString(),
+    published: [
+      { document: 'vendor_terms', version: '1.4', effective_at: new Date(MOMENT).toISOString() },
+      {
+        document: 'listing_accuracy',
+        version: '1.1',
+        effective_at: new Date(MOMENT).toISOString(),
+      },
+    ],
+  };
+
+  it.each(['server', 'browser'] as const)('%s: no entry, no read, no key', async (platform) => {
+    const ctx = ctxWith(() => Promise.reject(new Error('no read expected')));
+    const t = setup({ platform, upcoming: [], ctx });
+    expect(await t.runAll()).toEqual({});
+    t.http.expectNone(LEGAL_PUBLISHED_PATH);
+    expect(t.transferState.isEmpty).toBe(true);
+  });
+
+  it('server: one read decides every entry, and each answer is transferred under its key', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(MOMENT);
+    const request = vi.fn(() => Promise.resolve(BOTH_ROWS));
+    const ctx = createRequestContext({ request: request as ServerApiClient['request'] });
+    const t = setup({ platform: 'server', upcoming: [VT, LA], ctx });
+    expect(await t.runAll()).toEqual({ 'vendor-terms': true, 'listing-accuracy': true });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(t.transferState.get(legalSwitchedKey(VT), false)).toBe(true);
+    expect(t.transferState.get(legalSwitchedKey(LA), false)).toBe(true);
+  });
+
+  it('server: before the moment nothing is read', async () => {
+    const request = vi.fn(() => Promise.resolve(BOTH_ROWS));
+    const ctx = createRequestContext({ request: request as ServerApiClient['request'] });
+    expect(await decideAllOnServer([VT, LA], MOMENT - 1, ctx)).toEqual({
+      'vendor-terms': false,
+      'listing-accuracy': false,
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('server: a failed read answers false for every entry and flags the request', async () => {
+    const ctx = ctxWith(() => Promise.reject(new Error('binding down')));
+    expect(await decideAllOnServer([VT, LA], MOMENT, ctx)).toEqual({
+      'vendor-terms': false,
+      'listing-accuracy': false,
+    });
+    expect(ctx.legalStateUncertain).toBe(true);
+  });
+
+  it('browser: hydrates to the transferred answers and reads nothing', async () => {
+    const t = setup({ platform: 'browser', upcoming: [VT, LA] });
+    t.transferState.set(legalSwitchedKey(VT), true);
+    t.transferState.set(legalSwitchedKey(LA), false);
+    expect(await t.runAll()).toEqual({ 'vendor-terms': true, 'listing-accuracy': false });
+    t.http.expectNone(LEGAL_PUBLISHED_PATH);
+    expect(t.transferState.isEmpty).toBe(true);
+  });
+
+  it('browser: on navigation, one read with the API clock; a failed read is false', async () => {
+    const t = setup({ platform: 'browser', upcoming: [VT, LA] });
+    const pending = t.runAll();
+    t.http.expectOne(LEGAL_PUBLISHED_PATH).flush(BOTH_ROWS);
+    expect(await pending).toEqual({ 'vendor-terms': true, 'listing-accuracy': true });
+
+    const t2 = setup({ platform: 'browser', upcoming: [VT, LA] });
+    const failed = t2.runAll();
+    t2.http
+      .expectOne(LEGAL_PUBLISHED_PATH)
+      .flush('down', { status: 503, statusText: 'Service Unavailable' });
+    expect(await failed).toEqual({ 'vendor-terms': false, 'listing-accuracy': false });
   });
 });

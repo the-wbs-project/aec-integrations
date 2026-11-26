@@ -27,6 +27,7 @@ The mapping lives in `LEGAL_SOURCE_FILES` (`app/legal/legal-slugs.ts`, re-export
 
 | Route (public)                  | Source file                   | Frontmatter `title`     |
 | ------------------------------- | ----------------------------- | ----------------------- |
+| `/legal` (index, AECI-2237)     | none: one row per slug below  | Legal                   |
 | `/legal/terms`                  | `terms-of-service.md`         | Terms of Service        |
 | `/legal/privacy`                | `privacy-policy.md`           | Privacy Policy          |
 | `/legal/review-guidelines`      | `review-guidelines.md`        | Review Guidelines       |

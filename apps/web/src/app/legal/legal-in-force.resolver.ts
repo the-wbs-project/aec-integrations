@@ -96,17 +96,96 @@ export async function decideOnServer(
   nowMs: number,
   ctx: AeciRequestContext | null,
 ): Promise<boolean> {
-  if (!legalEntryMomentReached(entry, nowMs)) return false;
-  if (publishableOfSlug(entry.slug as LegalSlug) === undefined) return true;
-  if (!ctx) return false;
-  let published: LegalPublishedLite[];
-  try {
-    const res = await ctx.api.request<LegalPublishedResponse>(LEGAL_PUBLISHED_PATH);
-    published = legalPublishedLiteOf(res.published);
-  } catch {
-    // Fail safe: keep the old version current, and keep this page out of the long cache.
-    ctx.legalStateUncertain = true;
-    return false;
+  const answers = await decideAllOnServer([entry], nowMs, ctx);
+  return answers[entry.slug as LegalSlug] === true;
+}
+
+/** Each slug's answer. A slug with no upcoming entry is absent, which reads as `false`. */
+export type LegalSwitchedMap = Readonly<Partial<Record<LegalSlug, boolean>>>;
+
+/**
+ * The server branch for several entries at once (AECI-2237, the `/legal` index). Each
+ * entry is decided as {@link decideOnServer} decides it, and every entry that needs the
+ * published rows shares one read. A failed read answers `false` for each of them and
+ * flags the request, so the page is cached for a minute.
+ */
+export async function decideAllOnServer(
+  entries: readonly LegalUpcomingEntry[],
+  nowMs: number,
+  ctx: AeciRequestContext | null,
+): Promise<LegalSwitchedMap> {
+  const answers: Partial<Record<LegalSlug, boolean>> = {};
+  const needRead: LegalUpcomingEntry[] = [];
+  for (const entry of entries) {
+    const slug = entry.slug as LegalSlug;
+    if (!legalEntryMomentReached(entry, nowMs)) answers[slug] = false;
+    else if (publishableOfSlug(slug) === undefined) answers[slug] = true;
+    else needRead.push(entry);
   }
-  return legalEntrySwitched(entry, published, nowMs);
+  if (needRead.length === 0) return answers;
+  let published: LegalPublishedLite[] | null = null;
+  if (ctx) {
+    try {
+      const res = await ctx.api.request<LegalPublishedResponse>(LEGAL_PUBLISHED_PATH);
+      published = legalPublishedLiteOf(res.published);
+    } catch {
+      // Fail safe: keep the old version current, and keep this page out of the long cache.
+      ctx.legalStateUncertain = true;
+    }
+  }
+  for (const entry of needRead) {
+    answers[entry.slug as LegalSlug] =
+      published !== null && legalEntrySwitched(entry, published, nowMs);
+  }
+  return answers;
+}
+
+/**
+ * The `legalSwitched` data of the `/legal` index (AECI-2237): every slug's answer, decided
+ * as each document page decides its own, under the same `TransferState` keys. Call it
+ * inside an injection context: every `inject` runs before the first `await`.
+ */
+export function resolveLegalSwitchedAll(): Promise<LegalSwitchedMap> {
+  const platformId = inject(PLATFORM_ID);
+  const transferState = inject(TransferState);
+  const upcoming = inject(LEGAL_UPCOMING_ENTRIES);
+  if (upcoming.length === 0) return Promise.resolve({});
+
+  if (!isPlatformServer(platformId)) {
+    const answers: Partial<Record<LegalSlug, boolean>> = {};
+    const missing: LegalUpcomingEntry[] = [];
+    for (const entry of upcoming) {
+      const key = legalSwitchedKey(entry);
+      if (transferState.hasKey(key)) {
+        answers[entry.slug as LegalSlug] = transferState.get(key, false);
+        transferState.remove(key);
+      } else {
+        missing.push(entry);
+      }
+    }
+    if (missing.length === 0) return Promise.resolve(answers);
+    const http = inject(HttpClient);
+    return firstValueFrom(http.get<LegalPublishedResponse>(LEGAL_PUBLISHED_PATH)).then(
+      (res) => {
+        const published = legalPublishedLiteOf(res.published);
+        const nowMs = Date.parse(res.now);
+        for (const entry of missing) {
+          answers[entry.slug as LegalSlug] = legalEntrySwitched(entry, published, nowMs);
+        }
+        return answers;
+      },
+      () => {
+        for (const entry of missing) answers[entry.slug as LegalSlug] = false;
+        return answers;
+      },
+    );
+  }
+
+  const ctx = inject(REQUEST_CONTEXT, { optional: true }) as AeciRequestContext | null;
+  return decideAllOnServer(upcoming, Date.now(), ctx).then((answers) => {
+    for (const entry of upcoming) {
+      transferState.set(legalSwitchedKey(entry), answers[entry.slug as LegalSlug] === true);
+    }
+    return answers;
+  });
 }

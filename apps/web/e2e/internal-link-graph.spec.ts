@@ -233,12 +233,10 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
 // the gate).
 //
 //   /auth/*   — Phase 5 (Auth & reviews): site-header "Sign in" CTA
-//   /legal/*  — Phase 7 (legal): site-footer Terms / Privacy / Review guidelines /
-//               Listing accuracy
 //   /contact  — Phase 7: site-footer Contact
 //   /about    — Phase 7: about page (no current link; kept for when it lands)
 // ---------------------------------------------------------------------------
-const EXPECTED_PENDING_PREFIXES = ['/auth', '/legal', '/contact', '/about'] as const;
+const EXPECTED_PENDING_PREFIXES = ['/auth', '/contact', '/about'] as const;
 
 function isExpectedPending(pathname: string): boolean {
   const p = stripLocale(pathname);
