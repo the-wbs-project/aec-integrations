@@ -686,6 +686,14 @@ export function rowPill(
   claim: VendorClaim,
   company: string | null,
 ): RowPill {
+  // AECI-2139: AECi corrected this flow on a public source, so no public page shows it,
+  // whatever the owner answered.
+  if (claim.aeci_corrected) {
+    return {
+      label: $localize`:@@vendor.im.row.removedByAeci:Removed by AEC Integrations`,
+      tone: 'neutral',
+    };
+  }
   if (!integration.attestable) {
     // AECI-2039: "Checked by AEC Integrations" was not true on a claimed row. On a
     // claimed Sync Service row the owner answers; elsewhere AECi listed the row.

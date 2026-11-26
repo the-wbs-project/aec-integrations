@@ -46,6 +46,14 @@ export type FieldCaption = z.infer<typeof FieldCaptionSchema>;
  * The page then reads "Removed by AEC Integrations on {date}" in the value's empty slot.
  * Defaulted for deploy skew: an older API reads as a value-setting correction.
  */
+/**
+ * AECI-2139: the `field` of a correction line for one DATA FLOW on a pair mechanism, AECi's
+ * correction of a flow on a claimed Sync Service pair. `cleared` is true for a removal
+ * ("A data flow: Removed by…") and false for a direction correction ("Corrected by…"). It
+ * names no data type, so a removed flow still shows nowhere on the page.
+ */
+export const DATA_FLOW_CORRECTION_FIELD = 'data_flow';
+
 export const FieldCorrectionSchema = z.object({
   field: z.string(),
   date: z.string(),

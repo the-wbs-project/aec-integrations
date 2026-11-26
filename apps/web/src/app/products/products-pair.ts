@@ -4,7 +4,12 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import { canonicalPairIds, distinctDataObjectSlugs, isHttpUrl } from '@aeci/shared';
+import {
+  DATA_FLOW_CORRECTION_FIELD,
+  canonicalPairIds,
+  distinctDataObjectSlugs,
+  isHttpUrl,
+} from '@aeci/shared';
 import type {
   ContextDirection,
   FieldCorrection,
@@ -1787,7 +1792,15 @@ export class ProductsPairPage {
               review_count: m.connector_rating.review_count,
             }
           : null,
-      corrections: correctionsInSlots(m.corrections, this.correctionSlots(m)),
+      // AECI-2139: a data flow correction has no slot on the card. Its flow is gone, or
+      // listed the right way, so the line always points at something true.
+      corrections: [
+        ...correctionsInSlots(
+          m.corrections?.filter((c) => c.field !== DATA_FLOW_CORRECTION_FIELD),
+          this.correctionSlots(m),
+        ),
+        ...(m.corrections ?? []).filter((c) => c.field === DATA_FLOW_CORRECTION_FIELD),
+      ],
       descriptionUnderReview: isUnderReview(m.under_review, 'description'),
       underReview: (m.under_review ?? [])
         .filter((field) => field !== 'description')

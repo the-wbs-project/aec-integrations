@@ -1,7 +1,9 @@
+import { formatDate } from '@angular/common';
 import {
   Component,
   ElementRef,
   Injector,
+  LOCALE_ID,
   afterNextRender,
   computed,
   inject,
@@ -17,12 +19,18 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 
-import type { ContextDirection, DataObjectOption, OwnedFlow } from '@aeci/shared';
+import {
+  isHttpsUrl,
+  type ContextDirection,
+  type DataObjectOption,
+  type OwnedFlow,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecButton } from '../../shared/button/button';
 import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { ownedFlowRowId } from '../integration-detail/integration-detail-model';
 import {
   ALERT,
@@ -80,6 +88,11 @@ type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
  * the same type. The API confirms the existing claim (`200`). The portal no longer
  * calls `DELETE …/answer`.
  *
+ * AECI-2139: a flow AEC Integrations corrected on a public source (`aeci_correction`)
+ * stays as a locked row, even under the owner's No: the cell says AECi removed it, with
+ * the date, the reason and the source, and the row has no Actions menu. Add a row refuses
+ * its identity. The API refuses every owner write on it (`409 FLOW_CORRECTED_BY_AECI`).
+ *
  * The "On the public page" cell reads the server's `public` (AECI-2213, the pair
  * read's `isClaimPubliclyBacked`) and, for a public unanswered flow, mirrors the pair
  * page badge for its `agreement` (`products/agreement-badge.ts`).
@@ -109,6 +122,7 @@ type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
     BrnDialogTitle,
     CloseOnEscape,
     KeepClearOfSaveBar,
+    NewTabIcon,
     OwnedFlowHistoryDialog,
     RowActionsMenu,
   ],
@@ -365,15 +379,46 @@ type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
                     class="py-2 pe-4 text-(--text-secondary)"
                     [attr.data-testid]="'owned-flow-public-' + flow.id"
                   >
-                    {{ publicLine(flow) }}
+                    @if (flow.aeci_correction; as correction) {
+                      <!-- AECI-2139: AECi corrected this flow on a public source. The owner
+                           reads why and where, and the row offers no actions. -->
+                      <span class="block font-semibold text-(--text-primary)">{{
+                        correctedLine(correction.created_at)
+                      }}</span>
+                      <span class="mt-1 block max-w-prose">{{
+                        reasonLine(correction.reason)
+                      }}</span>
+                      @if (sourceHref(correction.source_url); as href) {
+                        <a
+                          [href]="href"
+                          target="_blank"
+                          rel="noopener nofollow"
+                          [class]="sourceLink"
+                          [attr.data-testid]="'owned-flow-source-' + flow.id"
+                          ><span i18n="@@vendor.ownedFlows.corrected.source">Read the source</span
+                          ><aec-new-tab-icon
+                        /></a>
+                      }
+                    } @else {
+                      {{ publicLine(flow) }}
+                    }
                   </td>
                   <td class="py-1 text-end">
-                    <aec-row-actions-menu
-                      [label]="actionsLabel(flow)"
-                      [actions]="actionsFor(flow)"
-                      [testId]="'owned-flow-actions-' + flow.id"
-                      (picked)="onPick(flow, $event)"
-                    />
+                    @if (flow.aeci_correction) {
+                      <span
+                        class="text-t-13 text-(--text-secondary)"
+                        [attr.data-testid]="'owned-flow-locked-' + flow.id"
+                        i18n="@@vendor.ownedFlows.corrected.noActions"
+                        >No actions</span
+                      >
+                    } @else {
+                      <aec-row-actions-menu
+                        [label]="actionsLabel(flow)"
+                        [actions]="actionsFor(flow)"
+                        [testId]="'owned-flow-actions-' + flow.id"
+                        (picked)="onPick(flow, $event)"
+                      />
+                    }
                   </td>
                 </tr>
               }
@@ -451,6 +496,7 @@ export class VendorOwnedFlows {
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly locale = inject(LOCALE_ID);
 
   /** By ref: `BrnPopover` extends `BrnDialog`, so a type query could find a menu. */
   private readonly removeDialog = viewChild<BrnDialog>('removeDialog');
@@ -481,13 +527,21 @@ export class VendorOwnedFlows {
   protected readonly grid = PORTAL_FORM_GRID_CLASS;
   protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
   protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
+  /** The citation role (DESIGN.md, "The Link Treatment Rule"). */
+  protected readonly sourceLink =
+    'mt-1 inline-flex items-center gap-1 rounded-mark text-t-13 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly addFormLabel = $localize`:@@vendor.ownedFlows.addForm:Add a row of data`;
 
   protected readonly prefix = computed(() => `owned-flows-${this.row().id}`);
   protected readonly headingId = computed(() => `${this.prefix()}-heading`);
 
-  /** What is true now: every flow the owner has not removed. */
-  protected readonly shownFlows = computed(() => this.row().flows.filter((f) => f.answer !== 'no'));
+  /**
+   * What is true now: every flow the owner has not removed, and every flow AECi
+   * corrected (AECI-2139). A corrected flow stays as a locked row, so the owner reads why.
+   */
+  protected readonly shownFlows = computed(() =>
+    this.row().flows.filter((f) => f.answer !== 'no' || !!f.aeci_correction),
+  );
 
   protected readonly heading = computed(() => {
     const n = this.shownFlows().length;
@@ -525,6 +579,12 @@ export class VendorOwnedFlows {
     const slug = this.draftData();
     if (!slug) return null;
     const direction = this.draftDirection();
+    // AECI-2139: AECi corrected this flow. Adding it again would undo that, so the API
+    // refuses it. Say so before the request.
+    const corrected = this.row().flows.find(
+      (f) => f.data_object_slug === slug && f.direction === direction && !!f.aeci_correction,
+    );
+    if (corrected) return { flow: corrected, exact: true };
     const shown = this.shownFlows().filter((f) => f.data_object_slug === slug);
     if (shown.length === 0) return null;
     const exact = shown.find((f) => f.direction === direction);
@@ -561,6 +621,9 @@ export class VendorOwnedFlows {
 
   protected duplicateText(dup: { flow: OwnedFlow; exact: boolean }): string {
     const data = dup.flow.data_object_name;
+    if (dup.flow.aeci_correction) {
+      return $localize`:@@vendor.ownedFlows.add.corrected:AEC Integrations removed ${data}:data: in this direction. You cannot add it back.`;
+    }
     return dup.exact
       ? $localize`:@@vendor.ownedFlows.add.duplicateExact:${data}:data: is already listed in this direction.`
       : $localize`:@@vendor.ownedFlows.add.duplicate:${data}:data: is already listed. Use Change direction on its row.`;
@@ -620,6 +683,26 @@ export class VendorOwnedFlows {
       default:
         return $localize`:@@vendor.ownedFlows.publicCell.listed:Listed by AEC Integrations`;
     }
+  }
+
+  /** AECI-2139: the locked row's first line, dated in UTC like every public caption. */
+  protected correctedLine(at: string): string {
+    const parsed = new Date(at);
+    const date = Number.isNaN(parsed.getTime())
+      ? null
+      : formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
+    return date
+      ? $localize`:@@vendor.ownedFlows.corrected.dated:AEC Integrations removed this data flow on ${date}:date:`
+      : $localize`:@@vendor.ownedFlows.corrected:AEC Integrations removed this data flow`;
+  }
+
+  protected reasonLine(reason: string): string {
+    return $localize`:@@vendor.ownedFlows.corrected.reason:Reason: ${reason}:reason:`;
+  }
+
+  /** https only. A stored value that is anything else renders no link. */
+  protected sourceHref(url: string | null | undefined): string | null {
+    return url && isHttpsUrl(url) ? url : null;
   }
 
   protected selectValue(event: Event): string {
@@ -775,10 +858,15 @@ export class VendorOwnedFlows {
     try {
       await write();
       await this.store.revalidate(['integrations']);
-    } catch {
+    } catch (err) {
+      const code = (err as { error?: { error?: { code?: unknown } } } | null)?.error?.error?.code;
       this.error.set(
-        $localize`:@@vendor.ownedFlows.error:That change could not be saved. Reload the page and try again.`,
+        code === 'FLOW_CORRECTED_BY_AECI'
+          ? $localize`:@@vendor.ownedFlows.error.corrected:AEC Integrations corrected this data flow on a public source, so it cannot be changed here. Contact AEC Integrations if the correction is wrong.`
+          : $localize`:@@vendor.ownedFlows.error:That change could not be saved. Reload the page and try again.`,
       );
+      // The list now shows the correction.
+      if (code === 'FLOW_CORRECTED_BY_AECI') void this.store.revalidate(['integrations']);
     } finally {
       this.busy.set(null);
     }

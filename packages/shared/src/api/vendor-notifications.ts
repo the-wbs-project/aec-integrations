@@ -303,6 +303,13 @@ export type VendorReviewUpdateNotification = z.infer<typeof VendorReviewUpdateNo
  *   - `field_hide_cleared` (AECI-1238): the value is back on the public page, or AECi
  *     replaced it. `hide_clear_kind` says how. A vendor's own edit that ends the hide
  *     writes no notice: the vendor did it.
+ *   - `flow_corrected` (AECI-2139, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10): AECi removed
+ *     one data flow (`data_object_name`) from the owner's Sync Service integration, on
+ *     the public source in `source_url`. `flow_redirected` is true when AECi also listed
+ *     it in the right direction. The rest of the integration stays listed, and the
+ *     owner cannot undo it. Goes to the row's owner.
+ *   - `flow_correction_lifted` (AECI-2139): AECi lifted that correction. The owner
+ *     maintains the flow again. `reason` is the lift reason.
  */
 export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'field_overridden',
@@ -317,6 +324,8 @@ export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'listing_restored',
   'field_hidden',
   'field_hide_cleared',
+  'flow_corrected',
+  'flow_correction_lifted',
 ] as const;
 export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
 
@@ -381,6 +390,12 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   /** AECI-1238, `field_hide_cleared`: `restored` (the value stands) or `corrected`
    *  (AECi replaced it). `null` on every other event. */
   hide_clear_kind: z.enum(['restored', 'corrected']).nullable().default(null),
+  /** AECI-2139, `flow_corrected` and `flow_correction_lifted`: the flow's data type and
+   *  the public source AECi read. `null` on every other event. */
+  data_object_name: z.string().nullable().default(null),
+  source_url: z.string().nullable().default(null),
+  /** AECI-2139, `flow_corrected`: AECi also listed the flow in the right direction. */
+  flow_redirected: z.boolean().default(false),
   created_at: z.string(),
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;

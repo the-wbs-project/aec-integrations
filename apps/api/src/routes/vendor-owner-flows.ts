@@ -41,6 +41,15 @@
  * connector's `product:` tag, and queue the pair re-crawl. Claims do not feed Algolia.
  *
  * Promote is untouched: it writes nothing to a claimed row, its claims included.
+ *
+ * ── AECi'S CORRECTION (AECI-2139) ───────────────────────────────────────────
+ * A flow AECi corrected on a public source (`claim_aeci_corrections`) is not the
+ * owner's to change. Every write that touches one answers `409 FLOW_CORRECTED_BY_AECI`
+ * and writes nothing: set or clear the answer, change its direction, an add that lands
+ * on its identity, and the owner's accept of a data flow report (`planOwnerFlowChange`).
+ * The batch carries `noLiveCorrectionSentinel`, so a correction that lands between the
+ * read and the commit aborts it too. The replacement flow a direction correction listed
+ * is an ordinary flow: the owner may answer it.
  */
 
 import {
@@ -80,6 +89,12 @@ import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
 import { loadDataObjectResolver } from '../lib/data-object-vocabulary';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  anyLiveCorrection,
+  flowCorrectedError,
+  liveCorrectionOf,
+  noLiveCorrectionSentinel,
+} from '../lib/flow-corrections';
+import {
   evidencedOwnerWriteWhere,
   isOwnerWriteRaceError,
   ownerWriteSentinel,
@@ -90,14 +105,16 @@ import {
   loadOwnedFlows,
   loadOwnerFlowHistoryRows,
   ownerFlowContextOf,
+  ownerFlowPurgeTags,
+  ownerFlowTargetSlugs,
   resolveOwnerFlowClaim,
   resolveOwnerFlowTarget,
   type OwnerFlowHistoryAnswer,
   type OwnerFlowHistoryClaim,
   type OwnerFlowTarget,
+  type OwnerFlowTargetSlugs,
 } from '../lib/owner-flows';
 import { publicSiteBase } from '../lib/public-urls';
-import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,
@@ -130,26 +147,6 @@ export interface WriteExtras {
   };
 }
 
-/** The three slugs the purge, the recrawl and the notification snapshot read. */
-interface TargetSlugs {
-  readonly a: string | null;
-  readonly b: string | null;
-  readonly connector: string | null;
-}
-
-async function targetSlugs(db: Db, target: OwnerFlowTarget): Promise<TargetSlugs> {
-  const rows = await db
-    .select({ id: products.id, slug: products.slug })
-    .from(products)
-    .where(inArray(products.id, [target.productAId, target.productBId, target.connectorProductId]));
-  const slug = new Map(rows.map((r) => [r.id, r.slug]));
-  return {
-    a: slug.get(target.productAId) ?? null,
-    b: slug.get(target.productBId) ?? null,
-    connector: slug.get(target.connectorProductId) ?? null,
-  };
-}
-
 /** The guarded row `UPDATE` for either table. */
 function rowGuard(db: Db, target: OwnerFlowTarget, vendorId: string, now: string): BatchStmt {
   return target.anchor === 'integration'
@@ -179,7 +176,7 @@ async function addedFlowNotifications(
   target: OwnerFlowTarget,
   vendorId: string,
   claim: NonNullable<WriteExtras['newClaim']>,
-  slugs: TargetSlugs,
+  slugs: OwnerFlowTargetSlugs,
 ): Promise<AuditLogEntry[]> {
   const session = c.get('auth');
   const [holders, owner, names] = await Promise.all([
@@ -269,13 +266,16 @@ async function commit(
   const vendorId = sessionVendorId(c);
   const actor = { actorId: session.userId, actorType: auditActorType(session) };
   const now = new Date().toISOString();
-  const slugs = await targetSlugs(db, target);
+  const slugs = await ownerFlowTargetSlugs(db, target);
   const meta = { source: AUDIT_SOURCE, vendorId, integrationId: target.id, anchor: target.anchor };
 
+  // AECI-2139: every claim this write answers. None may carry a live AECi correction.
+  const touched = changes.map((change) => change.claimId);
   const stmts: BatchStmt[] = [
     ...(addOn?.prefix ?? []),
     rowGuard(db, target, vendorId, now),
     ownerWriteSentinel(db),
+    noLiveCorrectionSentinel(db, touched),
   ];
   const audits: AuditLogEntry[] = [
     ...(addOn?.audits ?? []),
@@ -375,6 +375,8 @@ async function commit(
     await db.batch(stmts as BatchTuple);
   } catch (error) {
     if (!isOwnerWriteRaceError(error)) throw error;
+    // A correction that landed after the pre-check: say so, before any other answer.
+    if (await anyLiveCorrection(db, touched)) throw flowCorrectedError();
     if (addOn) throw await addOn.onRace();
     // Ask the gate again, so a race answers what the pre-check would have a moment later.
     await resolveOwnerFlowTarget(db, vendorId, target.id);
@@ -385,12 +387,7 @@ async function commit(
     );
   }
 
-  const tags = [
-    ...(slugs.a && slugs.b
-      ? [pairCacheTag(slugs.a, slugs.b), `product:${slugs.a}`, `product:${slugs.b}`]
-      : []),
-    ...(slugs.connector ? [`product:${slugs.connector}`] : []),
-  ];
+  const tags = ownerFlowPurgeTags(slugs);
   const base = publicSiteBase(c.env);
   const recrawl =
     slugs.a && slugs.b && vendorRecrawlEnabled(c) && base
@@ -461,6 +458,8 @@ export function createAddOwnerFlowHandler(
     const direction = claimDirectionFromContext(payload.direction, true);
     const existing = await claimWithIdentity(db, target, term.id, direction);
     if (existing) {
+      // AECI-2139: AECi corrected this flow. Adding it again would undo that.
+      if (await liveCorrectionOf(db, existing.id)) throw flowCorrectedError();
       // The flow is already listed: adding it again is confirming it.
       const retractId = await liveOwnerAnswerId(db, existing.id);
       return respond(
@@ -485,6 +484,7 @@ export function createSetOwnerFlowAnswerHandler(
     const { db } = writeDb(c, dbFor);
     const claim = await resolveOwnerFlowClaim(db, vendorId, param(c, 'claimId'));
     const payload = await parseJsonBody(c, SetOwnerFlowAnswerSchema);
+    if (await liveCorrectionOf(db, claim.id)) throw flowCorrectedError();
     const retractId = await liveOwnerAnswerId(db, claim.id);
     return respond(
       c,
@@ -503,6 +503,7 @@ export function createClearOwnerFlowAnswerHandler(
     const vendorId = sessionVendorId(c);
     const { db } = writeDb(c, dbFor);
     const claim = await resolveOwnerFlowClaim(db, vendorId, param(c, 'claimId'));
+    if (await liveCorrectionOf(db, claim.id)) throw flowCorrectedError();
     const retractId = await liveOwnerAnswerId(db, claim.id);
     // Nothing to clear: no write, no audit row claiming a change that did not happen.
     if (retractId === null) return noContent();
@@ -526,6 +527,7 @@ export function createChangeOwnerFlowHandler(
     const claim = await resolveOwnerFlowClaim(db, vendorId, param(c, 'claimId'));
     const payload = await parseJsonBody(c, ChangeOwnerFlowSchema);
     const direction = claimDirectionFromContext(payload.direction, true);
+    if (await liveCorrectionOf(db, claim.id)) throw flowCorrectedError();
     if (direction === claim.direction) return respond(c, await flowsBody(db, claim.target));
     const plan = await planOwnerFlowChange(db, claim, direction);
     const body = await commit(c, db, claim.target, plan.changes, plan.extras);
@@ -539,12 +541,16 @@ export function createChangeOwnerFlowHandler(
  * accept (AECI-2042), so an accepted report changes the flow exactly as the owner
  * would have. A new direction is a different flow: the old one is answered No and the
  * new one confirmed, never an `UPDATE` of `claims.direction`.
+ *
+ * AECI-2139: refuses with `409 FLOW_CORRECTED_BY_AECI` when either flow carries a live
+ * AECi correction. The owner cannot change a flow AECi corrected.
  */
 export async function planOwnerFlowChange(
   db: Db,
   claim: { readonly id: string; readonly dataObjectId: string; readonly target: OwnerFlowTarget },
   direction: ClaimDirection | null,
 ): Promise<{ changes: AnswerChange[]; extras: WriteExtras }> {
+  if (await liveCorrectionOf(db, claim.id)) throw flowCorrectedError();
   const removeOld: AnswerChange = {
     claimId: claim.id,
     retractId: await liveOwnerAnswerId(db, claim.id),
@@ -558,6 +564,7 @@ export async function planOwnerFlowChange(
   if (!term) throw notFoundError('claim', { id: claim.id });
   const existing = await claimWithIdentity(db, claim.target, term.id, direction);
   if (existing) {
+    if (await liveCorrectionOf(db, existing.id)) throw flowCorrectedError();
     const retractId = await liveOwnerAnswerId(db, existing.id);
     return {
       changes: [removeOld, { claimId: existing.id, retractId, asserted: true }],

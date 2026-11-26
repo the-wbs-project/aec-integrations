@@ -58,9 +58,12 @@ describe('ruling 66 in the Listing Accuracy Policy', () => {
     expect(POLICY).toContain(
       'Our view is advice, and the Sync Service decides the listing of that data flow.',
     );
+    // AECI-2139 replaced "we cannot change one. So we take the integration off the public
+    // site." AECi now corrects or removes the one flow, and the rest stays listed.
     expect(POLICY).toContain(
-      'On an integration the Sync Service has claimed, the Sync Service maintains its data flows and we cannot change one. So we take the integration off the public site.',
+      'On an integration the Sync Service has claimed, if a public source we can verify shows the data flow is wrong, we correct it or remove it from the public site within five business days. The rest of the integration stays listed. We tell the Sync Service why, and it cannot undo the correction.',
     );
+    expect(POLICY).not.toContain('we cannot change one');
     expect(POLICY).toContain(
       'If we do not agree with an objection, we tell the Sync Service why. We answer an objection within five business days of receiving it.',
     );
@@ -74,6 +77,8 @@ describe('ruling 66 in the Listing Accuracy Policy', () => {
       expect(text).not.toContain('ended our relationship');
       expect(text).not.toMatch(/decides the listing\./);
       expect(text).not.toContain('we do that by taking the integration off');
+      // AECI-2139: AECi now corrects one flow instead of taking the integration down.
+      expect(text).not.toContain('we cannot change one');
     }
     for (const text of USER_FACING.slice(1)) {
       expect(text).toContain('within five business days of receiving it');

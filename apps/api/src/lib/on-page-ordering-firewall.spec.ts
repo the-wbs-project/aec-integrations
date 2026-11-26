@@ -1797,8 +1797,9 @@ const ORDER_SITES: readonly OrderSite[] = [
   },
   {
     file: 'apps/api/src/lib/field-captions.ts',
-    count: 3,
-    allowed: `caption attribution names A to Z and a stable field order; ${NEVER_PLAN}`,
+    count: 4,
+    // AECI-2139: the data flow correction lines, by date then source, for byte-stable HTML.
+    allowed: `caption attribution names A to Z, a stable field order and data flow corrections by date; ${NEVER_PLAN}`,
   },
   {
     file: 'apps/api/src/lib/owned-integrations.ts',

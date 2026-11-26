@@ -63,6 +63,7 @@ import { alias } from 'drizzle-orm/sqlite-core';
 import { getDb, type Db } from '../db/client';
 import {
   attestations,
+  claimAeciCorrections,
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
@@ -320,10 +321,12 @@ export function mirrorTargets(entries: readonly AuditLogEntry[]): MirrorTargets 
         if (entry.productId) productIds.add(entry.productId);
         break;
       // AECI-2039: `claim_owner_answer` is an owner's answer on a Sync Service pair's
-      // flow, which the record carries as `ownerFlows`.
+      // flow, which the record carries as `ownerFlows`. AECI-2139: an AECi correction
+      // marks a flow there `aeciCorrected`.
       case 'claim':
       case 'attestation':
-      case 'claim_owner_answer': {
+      case 'claim_owner_answer':
+      case 'claim_aeci_correction': {
         const integrationId = metadataIntegrationId(entry);
         if (integrationId) edgeIds.add(integrationId);
         break;
@@ -960,6 +963,8 @@ async function readOwnerFlows(
       answerAsserted: claimOwnerAnswers.asserted,
       answerVendorId: claimOwnerAnswers.vendorId,
       answerRetractedAt: claimOwnerAnswers.retractedAt,
+      // AECI-2139: AECi's live correction, one per claim by `claim_aeci_corrections_live_key`.
+      correctionId: claimAeciCorrections.id,
     })
     .from(claims)
     .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
@@ -967,6 +972,13 @@ async function readOwnerFlows(
     .leftJoin(
       claimOwnerAnswers,
       and(eq(claimOwnerAnswers.claimId, claims.id), sql`${claimOwnerAnswers.retractedAt} IS NULL`),
+    )
+    .leftJoin(
+      claimAeciCorrections,
+      and(
+        eq(claimAeciCorrections.claimId, claims.id),
+        sql`${claimAeciCorrections.retractedAt} IS NULL`,
+      ),
     )
     // `anchor_id` leads `claims_identity_key`; the anchor filter keeps the other table out.
     .where(and(inArray(claims.anchorId, ids), isNotNull(anchor)));
@@ -988,6 +1000,7 @@ async function readOwnerFlows(
         direction: row.direction,
         origin: row.origin === 'vendor' ? 'vendor' : 'aeci',
         answer: counted ? (row.answerAsserted ? 'yes' : 'no') : null,
+        ...(row.correctionId !== null ? { aeciCorrected: true } : {}),
       }),
     );
     out.set(row.anchorId, list);

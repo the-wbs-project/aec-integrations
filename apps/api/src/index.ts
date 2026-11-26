@@ -18,6 +18,12 @@ import {
   createSetFieldOverrideHandler,
 } from './routes/admin-field-overrides';
 import {
+  createAdminFlowsHandler,
+  createAdminVendorFlowCorrectionsHandler,
+  createCorrectFlowHandler,
+  createLiftFlowCorrectionHandler,
+} from './routes/admin-flow-corrections';
+import {
   createAdminVendorFieldHidesHandler,
   createFieldHideStatusReplyHandler,
   createRestoreFieldHideHandler,
@@ -1145,6 +1151,27 @@ authAdmin.get(
   '/api/admin/vendors/:id/field-overrides',
   requireAdmin(),
   createAdminVendorFieldOverridesHandler(),
+);
+// AECI-2139: AECi corrects one data flow on a claimed Sync Service pair, and lifts it
+// (STAGE_2_ATTESTATIONS_SPEC.md §14.10). Writes are rate-limited after the guard; the
+// two reads are not.
+authAdmin.post(
+  '/api/admin/flows/:claimId/correction',
+  requireAdmin(),
+  rateLimit('write'),
+  createCorrectFlowHandler(),
+);
+authAdmin.post(
+  '/api/admin/flow-corrections/:id/lift',
+  requireAdmin(),
+  rateLimit('write'),
+  createLiftFlowCorrectionHandler(),
+);
+authAdmin.get('/api/admin/flows', requireAdmin(), createAdminFlowsHandler());
+authAdmin.get(
+  '/api/admin/vendors/:id/flow-corrections',
+  requireAdmin(),
+  createAdminVendorFlowCorrectionsHandler(),
 );
 // AECI-1238: the admin value hide ("under review"), its restore and its status reply
 // (STAGE_2_VENDOR_PORTAL_SPEC.md §11d.7). Writes are rate-limited after the guard; the

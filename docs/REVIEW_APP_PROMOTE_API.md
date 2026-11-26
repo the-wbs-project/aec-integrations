@@ -1855,6 +1855,10 @@ sees it. You may recompute it to check a body. You must store the value you rece
    next record. Treat an `answer: no` flow as removed from the public page, not deleted: the owner
    can clear the answer and the flow returns. A flow with `origin: vendor` is the owner's own and
    has no claim slot. Never infer a claim delete from a flow leaving the list.
+   AECI-2139: a flow AECi corrected on a public source carries `aeciCorrected: true`. No public
+   page shows it, whatever `answer` says, and the owner cannot change it. The key is present only
+   on a corrected flow, so every other entry hashes as before. A correction and its lift re-send
+   the owner's record (`mirrorTargets` reads `claim_aeci_correction` entries).
 
 **Rolling out `deliveredPairs[]`.** The key is in the live schema from AECI-2047. A vendor that
 delivers a pair gets a new `recordHash` at the first delivery after the deploy, so run

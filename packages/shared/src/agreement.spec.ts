@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AECI_CORRECTION_SOURCE,
   computeAgreement,
   computeSyncHeadline,
   conflictSince,
@@ -516,5 +517,60 @@ describe('the owner answer on a Sync Service pair (AECI-2039)', () => {
       { ...owner(false), createdAt: '2026-11-02T00:00:00.000Z' },
     ];
     expect(conflictSince(history)).toBeNull();
+  });
+});
+
+describe('AECi corrects one flow on a Sync Service pair (AECI-2139)', () => {
+  const correction = (retractedAt: string | null = null): AgreementAttestation => ({
+    source: AECI_CORRECTION_SOURCE,
+    asserted: false,
+    attestedByVendorId: null,
+    retractedAt,
+  });
+  const owner = (asserted: boolean): AgreementAttestation => ({
+    source: OWNER_ANSWER_SOURCE,
+    asserted,
+    attestedByVendorId: 'vendor-rivets',
+    retractedAt: null,
+  });
+
+  it('removes an AECi claim, a vendor claim and a claim the owner confirmed', () => {
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [aeci(), correction()] })).toBe(
+      false,
+    );
+    expect(
+      isClaimPubliclyBacked({ origin: 'vendor', attestations: [vendorA(true), correction()] }),
+    ).toBe(false);
+    expect(
+      isClaimPubliclyBacked({ origin: 'vendor', attestations: [owner(true), correction()] }),
+    ).toBe(false);
+    // Order does not matter: the correction is checked before the owner's answer.
+    expect(
+      isClaimPubliclyBacked({ origin: 'aeci', attestations: [correction(), owner(true)] }),
+    ).toBe(false);
+  });
+
+  it('a lifted correction decides nothing: the owner answer applies again', () => {
+    const lifted = correction('2026-11-26T00:00:00.000Z');
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [aeci(), lifted] })).toBe(true);
+    expect(isClaimPubliclyBacked({ origin: 'aeci', attestations: [owner(false), lifted] })).toBe(
+      false,
+    );
+    expect(isClaimPubliclyBacked({ origin: 'vendor', attestations: [owner(true), lifted] })).toBe(
+      true,
+    );
+  });
+
+  it('never votes', () => {
+    expect(computeAgreement([aeci(), correction()])).toBe('unverified');
+    expect(computeAgreement([vendorA(true), correction()])).toBe('single_source');
+    expect(computeAgreement([owner(true), correction()])).toBe('owner_confirmed');
+    expect(isClaimRefuted([aeci(), correction()])).toBe(false);
+    expect(
+      conflictSince([
+        { ...vendorA(true), createdAt: '2026-11-01T00:00:00.000Z' },
+        { ...correction(), createdAt: '2026-11-02T00:00:00.000Z' },
+      ]),
+    ).toBeNull();
   });
 });

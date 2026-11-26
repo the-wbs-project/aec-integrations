@@ -89,6 +89,7 @@ import {
   auditLog,
   billingAccounts,
   claimThreadAcknowledgments,
+  claimAeciCorrections,
   claimThreadMessages,
   dmcaNotices,
   feedback,
@@ -798,6 +799,16 @@ export function createDeleteAccountHandler(
         .update(syncServiceVetoObjections)
         .set({ decidedBy: null })
         .where(eq(syncServiceVetoObjections.decidedBy, userId)),
+      // AECI-2139: AECi's flow corrections, under the same rule. The correction
+      // survives: it is AECi's record of a public source, not the person's.
+      db
+        .update(claimAeciCorrections)
+        .set({ createdBy: null })
+        .where(eq(claimAeciCorrections.createdBy, userId)),
+      db
+        .update(claimAeciCorrections)
+        .set({ retractedBy: null })
+        .where(eq(claimAeciCorrections.retractedBy, userId)),
       // AECI-1175: two more, `ON DELETE SET NULL` and nulled explicitly under the
       // same rule. The REPLY survives: it is the vendor's record, not the person's
       // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). `updated_at` is pinned to itself

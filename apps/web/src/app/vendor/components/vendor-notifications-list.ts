@@ -16,6 +16,7 @@ import { RouterLink } from '@angular/router';
 import {
   isAttestationNotification,
   isFacetOverrideField,
+  isHttpsUrl,
   type VendorAeciOverrideNotification,
   type VendorNotification,
   type VendorProductRequestNotification,
@@ -26,6 +27,7 @@ import {
 import { AecButton } from '../../shared/button/button';
 import { AecCard } from '../../shared/card/card';
 import { AecIcon } from '../../shared/icon/icon';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
@@ -83,7 +85,7 @@ import {
  */
 @Component({
   selector: 'aec-vendor-notifications-list',
-  imports: [AecButton, AecCard, AecIcon, DatePipe, RouterLink],
+  imports: [AecButton, AecCard, AecIcon, DatePipe, NewTabIcon, RouterLink],
   styles: [':host { display: block; }'],
   template: `
     <!-- AECI-1812: the archive disclosure is the shared white card. The summary is
@@ -216,6 +218,19 @@ import {
                     i18n="@@vendor.productRequest.notify.add"
                     >Add your integration</a
                   >
+                }
+                @if (sourceHref(notification); as href) {
+                  <!-- AECI-2139: the public source AECi read for a data flow correction.
+                       A third party's page: the new-tab cue and the full external rel. -->
+                  <a
+                    [href]="href"
+                    target="_blank"
+                    rel="noopener nofollow"
+                    [class]="linkClass + ' me-3 inline-flex items-center gap-1'"
+                    data-testid="notification-source-link"
+                    ><span i18n="@@vendor.override.notify.flowSource">Read the source</span
+                    ><aec-new-tab-icon
+                  /></a>
                 }
                 @if (pairPath(notification); as path) {
                   <a [routerLink]="path" [class]="linkClass" i18n="@@vendor.attest.notify.viewPair"
@@ -374,6 +389,13 @@ export class VendorNotificationsList {
     };
   }
 
+  /** AECI-2139: a data flow correction's public source. https only, else no link. */
+  protected sourceHref(notification: VendorNotification): string | null {
+    if (notification.kind !== 'aeci_override') return null;
+    const url = notification.source_url ?? null;
+    return url && isHttpsUrl(url) ? url : null;
+  }
+
   /** The pair page, on every member that carries one. The review members
    *  (AECI-1180) are about a product, not a pair, so they have none. */
   protected pairPath(notification: VendorNotification): string | null {
@@ -481,11 +503,15 @@ export class VendorNotificationsList {
                       ]
                     : notification.event === 'listing_restored'
                       ? []
-                      : // AECI-1237: a correction or a lift names the field and the record.
-                        [
-                          notification.field ? fieldOverrideLabel(notification.field) : null,
-                          notification.record_subject?.name ?? notification.integration_name,
-                        ];
+                      : // AECI-2139: a data flow correction names the data type and the row.
+                        notification.event === 'flow_corrected' ||
+                          notification.event === 'flow_correction_lifted'
+                        ? [notification.data_object_name, notification.integration_name]
+                        : // AECI-1237: a correction or a lift names the field and the record.
+                          [
+                            notification.field ? fieldOverrideLabel(notification.field) : null,
+                            notification.record_subject?.name ?? notification.integration_name,
+                          ];
       return parts.filter((part): part is string => !!part);
     }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
@@ -645,6 +671,13 @@ function titleOf(notification: VendorNotification): string {
         return notification.hide_clear_kind === 'corrected'
           ? $localize`:@@vendor.override.notify.fieldHideCorrected:AEC Integrations corrected a detail it had under review`
           : $localize`:@@vendor.override.notify.fieldHideRestored:AEC Integrations put a detail back on your public page`;
+      // AECI-2139: one data flow on a Sync Service integration the vendor owns.
+      case 'flow_corrected':
+        return notification.flow_redirected
+          ? $localize`:@@vendor.override.notify.flowRedirected:AEC Integrations corrected the direction of a data flow on your integration`
+          : $localize`:@@vendor.override.notify.flowRemoved:AEC Integrations removed a data flow from your integration`;
+      case 'flow_correction_lifted':
+        return $localize`:@@vendor.override.notify.flowLifted:AEC Integrations lifted its correction of a data flow`;
     }
   }
   if (notification.kind === 'review_response') {
@@ -902,6 +935,15 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
     }
     case 'field_lock_lifted':
       meaning = $localize`:@@vendor.override.notify.note.lifted:You can edit this field again. Its value is still the one AEC Integrations set.`;
+      break;
+    // AECI-2139 (§14.10): the rest of the integration stays listed.
+    case 'flow_corrected':
+      meaning = notification.flow_redirected
+        ? $localize`:@@vendor.override.notify.note.flowRedirected:A public source shows this data moves the other way. Your integration page now lists it in the right direction. The rest of your integration stays listed. You cannot change this data flow until AEC Integrations lifts the correction.`
+        : $localize`:@@vendor.override.notify.note.flowRemoved:A public source shows this data flow is wrong, so your integration page no longer lists it. The rest of your integration stays listed. You cannot change this data flow until AEC Integrations lifts the correction.`;
+      break;
+    case 'flow_correction_lifted':
+      meaning = $localize`:@@vendor.override.notify.note.flowLifted:You maintain this data flow again. Your own answer on it applies again.`;
       break;
     // AECI-1371: decision 14, the hand-back. Nothing the vendor entered is removed.
     case 'license_revoked': {

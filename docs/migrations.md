@@ -553,6 +553,14 @@ added `claim_owner_answers` (`DATABASE_SCHEMA.md` §5a.2a), a plain `CREATE TABL
 exists because a fourth `attestations.source` value would have been a CHECK change on `attestations`, which is
 this section's dangerous case. `d1.spec.ts` pins the `claims` child list.
 
+**`claims` gained a third cascade child, and a second SET NULL child, on 2026-11-26.** AECI-2139's
+`0138_tense_franklin_richards.sql` added `claim_aeci_corrections` (`DATABASE_SCHEMA.md` §5a.2c), a plain
+`CREATE TABLE` with two indexes and no CHECK. Its `claim_id` is `ON DELETE CASCADE` and its
+`replacement_claim_id` is `ON DELETE SET NULL`, so a recreate of `claims` empties it. Carry it. It exists
+because a new `claims.origin` or `attestations.source` value would have been a CHECK change on a cascade
+parent. `retract-product` probes it (`CLAIM_AECI_CORRECTIONS_TABLE_SQL`), the 0131 convention for a table a
+later migration added. `d1.spec.ts` pins the `claims` child list.
+
 **Both edge tables and `claims` gained children on 2026-11-24.** AECI-2042's `0132_brown_banshee.sql`
 added `sync_service_pair_contests` (CASCADE from `integrations`, `connector_evidenced_pairs` and `claims`) and
 `sync_service_pair_vetoes` (SET NULL from both edge tables, CASCADE from `products`), two plain `CREATE TABLE`s,

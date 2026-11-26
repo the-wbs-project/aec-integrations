@@ -142,6 +142,8 @@ import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
 import {
   loadOwnedFlows,
+  aeciCorrectionsRelationConfig,
+  isAeciCorrected,
   ownerAnswersRelationConfig,
   ownerFlowContextOf,
   ownerMaintainsFlows,
@@ -445,6 +447,8 @@ function toVendorClaim(
    *  `ownerVote`. It decides `agreement` only: it is nobody's `mine` or
    *  `counterparty`, because an endpoint vendor never answers there. */
   ownerAnswer: AgreementAttestation | null = null,
+  /** AECI-2139. AECi corrected this flow, so no public page shows it. */
+  aeciCorrected = false,
 ): VendorClaim {
   const slots = authority.slots;
   const votes = live.map(toAgreementVote);
@@ -474,6 +478,7 @@ function toVendorClaim(
         ? { id: claim.id, raised_at: raisedAt ?? new Date().toISOString() }
         : null,
     owner_answer: ownerAnswer === null ? null : ownerAnswer.asserted ? 'yes' : 'no',
+    aeci_corrected: aeciCorrected,
   };
 }
 
@@ -1095,6 +1100,8 @@ const vendorIntegrationConfig = {
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
         // AECI-2039: the owner's answer on a Sync Service pair.
         ownerAnswers: ownerAnswersRelationConfig,
+        // AECI-2139: AECi's live correction. The flow reads as removed.
+        aeciCorrections: aeciCorrectionsRelationConfig,
       },
     },
     // AECI-705: the connector delivering this edge, for the read-only
@@ -1301,6 +1308,7 @@ export function createListVendorIntegrationsHandler(
                 contextIsSource,
                 raisedAt.get(claim.id) ?? null,
                 ownerVote(ownerCtx, claim.ownerAnswers),
+                isAeciCorrected(claim),
               ),
             ),
           flows_maintained_by_owner: ownerMaintainsFlows(ownerCtx),

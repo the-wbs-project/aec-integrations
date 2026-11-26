@@ -25,6 +25,10 @@
  *     correction. To the vendor named on the hide. A vendor edit that ends a hide writes
  *     no notice: the vendor made it.
  *
+ *   - `portal-flow-corrected-by-aeci` and `portal-flow-correction-lifted-by-aeci`
+ *     (AECI-2139, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10): AECi's correction of one data
+ *     flow on a claimed Sync Service pair, and its lift. To the row's owner.
+ *
  *   - `portal-license-revoked-by-aeci` (AECI-1371, E4.2): the admin license revoke.
  *     To the vendor whose billing account held the license, which is its seats.
  *   - `portal-license-release-approved-by-aeci` and
@@ -74,6 +78,8 @@ export const AECI_OVERRIDE_NOTIFICATION_IDS = {
   listing_restored: 'portal-listing-restored-by-aeci',
   field_hidden: 'portal-field-hidden-by-aeci',
   field_hide_cleared: 'portal-field-hide-cleared-by-aeci',
+  flow_corrected: 'portal-flow-corrected-by-aeci',
+  flow_correction_lifted: 'portal-flow-correction-lifted-by-aeci',
 } as const satisfies Record<AeciOverrideNotificationEvent, PortalNotificationId>;
 
 export type AeciOverridePortalNotificationId =
@@ -120,6 +126,12 @@ export interface AeciOverrideNotificationMetadata {
    *  and on a clear how it ended. The field is in `field`. */
   fieldHideId?: string;
   hideClearKind?: 'restored' | 'corrected';
+  /** `flow_corrected` / `flow_correction_lifted` (AECI-2139): the correction row, the
+   *  flow's data type, the public source, and whether AECi listed the right direction. */
+  flowCorrectionId?: string;
+  dataObjectName?: string;
+  sourceUrl?: string;
+  flowRedirected?: boolean;
 }
 
 type Actor = { actorId: string | null; actorType: AuditLogEntry['actorType'] };
@@ -182,6 +194,19 @@ type EventInput =
           pairSlugs: readonly [string, string] | null;
         }
     ))
+  | {
+      event: 'flow_corrected' | 'flow_correction_lifted';
+      correctionId: string;
+      /** `integration` or `connector_evidenced_pair`. */
+      entityType: 'integration' | 'connector_evidenced_pair';
+      entityId: string;
+      integrationName: string | null;
+      pairSlugs: readonly [string, string] | null;
+      dataObjectName: string;
+      sourceUrl: string;
+      /** AECi listed the flow in the right direction (`flow_corrected` only). */
+      redirected?: boolean;
+    }
   | {
       event: 'license_revoked';
       /** Files under the account, like every license row (`lib/license.ts`). */
@@ -283,6 +308,20 @@ export function aeciOverrideNotificationAudit(
               integrationName: input.integrationName,
               pairSlugs: input.pairSlugs ? orderedPairSlugs(...input.pairSlugs) : null,
             }),
+      };
+      entity = { entityType: input.entityType, entityId: input.entityId };
+      break;
+    case 'flow_corrected':
+    case 'flow_correction_lifted':
+      metadata = {
+        ...base,
+        flowCorrectionId: input.correctionId,
+        integrationId: input.entityId,
+        integrationName: input.integrationName,
+        pairSlugs: input.pairSlugs ? orderedPairSlugs(...input.pairSlugs) : null,
+        dataObjectName: input.dataObjectName,
+        sourceUrl: input.sourceUrl,
+        ...(input.event === 'flow_corrected' ? { flowRedirected: input.redirected === true } : {}),
       };
       entity = { entityType: input.entityType, entityId: input.entityId };
       break;

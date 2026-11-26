@@ -14,6 +14,8 @@
  *   6. Add sends the data type and direction. It refuses a flow already shown and a
  *      new direction of a shown type, but sends a removed flow back (a restore).
  *   7. View history reads the route and names companies.
+ *   8. AECI-2139: a flow AECi corrected stays as a locked row with the reason and the
+ *      source, and offers no actions. Add refuses it.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -461,6 +463,51 @@ describe('VendorOwnedFlows', () => {
       );
     await settle(fixture);
     expect(q('owned-flow-add-form')).toBeNull();
+    expect(api['addOwnerFlow']).not.toHaveBeenCalled();
+  });
+
+  // AECI-2139: AECi corrected one flow on a public source.
+  const CORRECTED: OwnedFlow = {
+    ...CONFIRMED,
+    id: '00000000-0000-4000-8000-0000000061a9',
+    data_object_slug: 'rfis',
+    data_object_name: 'RFIs',
+    direction: 'outbound',
+    public: false,
+    aeci_correction: {
+      reason: 'The Sync Service page lists no RFI sync.',
+      source_url: 'https://rivets.example/docs',
+      created_at: '2026-11-26T09:00:00.000Z',
+    },
+  };
+
+  it('shows a corrected flow as a locked row with the reason and the source', async () => {
+    const fixture = await render({ ...SYNCED, flows: [CONFIRMED, CORRECTED] });
+    const cell = q(`owned-flow-public-${CORRECTED.id}`)!;
+    expect(cell.textContent).toContain(
+      'AEC Integrations removed this data flow on November 26, 2026',
+    );
+    expect(cell.textContent).toContain('Reason: The Sync Service page lists no RFI sync.');
+    const source = q(`owned-flow-source-${CORRECTED.id}`) as HTMLAnchorElement;
+    expect(source.href).toBe('https://rivets.example/docs');
+    expect(source.rel).toBe('noopener nofollow');
+    expect(q(`owned-flow-actions-${CORRECTED.id}-trigger`)).toBeNull();
+    expect(q(`owned-flow-locked-${CORRECTED.id}`)?.textContent?.trim()).toBe('No actions');
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+
+  it("keeps a corrected flow in the table even under the owner's No", async () => {
+    const fixture = await render({ ...SYNCED, flows: [{ ...CORRECTED, answer: 'no' }] });
+    expect((fixture.nativeElement as HTMLElement).querySelectorAll('tbody tr')).toHaveLength(1);
+  });
+
+  it('refuses to add a flow AECi corrected back', async () => {
+    const fixture = await render({ ...SYNCED, flows: [CORRECTED] });
+    await pickToAdd(fixture, 'rfis', 'outbound');
+    expect(q('owned-flow-add-duplicate')?.textContent?.trim()).toBe(
+      'AEC Integrations removed RFIs in this direction. You cannot add it back.',
+    );
+    await submitAdd(fixture);
     expect(api['addOwnerFlow']).not.toHaveBeenCalled();
   });
 

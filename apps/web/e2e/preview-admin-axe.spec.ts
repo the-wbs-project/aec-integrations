@@ -31,6 +31,7 @@ const ROUTES = [
   '/preview/admin-contests',
   '/preview/admin-email',
   '/preview/admin-field-corrections',
+  '/preview/admin-flow-corrections',
   '/preview/admin-litigation-holds',
   '/preview/admin-product-requests',
   '/preview/admin-review-responses',

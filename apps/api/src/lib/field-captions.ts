@@ -28,7 +28,7 @@ import type {
   FieldOverrideValue,
   ProductFieldCaptions,
 } from '@aeci/shared';
-import { isFacetOverrideField } from '@aeci/shared';
+import { DATA_FLOW_CORRECTION_FIELD, isFacetOverrideField } from '@aeci/shared';
 import { isNewerCorrection, scalarCorrectionHolds } from '@aeci/shared/company-facts-display';
 import { compareText } from '@aeci/shared/text-sort';
 
@@ -179,6 +179,47 @@ export function toFieldCorrections(
     });
   }
   return out.sort((a, b) => (a.field < b.field ? -1 : a.field > b.field ? 1 : 0));
+}
+
+/** One live AECi correction of a flow, as the pair read loads it (AECI-2139). */
+export interface FlowCorrectionCaptionRow {
+  retractedAt: string | null;
+  createdAt?: string;
+  sourceUrl?: string;
+  replacementClaimId?: string | null;
+}
+
+/**
+ * The pair card's data flow correction lines (AECI-2139, §4.5.8): one per live AECi
+ * correction on the mechanism's claims. A removal reads "Removed by AEC Integrations on
+ * {date}", a direction correction "Corrected by…". Both name no data type, so the flow
+ * itself still shows nowhere. The date is the correction's `created_at`, a stored UTC
+ * fact, so the line is cache-safe. Ordered by date, then source, for byte-stable HTML.
+ */
+export function flowCorrections(
+  claimsOfRow: ReadonlyArray<{ aeciCorrections?: readonly FlowCorrectionCaptionRow[] }>,
+): FieldCorrection[] {
+  const out: FieldCorrection[] = [];
+  for (const claim of claimsOfRow) {
+    for (const row of claim.aeciCorrections ?? []) {
+      if (row.retractedAt !== null || !row.createdAt) continue;
+      out.push({
+        field: DATA_FLOW_CORRECTION_FIELD,
+        date: row.createdAt,
+        source_url: row.sourceUrl ?? null,
+        cleared: (row.replacementClaimId ?? null) === null,
+      });
+    }
+  }
+  return out.sort(
+    (a, b) =>
+      (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
+      ((a.source_url ?? '') < (b.source_url ?? '')
+        ? -1
+        : (a.source_url ?? '') > (b.source_url ?? '')
+          ? 1
+          : 0),
+  );
 }
 
 /** AECI-1628: the correction removed the value: `null`, or an empty facet. */

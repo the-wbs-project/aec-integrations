@@ -387,6 +387,11 @@ export const OwnershipOwnerFlowSchema = z.object({
   /** `vendor` when the owner added the flow, `aeci` when AEC Integrations seeded it. */
   origin: z.enum(['aeci', 'vendor']),
   answer: z.enum(['yes', 'no']).nullable(),
+  /**
+   * AECI-2139: AEC Integrations corrected this flow on a public source, so no public page
+   * shows it, whatever `answer` says. Additive: present (`true`) only on a corrected flow.
+   */
+  aeciCorrected: z.literal(true).optional(),
 });
 export type OwnershipOwnerFlow = z.infer<typeof OwnershipOwnerFlowSchema>;
 

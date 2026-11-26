@@ -632,6 +632,9 @@ function toAeciOverrideNotification(row: {
     license_product: null,
     hide_kind: null,
     hide_clear_kind: null,
+    data_object_name: null,
+    source_url: null,
+    flow_redirected: false,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {
@@ -725,6 +728,29 @@ function toAeciOverrideNotification(row: {
         integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
         pair_path: pairPathFor(pairSlugs),
         hide_clear_kind: hideClearKind,
+      };
+    }
+    // AECI-2139: AECi's correction of one data flow on a Sync Service pair, and its lift.
+    // Named like an integration row, plus the flow's data type and the public source.
+    case 'flow_corrected':
+    case 'flow_correction_lifted': {
+      if (typeof meta.integrationId !== 'string' || typeof meta.dataObjectName !== 'string') {
+        return null;
+      }
+      const pair = meta.pairSlugs;
+      const pairSlugs =
+        Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+          ? ([pair[0], pair[1]] as const)
+          : null;
+      return {
+        ...base,
+        event: meta.event as 'flow_corrected' | 'flow_correction_lifted',
+        integration_id: meta.integrationId,
+        integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+        pair_path: pairPathFor(pairSlugs),
+        data_object_name: meta.dataObjectName,
+        source_url: typeof meta.sourceUrl === 'string' ? meta.sourceUrl : null,
+        flow_redirected: meta.event === 'flow_corrected' && meta.flowRedirected === true,
       };
     }
     // AECI-1373: an early-unassign decision names the product the license was on, or

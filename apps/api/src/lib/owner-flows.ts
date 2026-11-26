@@ -29,9 +29,17 @@
  * A row returned to AEC Integrations, or a connector re-classified away from Sync
  * Service, stops counting its owner's answers at once. That fails safe: a confirmed
  * flow reads "Listed by AEC Integrations" again, and a flow the owner added is withheld.
+ *
+ * ── AECi'S CORRECTION OF ONE FLOW (AECI-2139) ───────────────────────────────
+ * A live `claim_aeci_corrections` row rides the same join. {@link withOwnerVote} appends
+ * one more synthetic entry, `source = AECI_CORRECTION_SOURCE`, and
+ * `isClaimPubliclyBacked` withholds the flow on it, before the owner's answer. It counts
+ * whatever the row's state: it is AECi's finding on a public source, not the owner's
+ * word. So every reader that joins the owner's answer also drops a corrected flow.
  */
 
 import {
+  AECI_CORRECTION_SOURCE,
   ApiErrorCode,
   OWNER_ANSWER_SOURCE,
   claimDirectionForContext,
@@ -43,12 +51,13 @@ import {
   type OwnedFlow,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
   attestations,
   auditLog,
+  claimAeciCorrections,
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
@@ -56,6 +65,7 @@ import {
   products,
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
+import { pairCacheTag } from '../routes/promote-pair';
 
 import { isConnectorPoweredEdge } from './connector-powered';
 import { claimedAndLiveRefusal, ownershipRefusal } from './integration-owner-writes';
@@ -81,6 +91,17 @@ export interface RawOwnerAnswer {
 export const ownerAnswersRelationConfig = {
   columns: { asserted: true, vendorId: true, retractedAt: true },
   where: isNull(claimOwnerAnswers.retractedAt),
+} as const;
+
+/** AECi's live correction of a flow, as the read configs load it (AECI-2139). */
+export interface RawAeciCorrection {
+  readonly retractedAt: string | null;
+}
+
+/** The columns every public read of `claim_aeci_corrections` selects, live rows only. */
+export const aeciCorrectionsRelationConfig = {
+  columns: { retractedAt: true },
+  where: isNull(claimAeciCorrections.retractedAt),
 } as const;
 
 /** The row facts {@link ownerFlowContextOf} reads. Both anchor tables carry them. */
@@ -151,32 +172,67 @@ export interface OwnerVoteRow extends AgreementAttestation {
 }
 
 /**
- * The claim with its counting owner answer appended to `attestations`, or the claim
- * unchanged. Run it on a row's claims BEFORE anything else reads them, so visibility
- * (`isClaimPubliclyBacked`), agreement and the refuted rule all see one list.
+ * The synthetic entry for AECi's live correction of a claim (AECI-2139), shaped like
+ * {@link ownerVote}'s. It never votes. `isClaimPubliclyBacked` withholds the claim on it.
  */
-export function withOwnerVote<
-  A extends AgreementAttestation,
-  C extends { attestations: readonly A[]; ownerAnswers?: readonly RawOwnerAnswer[] },
->(claim: C, ctx: OwnerFlowContext): C {
+const AECI_CORRECTION_ENTRY: OwnerVoteRow = {
+  source: AECI_CORRECTION_SOURCE,
+  asserted: false,
+  attestedByVendorId: null,
+  retractedAt: null,
+  introducedAt: null,
+  deprecatedAt: null,
+  introducedVersionId: null,
+  deprecatedVersionId: null,
+};
+
+/** True when the claim carries a live AECi correction (AECI-2139). */
+export function isAeciCorrected(claim: {
+  aeciCorrections?: readonly RawAeciCorrection[];
+}): boolean {
+  return (claim.aeciCorrections ?? []).some((c) => c.retractedAt === null);
+}
+
+/** A claim as {@link withOwnerVote} reads it. */
+interface VotableClaim<A extends AgreementAttestation> {
+  attestations: readonly A[];
+  ownerAnswers?: readonly RawOwnerAnswer[];
+  aeciCorrections?: readonly RawAeciCorrection[];
+}
+
+/**
+ * The claim with its counting owner answer, and AECi's live correction (AECI-2139),
+ * appended to `attestations`, or the claim unchanged. Run it on a row's claims BEFORE
+ * anything else reads them, so visibility (`isClaimPubliclyBacked`), agreement and the
+ * refuted rule all see one list. The correction counts whatever `ctx` says.
+ */
+export function withOwnerVote<A extends AgreementAttestation, C extends VotableClaim<A>>(
+  claim: C,
+  ctx: OwnerFlowContext,
+): C {
   const vote = ownerVote(ctx, claim.ownerAnswers);
-  if (!vote) return claim;
-  // The vote is a full attestation row with null stamps. `A` is the row type of the
-  // config the claim came from, a superset of what the vote leaves `null`.
-  return { ...claim, attestations: [...claim.attestations, vote as unknown as A] };
+  const corrected = isAeciCorrected(claim);
+  if (!vote && !corrected) return claim;
+  // The entries are full attestation rows with null stamps. `A` is the row type of the
+  // config the claim came from, a superset of what the entries leave `null`.
+  const added = [...(vote ? [vote] : []), ...(corrected ? [AECI_CORRECTION_ENTRY] : [])];
+  return { ...claim, attestations: [...claim.attestations, ...(added as unknown as A[])] };
 }
 
 /** {@link withOwnerVote} over a row's claims. */
-export function withOwnerVotes<
-  A extends AgreementAttestation,
-  C extends { attestations: readonly A[]; ownerAnswers?: readonly RawOwnerAnswer[] },
->(claimsOfRow: readonly C[], ctx: OwnerFlowContext): C[] {
+export function withOwnerVotes<A extends AgreementAttestation, C extends VotableClaim<A>>(
+  claimsOfRow: readonly C[],
+  ctx: OwnerFlowContext,
+): C[] {
   return claimsOfRow.map((claim) => withOwnerVote(claim, ctx));
 }
 
-/** True for the synthetic entry. The public wire mappers drop it. */
+/**
+ * True for a synthetic entry: the owner's vote or AECi's correction (AECI-2139). The
+ * public wire mappers drop both, so `PairClaimAttestationSchema.source` never sees them.
+ */
 export function isOwnerVote(row: { source: string }): boolean {
-  return row.source === OWNER_ANSWER_SOURCE;
+  return row.source === OWNER_ANSWER_SOURCE || row.source === AECI_CORRECTION_SOURCE;
 }
 
 // ─── The write target ────────────────────────────────────────────────────────
@@ -280,6 +336,44 @@ export async function resolveOwnerFlowTarget(
   };
 }
 
+/** The three slugs an owner flow write's purge, recrawl and notices read. */
+export interface OwnerFlowTargetSlugs {
+  readonly a: string | null;
+  readonly b: string | null;
+  readonly connector: string | null;
+}
+
+/** The two endpoint slugs and the connector's, in one read. */
+export async function ownerFlowTargetSlugs(
+  db: Db,
+  target: Pick<OwnerFlowTarget, 'productAId' | 'productBId' | 'connectorProductId'>,
+): Promise<OwnerFlowTargetSlugs> {
+  const rows = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(inArray(products.id, [target.productAId, target.productBId, target.connectorProductId]));
+  const slug = new Map(rows.map((r) => [r.id, r.slug]));
+  return {
+    a: slug.get(target.productAId) ?? null,
+    b: slug.get(target.productBId) ?? null,
+    connector: slug.get(target.connectorProductId) ?? null,
+  };
+}
+
+/**
+ * The cache tags a change to a row's flows purges: the pair page, both endpoint
+ * product pages and the connector's page. Shared by the owner's writes and AECi's
+ * correction (AECI-2139), so the two cannot purge different pages.
+ */
+export function ownerFlowPurgeTags(slugs: OwnerFlowTargetSlugs): string[] {
+  return [
+    ...(slugs.a && slugs.b
+      ? [pairCacheTag(slugs.a, slugs.b), `product:${slugs.a}`, `product:${slugs.b}`]
+      : []),
+    ...(slugs.connector ? [`product:${slugs.connector}`] : []),
+  ];
+}
+
 async function connectorIsSyncService(db: Db, productId: string): Promise<boolean> {
   const product = await db.query.products.findFirst({
     columns: { productRole: true, connectorKind: true },
@@ -376,6 +470,11 @@ export async function loadOwnedFlows(
         where: isNull(attestations.retractedAt),
       },
       ownerAnswers: ownerAnswersRelationConfig,
+      // AECI-2139: AECi's live correction, with what the owner reads of it.
+      aeciCorrections: {
+        columns: { retractedAt: true, reason: true, sourceUrl: true, createdAt: true },
+        where: isNull(claimAeciCorrections.retractedAt),
+      },
     },
   } as const;
   const [onIntegrations, onPairs] = await Promise.all([
@@ -403,6 +502,7 @@ export async function loadOwnedFlows(
     if (!ctx) continue;
     const counted = claim.ownerAnswers.find((a) => ownerAnswerCounts(ctx, a)) ?? null;
     const voted = withOwnerVote(claim, ctx);
+    const correction = claim.aeciCorrections[0] ?? null;
     const list = out.get(rowId) ?? [];
     list.push({
       id: claim.id,
@@ -415,6 +515,14 @@ export async function loadOwnedFlows(
       // AECI-2213: the pair read's own visibility rule, on the same list with the
       // owner's vote appended, so the portal cell and the public page cannot disagree.
       public: isClaimPubliclyBacked(voted),
+      // AECI-2139: the owner reads AECi's reason and source. No internal note.
+      aeci_correction: correction
+        ? {
+            reason: correction.reason,
+            source_url: correction.sourceUrl,
+            created_at: correction.createdAt,
+          }
+        : null,
     });
     out.set(rowId, list);
     orderKey.set(claim.id, claim.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER);

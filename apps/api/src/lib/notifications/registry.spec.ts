@@ -57,8 +57,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-2040 added `portal-sync-service-pair-create`: 99.
  * AECI-2042 added `portal-sync-service-veto` and `portal-sync-service-pair-report`: 101.
  * AECI-1942 added `contest-submitted-owner`: 102.
+ * AECI-2139 added `portal-flow-corrected-by-aeci` and `portal-flow-correction-lifted-by-aeci`: 104.
  */
-const EXPECTED_COUNT = 102;
+const EXPECTED_COUNT = 104;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -116,10 +117,12 @@ describe('notification registry shape', () => {
       // `litigation-hold-reminder`. AECI-2040 added `portal-sync-service-pair-create`.
       // AECI-2042 added `portal-sync-service-veto` and `portal-sync-service-pair-report`.
       // AECI-1942 added `contest-submitted-owner`.
+      // AECI-2139 added `portal-flow-corrected-by-aeci` and
+      // `portal-flow-correction-lifted-by-aeci`.
       email: 60,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 36,
+      portal: 38,
       linear: 4,
     });
   });

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
+  claimAeciCorrections,
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
@@ -758,6 +759,16 @@ describe('confirm data flows on a connector product (AECI-2045)', () => {
     await t.db
       .insert(claimOwnerAnswers)
       .values({ id: uuid(62), claimId: uuid(61), vendorId: VENDOR, asserted: true });
+    expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
+  });
+
+  it('does not count a flow AECi corrected, which the owner cannot answer (AECI-2139)', async () => {
+    await t.db.insert(claimAeciCorrections).values({
+      id: uuid(63),
+      claimId: uuid(61),
+      reason: 'A public source shows no RFI sync.',
+      sourceUrl: 'https://example.com/source',
+    });
     expect(stepStatus(await productChecklist(FREE, P_SYNC), 'confirm_data_flows')).toBe('done');
   });
 

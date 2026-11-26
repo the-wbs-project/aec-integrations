@@ -1799,6 +1799,25 @@ describe('ProductsPairPage: provenance panel (AECI-1666)', () => {
     );
   });
 
+  // AECI-2139 (P10a): AECi's correction of one data flow names no data type.
+  it('lists a data flow removal and a direction correction, with no slot rule', () => {
+    const el = render([
+      {
+        corrections: [
+          correction('data_flow', true, 'https://s.example'),
+          correction('data_flow', false, 'https://s.example'),
+        ],
+      },
+    ]);
+    const found = lines(panel(el), 'field-correction');
+    expect(found[0]).toMatch(
+      /^A data flow: Removed by AEC Integrations on September 15, 2026 · Source/,
+    );
+    expect(found[1]).toMatch(
+      /^A data flow: Corrected by AEC Integrations on September 15, 2026 · Source/,
+    );
+  });
+
   it('prefixes each line with the card heading when there is more than one mechanism', () => {
     const el = render([
       { mechanism_name: 'Bridge', caption: CAPTION },

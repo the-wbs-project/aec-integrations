@@ -1,5 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import {
   REMOVAL_END_REASONS,
@@ -74,7 +75,7 @@ type Form = {
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [AdminDangerAction, AecButton, Chip, DatePipe],
+  imports: [AdminDangerAction, AecButton, Chip, DatePipe, RouterLink],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -106,6 +107,18 @@ type Form = {
                 <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.owner">
                   With the owner, {{ r.owner_name }}. The owner decides.
                 </p>
+                <!-- AECI-2139: the report stays the owner's. AECi may still correct the
+                     flow on a public source, from the owner's vendor page. -->
+                @if (flowCorrectionLink(r); as link) {
+                  <a
+                    class="mt-1 inline-block rounded-mark text-sm font-semibold text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    [routerLink]="link.path"
+                    [queryParams]="link.queryParams"
+                    data-testid="pair-report-correct-flow"
+                    i18n="@@admin.pairRights.reports.correctFlow"
+                    >Correct this data flow on a public source</a
+                  >
+                }
               } @else {
                 <div class="mt-2 flex flex-wrap items-start gap-2">
                   <button
@@ -735,6 +748,24 @@ export class AdminPairRights {
     return (
       pair.name ?? $localize`:@@admin.pairRights.pairName:${a}:a: and ${b}:b: through ${via}:via:`
     );
+  }
+
+  /**
+   * AECI-2139: an owner-routed data flow report links to the flow correction form on
+   * the owner's vendor page, with the row and the flow chosen. `null` when the report
+   * names no flow, row or owner.
+   */
+  protected flowCorrectionLink(
+    r: PairContest,
+  ): { path: readonly string[]; queryParams: Record<string, string> } | null {
+    if (r.kind !== 'data_flow' || r.routed_to !== 'owner') return null;
+    const row = r.pair.integration_id;
+    const anchor = r.pair.anchor;
+    if (!r.flow || !row || !anchor || !r.owner_vendor_id) return null;
+    return {
+      path: ['/admin/vendors', r.owner_vendor_id],
+      queryParams: { flowRow: row, flowAnchor: anchor, flowClaim: r.flow.claim_id },
+    };
   }
 
   protected title(r: PairContest): string {

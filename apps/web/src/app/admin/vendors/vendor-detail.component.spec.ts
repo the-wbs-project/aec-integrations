@@ -353,6 +353,8 @@ describe('VendorDetail', () => {
       'Suspension',
       'Listing visibility',
       'Field corrections',
+      // AECI-2139.
+      'Data flow corrections',
       'Values under review',
       'Seats',
       'Record ownership',
