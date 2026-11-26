@@ -49,6 +49,26 @@ describe('known-failure IDs in the summary', () => {
     expect(summary.schemaVersion).toBe(1);
   });
 
+  it('names the browser project that ran each test (AECI-1885)', () => {
+    const inWebkit = {
+      ...fakeTest('webkit walk', []),
+      titlePath: () => ['', 'webkit', 'keyboard-public.spec.ts', 'webkit walk'],
+    } as unknown as TestCase;
+    const summary = buildSummary(
+      [fakeTest('chromium walk', []), inWebkit],
+      'passed',
+      {} as NodeJS.ProcessEnv,
+      new Date('2026-11-26T05:40:00.000Z'),
+      '/repo/apps/web',
+    );
+    expect(summary.tests.map((t) => [t.title, t.browser])).toEqual([
+      ['chromium walk', 'chromium'],
+      ['webkit walk', 'webkit'],
+    ]);
+    // The title still drops the root, the project and the file.
+    expect(summary.schemaVersion).toBe(1);
+  });
+
   it('sorts by issue number, not as text', () => {
     expect(sortIssueIds(['AECI-2106', 'AECI-999', 'AECI-1889'])).toEqual([
       'AECI-999',

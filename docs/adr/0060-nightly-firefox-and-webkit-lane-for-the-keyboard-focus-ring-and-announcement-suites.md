@@ -223,3 +223,37 @@ Each needs the built lane's first run, or a read of Playwright's source. None wa
 | macOS and Linux WebKit give the same Tab walk | One local WebKit walk on a Mac against the CI snapshot |
 | The 20-job figure is not shared with the other repos in the GitHub organisation | GitHub's plan settings for the organisation |
 | Every time in the cost section | The first dispatch run's job log and HTML report |
+
+## As built (2026-11-26, AECI-1885)
+
+The decision above stands. The build ran the three suites locally in Playwright 1.64.1's Firefox 157.0
+build and WebKit 27.2, on macOS, one worker. Those runs corrected some of this record's claims. The
+lane's description is `docs/TESTING_STRATEGY.md` §8.4.10.
+
+| Claim | Outcome |
+|---|---|
+| Playwright WebKit does not model Safari's "Press Tab to highlight each item" setting | **Wrong on macOS.** It models the default, setting off: a plain Tab walk of home reached only the two text fields. Option+Tab reaches every item, in Firefox's order. WebKit walks press Option+Tab. They test the setting turned on, not Safari's default. Linux WebKit is not measured |
+| Firefox and WebKit do not make an empty scroll container a Tab stop. Firefox may | **Half wrong.** Firefox does, and it also stops on a scroll container that holds a link. WebKit makes no scroll container a stop |
+| `ariaSnapshot()` roles and names barely differ between engines | **True for the tab orders.** All 22 surfaces give the same roles and names in all three browsers. The one difference is a Firefox-only stop on the account page, the scroller rule. The ARIA snapshot suite did not run outside Chromium |
+| Screenshots decode with `decodePng`, and `scale: 'css'` behaves the same | **True on macOS.** No decode error in either browser |
+| The canvas conversion reads `oklch()` colours in Firefox and WebKit | **True on macOS,** from the focus ring runs. The `focus-pixels` unit spec runs in Node, so it does not test a browser |
+| Playwright 1.64.1 installs WebKit and Firefox on the `ubuntu-26.04` runner | Not verified. Needs the first dispatch run. On macOS the install took 35 seconds, 309 MB for Firefox and 299 MB for WebKit |
+| Session minting works the same in Firefox and WebKit | **True locally.** No signed-in surface skipped in either browser |
+| macOS and Linux WebKit give the same Tab walk | Not verified. Needs the first CI run. §8.4.10 has the commands to rewrite WebKit snapshots on the runner |
+| The 20-job figure is not shared with the other repos in the organisation | **Wrong.** The organisation is on GitHub's Team plan. GitHub's published limit for Team is 60 concurrent jobs, counted for the whole organisation. Read from the plan, not measured |
+| Every time in the cost section | Local one-worker times are in `docs/CICD_PLAN.md` §11a-quater. CI times need the first run |
+
+**Not foreseen here.**
+
+- Playwright Firefox does not wrap: Tab on the last stop leaves focus there. The walk now wraps by hand
+  with real key presses (`sequentialFocusWraps`).
+- A WebKit click does not focus a button. Focus goes to `main`, so the announcement flows activate by
+  keyboard in WebKit (`pointerFocusesButtons`).
+- A focus ring barrier test found in one browser is kept out of the others by a `@not-<browser>` tag and
+  `grepInvert`. A Chromium skip row would have changed the Chromium result.
+- `report` now counts eighteen summaries.
+
+**Barriers the lane found on landing,** each filed under AECI-1069 and marked for its browsers only:
+AECI-2195 (focus under the consent banner, Firefox and WebKit), AECI-2196 (the login button moves under
+the pointer, Firefox), AECI-2197 (WebKit's `outline: auto` ring), and AECI-2097 on one more link in
+WebKit.

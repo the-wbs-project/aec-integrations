@@ -21,6 +21,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { knownFailure } from '../known-failure';
 import { SURFACES, type A11ySurface } from '../surfaces';
+import { browserOf, expected } from './browser-expectations';
 import { markKnownBarriers, type KnownBarrier } from './known-barriers';
 import {
   checkOverlay,
@@ -56,6 +57,8 @@ export type KeyboardCheck =
 export const KNOWN_BARRIERS: readonly KnownBarrier<KeyboardCheck>[] = [
   {
     check: 'aria-haspopup',
+    // An attribute in the markup, so every engine reads the same mismatch.
+    browsers: ['chromium', 'firefox', 'webkit'],
     // The admin console nav renders on every admin surface.
     applies: (surface) => surface.persona === 'admin',
     mark: () =>
@@ -124,7 +127,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(KNOWN_BARRIERS, surface, 'tab walk');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'tab walk', browserOf(page));
             await load(page, surface, { settle: true });
 
             const facts = await collectElementFacts(page);
@@ -155,7 +158,18 @@ export function defineKeyboardSuite(
             expect.soft(walkSnapshot(walk.stops)).toMatchSnapshot(`keyboard-${surface.id}.txt`);
 
             // 4. The candidate diff (checklist §5).
-            const diff = diffCandidates(candidateTabStops(facts), walk.stops);
+            // The scroller rule is the engine's (`./browser-expectations.ts`).
+            // Chromium's value is the default the prediction always had.
+            const diff = diffCandidates(
+              candidateTabStops(facts, {
+                keyboardFocusableScrollers: expected('keyboardFocusableScrollers', browserOf(page)),
+                scrollersWithFocusableContent: expected(
+                  'scrollersWithFocusableContent',
+                  browserOf(page),
+                ),
+              }),
+              walk.stops,
+            );
             expect
               .soft(
                 diff.neverReached.map((c) => c.label),
@@ -202,7 +216,7 @@ export function defineKeyboardSuite(
             // The slowest surface takes about 8 s on one quiet worker. 120 s leaves room for a busy runner.
             test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(KNOWN_BARRIERS, surface, 'overlays');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'overlays', browserOf(page));
             await load(page, surface);
             const first = await tabWalk(page);
             expect(first.end, 'the Tab cycle closes, so every trigger is known').toBe('closed');
@@ -304,7 +318,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(120_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(KNOWN_BARRIERS, surface, 'popovers');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'popovers', browserOf(page));
             await load(page, surface);
             const first = await tabWalk(page);
             expect(first.end, 'the Tab cycle closes, so every trigger is known').toBe('closed');
@@ -358,7 +372,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(90_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(KNOWN_BARRIERS, surface, 'aria-haspopup');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'aria-haspopup', browserOf(page));
             await load(page, surface);
             const mismatches = (await haspopupFacts(page))
               .filter((f) => f.role !== 'combobox')
@@ -396,7 +410,7 @@ export function defineKeyboardSuite(
           async ({ context, page }) => {
             test.setTimeout(90_000);
             await prepareSurface(context, surface, fixturesPresent);
-            markKnownBarriers(KNOWN_BARRIERS, surface, 'after navigation');
+            markKnownBarriers(KNOWN_BARRIERS, surface, 'after navigation', browserOf(page));
             await load(page, surface);
             const here = new URL(page.url());
             // The first in-app link in main that leads to another page. Hash links and

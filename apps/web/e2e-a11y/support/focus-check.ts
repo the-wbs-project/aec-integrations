@@ -257,6 +257,9 @@ export async function measureWalk(page: Page, checksSharedChrome: boolean): Prom
   };
 
   const walk = await tabWalk(page, {
+    // In Firefox, which does not wrap, end at the last stop: a wrap by hand would
+    // Shift+Tab up the whole page before the last unfocused pictures are taken.
+    atDocumentEnd: 'stop',
     onStop: async (stop) => {
       if (stop.tag === 'iframe') {
         unmeasured(stop, 'iframe');

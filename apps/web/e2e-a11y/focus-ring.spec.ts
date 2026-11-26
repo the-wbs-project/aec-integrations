@@ -36,6 +36,13 @@ import {
   type FocusFinding,
   type Measured,
 } from './support/focus-check';
+import {
+  A11Y_BROWSERS,
+  browserOf,
+  browserOfProject,
+  notInTags,
+  type A11yBrowser,
+} from './support/browser-expectations';
 import { headerOwnerFor } from './support/header-owner';
 import { fakeHeaderSearch, guardWrites } from './support/page-guards';
 import {
@@ -73,6 +80,8 @@ export const ALLOW_LIST: readonly AllowEntry[] = [];
  */
 interface FocusBarrier {
   readonly check: FocusCheck;
+  /** AECI-1885: the browsers the barrier is found in. The others still fail on it. */
+  readonly browsers: readonly A11yBrowser[];
   readonly applies: (surface: A11ySurface) => boolean;
   readonly covers: (finding: FocusFinding) => boolean;
   readonly mark: () => void;
@@ -95,9 +104,20 @@ const PORTAL_NAV = new Set([
   'Reviews',
 ]);
 
+/** The surfaces where WebKit leaves a text field under the consent banner (AECI-2195). */
+const WEBKIT_FIELDS_UNDER_BANNER = new Set([
+  'login',
+  'review-submission',
+  'account',
+  'vendor-integrations',
+  'categories-index',
+]);
+const TEXT_FIELD_ROLES = new Set(['textbox', 'searchbox']);
+
 export const KNOWN_FOCUS_BARRIERS: readonly FocusBarrier[] = [
   {
     check: 'contrast',
+    browsers: ['chromium', 'firefox', 'webkit'],
     applies: (surface) => surface.id === 'vendor-products' || surface.id === 'vendor-integrations',
     covers: ({ stop }) =>
       stop.role === 'link' && stop.landmark === 'nav' && stop.inMain && PORTAL_NAV.has(stop.name),
@@ -108,7 +128,70 @@ export const KNOWN_FOCUS_BARRIERS: readonly FocusBarrier[] = [
       ),
   },
   {
+    // Found by the Firefox lane (AECI-1885). Firefox does not scroll a stop that
+    // is already inside the viewport, so the consent banner's scroll margin
+    // (AECI-1818) never applies and the banner covers the stop.
+    check: 'obscured',
+    browsers: ['firefox'],
+    applies: (surface) => surface.id === 'not-found' || surface.id === 'account',
+    covers: ({ detail }) => detail.includes('in aec-consent-banner'),
+    mark: () =>
+      knownFailure(
+        'AECI-2195',
+        'Firefox ignores the consent banner scroll margin, so a stop lands under the banner',
+      ),
+  },
+  {
+    // Found by the WebKit lane (AECI-1885). WebKit does not scroll a text field
+    // that is already inside the viewport, so the banner's margin never applies.
+    check: 'obscured',
+    browsers: ['webkit'],
+    applies: (surface) => WEBKIT_FIELDS_UNDER_BANNER.has(surface.id),
+    covers: ({ stop, detail }) =>
+      TEXT_FIELD_ROLES.has(stop.role) && detail.includes('in aec-consent-banner'),
+    mark: () =>
+      knownFailure(
+        'AECI-2195',
+        'WebKit ignores the consent banner scroll margin for a text field, so it lands under the banner',
+      ),
+  },
+  {
+    // The same field: the banner covers part of its ring, so too few pixels reach 3:1.
+    check: 'contrast',
+    browsers: ['webkit'],
+    applies: (surface) => surface.id === 'categories-index',
+    covers: ({ stop }) => stop.role === 'textbox' && stop.name === 'Email address',
+    mark: () =>
+      knownFailure('AECI-2195', 'the consent banner covers part of the field and its ring'),
+  },
+  {
+    // Found by the WebKit lane (AECI-1885). The control keeps the browser's
+    // `outline-style: auto`, which WebKit draws as the system ring, not in our colour.
+    check: 'contrast',
+    browsers: ['webkit'],
+    applies: () => true,
+    covers: ({ detail }) => / \d+px auto /.test(detail),
+    mark: () =>
+      knownFailure(
+        'AECI-2197',
+        'WebKit draws outline-style auto as its system ring, about 2.1:1, not the Forest ring',
+      ),
+  },
+  {
+    // AECI-2097 in WebKit: the same section nav clips one more link's ring.
+    check: 'contrast',
+    browsers: ['webkit'],
+    applies: (surface) => surface.id === 'vendor-products',
+    covers: ({ stop }) => stop.role === 'link' && stop.landmark === 'nav' && stop.name === 'Seats',
+    mark: () =>
+      knownFailure(
+        'AECI-2097',
+        'the vendor portal section nav clips the top and bottom of its links’ focus ring',
+      ),
+  },
+  {
     check: 'boundary',
+    browsers: ['chromium', 'firefox', 'webkit'],
     applies: (surface) => surface.id === 'vendor-integrations',
     covers: ({ stop }) =>
       (stop.role === 'searchbox' && stop.name === 'Search') ||
@@ -121,8 +204,14 @@ export const KNOWN_FOCUS_BARRIERS: readonly FocusBarrier[] = [
   },
 ];
 
-function barriersFor(surface: A11ySurface, check: FocusCheck): FocusBarrier[] {
-  return KNOWN_FOCUS_BARRIERS.filter((b) => b.check === check && b.applies(surface));
+function barriersFor(
+  surface: A11ySurface,
+  check: FocusCheck,
+  browser: A11yBrowser,
+): FocusBarrier[] {
+  return KNOWN_FOCUS_BARRIERS.filter(
+    (b) => b.check === check && b.browsers.includes(browser) && b.applies(surface),
+  );
 }
 
 const CHECKS: readonly FocusCheck[] = ['visible', 'contrast', 'obscured', 'boundary'];
@@ -190,7 +279,7 @@ test.describe('a11y nightly focus ring', () => {
               info.push({ type: 'focus-allowed', description: `${format(f)}. ${allowed.reason}` });
               continue;
             }
-            if (barriersFor(surface, f.check).some((b) => b.covers(f))) {
+            if (barriersFor(surface, f.check, browserOf(page)).some((b) => b.covers(f))) {
               info.push({ type: 'focus-known', description: format(f) });
               continue;
             }
@@ -201,16 +290,31 @@ test.describe('a11y nightly focus ring', () => {
       );
 
       for (const check of CHECKS) {
-        const barriers = barriersFor(surface, check);
-        if (barriers.length === 0) continue;
-        test(`known focus barriers: ${check}`, surfaceAnnotations(surface), () => {
-          test.skip(result === null, 'the walk test did not run');
-          for (const b of barriers) b.mark();
-          const still = result!.findings.filter(
-            (f) => f.check === check && barriers.some((b) => b.covers(f)),
-          );
-          expect(still.map(format)).toEqual([]);
-        });
+        // Declared when the barrier is known in any browser. A test is declared
+        // before its project is known, so a browser the barrier is not found in
+        // drops the test by tag (`@not-<browser>`, the projects' `grepInvert`).
+        const anyBrowser = KNOWN_FOCUS_BARRIERS.filter(
+          (b) => b.check === check && b.applies(surface),
+        );
+        if (anyBrowser.length === 0) continue;
+        const foundIn = A11Y_BROWSERS.filter((browser) =>
+          anyBrowser.some((b) => b.browsers.includes(browser)),
+        );
+        test(
+          `known focus barriers: ${check}`,
+          { ...surfaceAnnotations(surface), tag: notInTags(foundIn) },
+          () => {
+            const browser = browserOfProject(test.info().project.name);
+            const barriers = barriersFor(surface, check, browser);
+            test.skip(barriers.length === 0, `no ${check} barrier is known here in ${browser}`);
+            test.skip(result === null, 'the walk test did not run');
+            for (const b of barriers) b.mark();
+            const still = result!.findings.filter(
+              (f) => f.check === check && barriers.some((b) => b.covers(f)),
+            );
+            expect(still.map(format)).toEqual([]);
+          },
+        );
       }
     });
   }

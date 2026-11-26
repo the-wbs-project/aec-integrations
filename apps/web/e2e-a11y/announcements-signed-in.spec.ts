@@ -20,7 +20,12 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { untilHydrated } from '../e2e/hydration';
 import { knownFailure } from './known-failure';
-import { blockWrites, expectFieldErrorWired, stubWrite } from './support/announcement-flows';
+import {
+  blockWrites,
+  expectFieldErrorWired,
+  activate,
+  stubWrite,
+} from './support/announcement-flows';
 import {
   describe as describeRecord,
   expectHeardOnce,
@@ -71,7 +76,7 @@ test.describe('Announcements: review submission', () => {
     await untilHydrated(submit(page));
 
     const rec = await recordAnnouncements(page);
-    await submit(page).click();
+    await activate(page, submit(page));
     const overall = page.locator('ul[aria-labelledby="overall-label"]');
     await expect(overall.locator('[role="option"]:focus')).toHaveCount(1);
     const overallError = await expectFieldErrorWired(overall, /\S/);
@@ -102,7 +107,7 @@ test.describe('Announcements: review submission', () => {
         );
 
       const rec = await recordAnnouncements(page);
-      await submit(page).click();
+      await activate(page, submit(page));
       await expect(page.getByRole('heading', { name: 'Review received' })).toBeFocused();
       expectHeardOnce(await rec.settle(), 'Review received', 'focus');
       expect(post.calls).toBe(1);
@@ -168,7 +173,7 @@ test.describe('Announcements: account', () => {
     await untilHydrated(save);
 
     const rec = await recordAnnouncements(page);
-    await save.click();
+    await activate(page, save);
     await expect(page.getByText('Display name updated.')).toBeVisible();
     expect(patches, 'the save reached the stub, once').toBe(1);
     return rec.settle();
@@ -223,7 +228,7 @@ test.describe('Announcements: account', () => {
       await untilHydrated(trigger);
 
       const rec = await recordAnnouncements(page);
-      await trigger.click();
+      await activate(page, trigger);
       const dialog = deleteDialog(page);
       await expect(dialog).toBeVisible();
       await expect
@@ -250,7 +255,7 @@ test.describe('Announcements: account', () => {
       await prepareSurface(context, ACCOUNT, fixturesPresent);
       const { del, confirm } = await openDelete(page, 500);
       const rec = await recordAnnouncements(page);
-      await confirm.click();
+      await activate(page, confirm);
       await expect(
         deleteDialog(page).getByText('Something went wrong. Please try again.'),
       ).toBeVisible();
@@ -332,7 +337,7 @@ test.describe('Announcements: the moderation outcome', () => {
       await untilHydrated(button);
 
       const rec = await recordAnnouncements(page);
-      await button.click();
+      await activate(page, button);
       await expect(page.getByText(PENDING_REVIEW.title)).toHaveCount(0);
       expectHeardOnce(await rec.settle(), 'Review approved.', 'polite');
       expect(approve.calls, 'the approve reached the stub, once').toBe(1);
@@ -390,7 +395,7 @@ for (const queue of [
       await untilHydrated(retry);
 
       const rec = await recordAnnouncements(page);
-      await retry.click();
+      await activate(page, retry);
       await expect(page.getByText(queue.empty)).toBeVisible({ timeout: 15_000 });
       expect(list.calls, 'the first load and the retry both reached the stub').toBe(2);
       return rec.settle();
@@ -459,7 +464,7 @@ test.describe('Announcements: vendor portal', () => {
         .getByRole('link', { name: 'Product Overview', exact: true });
       await untilHydrated(overview);
       const rec = await recordAnnouncements(page);
-      await overview.click();
+      await activate(page, overview);
       await expect(overview).toHaveAttribute('aria-current', 'page');
       const record = await rec.settle();
       expect(await channels(), 'still one channel after the section change').toHaveLength(1);

@@ -1,9 +1,10 @@
 # AEC Integrations — the accessibility nightly (AECI-1875, epic AECI-1874).
 #
-# WHAT. Two Playwright lanes against a local dev:bound, once a night. Both are
-#   separate from the PR e2e job in deploy.yml.
+# WHAT. Three Playwright lanes against a local dev:bound, once a night. All are
+#   separate from the PR e2e job in deploy.yml, which stays Chromium only.
 #   1. `suite`: the suite in apps/web/e2e-a11y/ (config
-#      apps/web/playwright.a11y-nightly.config.ts), in SUITE_SHARDS shards.
+#      apps/web/playwright.a11y-nightly.config.ts), in Chromium only
+#      (`--project=chromium`), in SUITE_SHARDS shards.
 #      Every surface in apps/web/e2e-a11y/surfaces.ts is visited. The checks
 #      come from the AECI-1874 sub-issues. docs/TESTING_STRATEGY.md §8.4.
 #   2. `e2e-axe` (AECI-1876): the whole e2e suite with the axe sweep on (config
@@ -11,11 +12,17 @@
 #      E2E_AXE_SHARDS shards. Every test that uses `page` ends with an axe scan.
 #      WCAG 2.0/2.1 A and AA fail the test. wcag22aa, best-practice and
 #      experimental are report only. docs/TESTING_STRATEGY.md §8.2 and §8.3.
+#   3. `cross-browser` (AECI-1885, ADR 0060): the keyboard, focus ring and
+#      announcement suites in Playwright's own Firefox and WebKit builds, the
+#      `firefox` and `webkit` projects of the nightly config, in
+#      CROSS_BROWSER_SHARDS shards per browser. Playwright WebKit is not
+#      Safari. docs/TESTING_STRATEGY.md §8.4.10.
 #   `report` merges the lanes' summaries into one a11y-nightly-summary.json
 #   (scripts/a11y-nightly-merge-summary.mjs), writes the axe findings by rule and the
 #   voice report (effort and target size, AECI-1883) and the IBM Equal Access
-#   report (AECI-1884, report only) to the job summary, and posts the commit
-#   status.
+#   report (AECI-1884, report only) to the job summary, counts each browser's
+#   outcomes (AECI-1885), and posts the commit status. All three lanes feed the
+#   one `a11y-nightly` status and the one alert (ADR 0060, answer 2).
 #
 # TRIGGERS.
 #   1. schedule, 05:40 UTC daily. Runs against main HEAD. Skips when that commit
@@ -26,10 +33,15 @@
 #      alert leaves the commit unskipped, and the next night runs and alerts again.
 #   2. workflow_dispatch on any branch. Runs against the dispatched ref. Never
 #      skips, never alerts.
+#   3. workflow_dispatch with `update_snapshots` set to `firefox` or `webkit`
+#      (ADR 0060, answer 5). Runs no lane and posts no status. The `snapshots`
+#      job rewrites that browser's keyboard tab-order snapshots on the runner
+#      and uploads them as `a11y-keyboard-snapshots-<browser>`, for a human to
+#      review and commit. docs/TESTING_STRATEGY.md §8.4.10 has the commands.
 #
 # THE RESULT LIVES ON THE COMMIT. Each run posts a commit status, context
 #   `a11y-nightly`: `pending` first (from `suite` shard 1), then `success`,
-#   `failure`, or `error` when cancelled (from `report`, over both lanes). Green
+#   `failure`, or `error` when cancelled (from `report`, over all three lanes). Green
 #   lanes with any expected summary missing post `failure`, and the description
 #   says how many are missing. The description
 #   ends `(nightly)` or `(manual)`. Same rule as lighthouse.yml. Only statuses
@@ -42,7 +54,8 @@
 #   Linear only, no email. docs/OBSERVABILITY.md owns the alert description.
 #
 # No event text (titles, messages, refs) reaches a run block. The only inputs
-# are the SHA, the event name and the repo name, all passed through env.
+# are the SHA, the event name, the repo name and the `update_snapshots` choice,
+# all passed through env. The choice can only be one of its listed options.
 #
 # Required repo secrets:
 #   - SUPABASE_ANON_KEY, SUPABASE_TEST_USER_*, SUPABASE_VENDOR_TEST_USER_*: the
@@ -60,6 +73,18 @@ on:
     - cron: '40 5 * * *'
   # Manual run on any branch. Never alerts.
   workflow_dispatch:
+    inputs:
+      # ADR 0060 answer 5: WebKit on macOS and on Linux are different ports, so
+      # a browser's tab-order snapshots may have to be written on the runner.
+      # Anything but `none` runs only the `snapshots` job.
+      update_snapshots:
+        description: Rewrite one browser's keyboard snapshots on the runner instead of testing
+        type: choice
+        default: none
+        options:
+          - none
+          - firefox
+          - webkit
 
 # One group per measured SHA, never cancelled. Two runs for the same SHA queue.
 concurrency:
@@ -79,6 +104,10 @@ env:
   # The e2e-a11y suite (AECI-1874). docs/CICD_PLAN.md §11a-quater has the
   # measured per-shard times this count comes from.
   SUITE_SHARDS: '8'
+  # The Firefox and WebKit lane (AECI-1885, ADR 0060 layout B): this many shards
+  # per browser. The `cross-browser` matrix lists exactly these browsers.
+  CROSS_BROWSERS: 'firefox webkit'
+  CROSS_BROWSER_SHARDS: '3'
 
 jobs:
   # ===========================================================================
@@ -95,6 +124,8 @@ jobs:
       sha: ${{ steps.resolve.outputs.sha }}
       measure: ${{ steps.resolve.outputs.measure }}
       trigger: ${{ steps.resolve.outputs.trigger }}
+      # `firefox` or `webkit` on a snapshot-only dispatch, else empty.
+      snapshots: ${{ steps.resolve.outputs.snapshots }}
     steps:
       # The status lookup fails OPEN: if the API is unreachable, run anyway, so a
       # GitHub hiccup can never silence the nightly alarm.
@@ -105,6 +136,7 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          UPDATE_SNAPSHOTS: ${{ inputs.update_snapshots }}
         run: |
           set -euo pipefail
           sha="$EVENT_SHA"
@@ -114,6 +146,18 @@ jobs:
             trigger="manual"
           fi
           measure=true
+          # A snapshot-only dispatch tests nothing, so it measures nothing and
+          # posts no status: a rewritten snapshot always matches itself.
+          snapshots=""
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            case "${UPDATE_SNAPSHOTS:-none}" in
+              firefox | webkit)
+                snapshots="$UPDATE_SNAPSHOTS"
+                measure=false
+                echo "Snapshot-only run: rewriting the $snapshots keyboard snapshots. No lane runs, no status is posted."
+                ;;
+            esac
+          fi
           if [ "$trigger" = "nightly" ]; then
             # Newest first. Only statuses this workflow posted count.
             if state="$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" \
@@ -150,6 +194,7 @@ jobs:
             echo "sha=$sha"
             echo "measure=$measure"
             echo "trigger=$trigger"
+            echo "snapshots=$snapshots"
           } >> "$GITHUB_OUTPUT"
 
   # ===========================================================================
@@ -269,7 +314,10 @@ jobs:
           if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
             echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
           fi
-          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --shard="$SHARD/$SUITE_SHARDS"
+          # Chromium only. The config also holds the firefox and webkit projects
+          # (AECI-1885), which `cross-browser` runs. Without the flag every
+          # shard would run those too.
+          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --project=chromium --shard="$SHARD/$SUITE_SHARDS"
       # `report` merges this with the other shards' summaries.
       - name: Keep the test summary
         if: ${{ !cancelled() }}
@@ -290,6 +338,204 @@ jobs:
       - name: dev:bound logs on failure
         if: failure()
         run: tail -200 dev-bound.log || true
+
+  # ===========================================================================
+  # The keyboard, focus ring and announcement suites in Firefox and WebKit
+  # (AECI-1885, ADR 0060), in shards per browser
+  # ===========================================================================
+  # The same setup as `suite`, with two differences. Each browser has its own
+  # Playwright cache key: the PR job and the other lanes save Chromium alone
+  # under `playwright-…`, and a job that restored that cache could not launch
+  # Firefox or WebKit. The run picks the browser's project, which holds only
+  # the three suites (`testMatch` in the nightly config). No status token.
+  cross-browser:
+    name: Accessibility nightly, ${{ matrix.browser }} (shard ${{ matrix.shard }}/3)
+    needs: resolve
+    if: needs.resolve.outputs.measure == 'true'
+    runs-on: ubuntu-26.04
+    strategy:
+      # Every shard's findings land, even when one is red.
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+        shard: [1, 2, 3]
+    # docs/CICD_PLAN.md §11a-quater has the measured time per shard.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/web build
+      # Its own key per browser, never the shared `playwright-…` one (ADR 0060
+      # "Browser install and cache"). The save step logs the archive size.
+      - uses: actions/cache@v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-a11y-${{ matrix.browser }}-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps "$BROWSER"
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps "$BROWSER"
+      - name: Write the .dev.vars files for `pnpm dev:bound`
+        env:
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' > apps/api/.dev.vars
+          if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
+            printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+          else
+            echo "::warning::SUPABASE_ANON_KEY not set. The signed-in surfaces will skip."
+          fi
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      - name: Accessibility nightly in Firefox or WebKit (Playwright)
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8788
+          SHARD: ${{ matrix.shard }}
+          A11Y_COMMIT_SHA: ${{ needs.resolve.outputs.sha }}
+          A11Y_TRIGGER: ${{ needs.resolve.outputs.trigger }}
+          SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
+          SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+          SUPABASE_VENDOR_TEST_USER_EMAIL: ${{ secrets.SUPABASE_VENDOR_TEST_USER_EMAIL }}
+          SUPABASE_VENDOR_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_VENDOR_TEST_USER_PASSWORD }}
+        run: |
+          if [ -z "$SUPABASE_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_TEST_USER_EMAIL/PASSWORD not set. The reviewer and admin surfaces will skip."
+          fi
+          if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set. The vendor surfaces will skip."
+          fi
+          pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts --project="$BROWSER" --shard="$SHARD/$CROSS_BROWSER_SHARDS"
+      - name: Keep the test summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: a11y-nightly-summary-${{ matrix.browser }}-${{ matrix.shard }}
+          path: apps/web/a11y-nightly-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Keep the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-a11y-${{ matrix.browser }}-${{ matrix.shard }}
+          path: apps/web/playwright-report-a11y
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
+
+  # ===========================================================================
+  # Rewrite one browser's keyboard snapshots on the runner (dispatch only)
+  # ===========================================================================
+  # ADR 0060 answer 5: Playwright's WebKit on macOS and on Linux are different
+  # ports, so their Tab walks can differ. This job runs only the `tab walk`
+  # tests, which own the snapshots, with --update-snapshots, and uploads the
+  # browser's snapshot folder. Nothing is committed and no status is posted. A
+  # human downloads the artifact, reviews the diff and commits it.
+  snapshots:
+    name: Rewrite the ${{ needs.resolve.outputs.snapshots }} keyboard snapshots
+    needs: resolve
+    if: needs.resolve.outputs.snapshots != ''
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      BROWSER: ${{ needs.resolve.outputs.snapshots }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/web build
+      - uses: actions/cache@v5
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-a11y-${{ needs.resolve.outputs.snapshots }}-${{ runner.os }}-${{ env.ImageOS }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps "$BROWSER"
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps "$BROWSER"
+      - name: Write the .dev.vars files for `pnpm dev:bound`
+        env:
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' > apps/api/.dev.vars
+          if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
+            printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+          else
+            echo "::warning::SUPABASE_ANON_KEY not set. The signed-in surfaces will skip, and keep their old snapshots."
+          fi
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # A test may still fail on another check. The snapshots it wrote are kept.
+      - name: Rewrite the keyboard snapshots
+        continue-on-error: true
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8788
+          SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
+          SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+          SUPABASE_VENDOR_TEST_USER_EMAIL: ${{ secrets.SUPABASE_VENDOR_TEST_USER_EMAIL }}
+          SUPABASE_VENDOR_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_VENDOR_TEST_USER_PASSWORD }}
+        run: pnpm --filter @aeci/web exec playwright test -c playwright.a11y-nightly.config.ts keyboard- --grep "tab walk" --project="$BROWSER" --update-snapshots=changed
+      - name: Keep the rewritten snapshots
+        uses: actions/upload-artifact@v6
+        with:
+          name: a11y-keyboard-snapshots-${{ needs.resolve.outputs.snapshots }}
+          path: apps/web/e2e-a11y/__snapshots__/${{ needs.resolve.outputs.snapshots }}/
+          if-no-files-found: error
+          retention-days: 7
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
+
   # ===========================================================================
   # The e2e suite with the axe sweep on (AECI-1876), in shards
   # ===========================================================================
@@ -401,7 +647,7 @@ jobs:
   # to v6.0.0.
   report:
     name: Merge the summaries and record the result
-    needs: [resolve, suite, e2e-axe]
+    needs: [resolve, suite, e2e-axe, cross-browser]
     if: ${{ always() && needs.resolve.outputs.measure == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -424,16 +670,21 @@ jobs:
         env:
           SUITE_RESULT: ${{ needs.suite.result }}
           E2E_AXE_RESULT: ${{ needs.e2e-axe.result }}
+          CROSS_BROWSER_RESULT: ${{ needs.cross-browser.result }}
         run: |
           set -euo pipefail
-          # A failure wins over a cancel: a red lane must alert even when the
-          # other lane was cancelled.
-          case "$SUITE_RESULT/$E2E_AXE_RESULT" in
-            success/success) lanes=success ;;
-            failure/* | */failure) lanes=failure ;;
-            *) lanes=cancelled ;;
-          esac
-          echo "suite=$SUITE_RESULT e2e-axe=$E2E_AXE_RESULT lanes=$lanes"
+          # `success` only when every lane passed. A failure wins over a cancel:
+          # a red lane must alert even when another lane was cancelled. Anything
+          # else (cancelled, skipped, unknown) is `cancelled`.
+          lanes=success
+          for result in "${SUITE_RESULT:-unknown}" "${E2E_AXE_RESULT:-unknown}" "${CROSS_BROWSER_RESULT:-unknown}"; do
+            case "$result" in
+              success) ;;
+              failure) lanes=failure ;;
+              *) [ "$lanes" = failure ] || lanes=cancelled ;;
+            esac
+          done
+          echo "suite=${SUITE_RESULT:-unknown} e2e-axe=${E2E_AXE_RESULT:-unknown} cross-browser=${CROSS_BROWSER_RESULT:-unknown} lanes=$lanes"
           echo "lanes=$lanes" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -464,6 +715,11 @@ jobs:
           done
           for n in $(seq 1 "$E2E_AXE_SHARDS"); do
             echo "a11y-parts/a11y-nightly-summary-e2e-axe-$n/a11y-e2e-axe-summary.json" >> expected-parts.txt
+          done
+          for browser in $CROSS_BROWSERS; do
+            for n in $(seq 1 "$CROSS_BROWSER_SHARDS"); do
+              echo "a11y-parts/a11y-nightly-summary-$browser-$n/a11y-nightly-summary.json" >> expected-parts.txt
+            done
           done
           missing=()
           while IFS= read -r part; do

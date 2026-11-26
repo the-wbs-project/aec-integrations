@@ -172,6 +172,52 @@ test('sharded lanes merge: every shard of the suite and the sweep is one part (A
   );
 });
 
+test('the browser lane merges: each row keeps its browser, and the counts split by browser (AECI-1885)', () => {
+  const lane = (browser, path, rows) =>
+    part(
+      summary({
+        totals: { passed: 0, failed: 0, skipped: 0, expectedFailures: 0 },
+        tests: rows.map(([title, outcome]) => ({ title, outcome, browser })),
+      }),
+      path,
+    );
+  const m = mergeSummaries([
+    lane('chromium', 'suite-1.json', [
+      ['a', 'passed'],
+      ['b', 'expected-failure'],
+    ]),
+    lane('webkit', 'webkit-1.json', [
+      ['a', 'failed'],
+      ['b', 'flaky'],
+    ]),
+    lane('firefox', 'firefox-1.json', [
+      ['a', 'skipped'],
+      ['b', 'passed'],
+    ]),
+    // A part written before the field existed.
+    part(summary({ tests: [{ title: 'old', outcome: 'passed' }] }), 'old.json'),
+  ]);
+  assert.equal(m.schemaVersion, 1, 'adding the browser kept the schema version');
+  assert.deepEqual(
+    m.tests.filter((t) => t.title === 'a').map((t) => [t.browser, t.outcome]),
+    [
+      ['chromium', 'passed'],
+      ['webkit', 'failed'],
+      ['firefox', 'skipped'],
+    ],
+  );
+  assert.deepEqual(m.browsers, [
+    { browser: 'chromium', passed: 1, failed: 0, skipped: 0, expectedFailures: 1, flaky: 0 },
+    { browser: 'firefox', passed: 1, failed: 0, skipped: 1, expectedFailures: 0, flaky: 0 },
+    { browser: 'webkit', passed: 1, failed: 1, skipped: 0, expectedFailures: 0, flaky: 1 },
+    { browser: 'unknown', passed: 1, failed: 0, skipped: 0, expectedFailures: 0, flaky: 0 },
+  ]);
+  const md = summaryMarkdown(m);
+  assert.match(md, /### By browser/);
+  assert.match(md, /\| webkit \| 1 \| 1 \| 0 \| 0 \| 1 \|/);
+  assert.match(md, /\| firefox \| 1 \| 0 \| 1 \| 0 \| 0 \|/);
+});
+
 test('a missing part makes the merged status failed, and is named', () => {
   const dir = tempDir();
   const good = join(dir, 'good.json');

@@ -15,11 +15,13 @@
  * own checks.
  *
  * Portable. Role and name come from Playwright's `ariaSnapshot()`, which works
- * in every engine Playwright drives. One known difference for AECI-1885: Safari
- * on macOS skips links on Tab unless "Press Tab to highlight each item" is on,
- * so check how Playwright's WebKit build behaves before trusting a WebKit walk.
+ * in every engine Playwright drives. `key` names the direction. The key actually
+ * pressed is the browser's, from `sequentialKey` in `./browser-expectations.ts`:
+ * Tab in Chromium and Firefox, Option+Tab in WebKit, which skips links on a plain
+ * Tab as Safari does (AECI-1885).
  */
 import type { Page } from '@playwright/test';
+import { browserOf, expected, sequentialKey } from './browser-expectations';
 import { ensureProbe, focusFacts, locatorForKey, type FocusFacts } from './probe';
 
 export interface TabStop {
@@ -75,7 +77,10 @@ export interface TabWalk {
 }
 
 export interface TabWalkOptions {
-  /** `Tab` walks forward, `Shift+Tab` backward. Default `Tab`. */
+  /**
+   * `Tab` walks forward, `Shift+Tab` backward. Default `Tab`. The key pressed is
+   * the browser's for that direction (`sequentialKey`).
+   */
   readonly key?: 'Tab' | 'Shift+Tab';
   /** Stop after this many presses. Default 400. */
   readonly maxPresses?: number;
@@ -87,6 +92,15 @@ export interface TabWalkOptions {
    * page a second way. It must not move focus.
    */
   readonly onStop?: (stop: TabStop) => Promise<void>;
+  /**
+   * What to do at the end of the document in a browser that does not wrap
+   * (`sequentialFocusWraps`). `wrap`, the default, wraps by hand and goes on, as
+   * a wrapping browser does. `stop` checks the opposite key moves focus, so the
+   * last stop is no trap, puts focus back on the last stop, and ends `closed`.
+   * For a walk that only needs every stop once and must not scroll the page
+   * again before it is done: the focus ring walk (AECI-1885).
+   */
+  readonly atDocumentEnd?: 'wrap' | 'stop';
 }
 
 /** Parse the first line of an `ariaSnapshot()`: `- link "Name" [attrs]:`. */
@@ -125,7 +139,7 @@ export async function describeFocused(
  * returns to the first stop. Start from a fresh load so focus is on the document.
  */
 export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise<TabWalk> {
-  const key = options.key ?? 'Tab';
+  const key = sequentialKey(page, options.key ?? 'Tab');
   const maxPresses = options.maxPresses ?? 400;
   await ensureProbe(page);
   const start = await focusFacts(page);
@@ -143,7 +157,7 @@ export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise
   while (presses < maxPresses) {
     await page.keyboard.press(key);
     presses++;
-    const facts = await focusFacts(page);
+    let facts = await focusFacts(page);
 
     if (facts.url !== startUrl) {
       end = 'navigated';
@@ -158,9 +172,35 @@ export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise
     if (facts.key === previous) {
       // An iframe holds focus while Tab moves through its own document.
       if (facts.inIframe) continue;
-      end = 'stuck';
-      break;
+      // Playwright Firefox does not wrap past the last stop (`sequentialFocusWraps`
+      // in `./browser-expectations.ts`). There, a press that leaves focus where
+      // it is means the end of the document, not a trap, when the opposite key
+      // moves it. `wrapByHand` then does the wrap, and the walk goes on from the
+      // other end, as it does in a browser that wraps.
+      if (expected('sequentialFocusWraps', browserOf(page)) || stops.length === 0) {
+        end = 'stuck';
+        break;
+      }
+      if (options.atDocumentEnd === 'stop') {
+        end = await confirmDocumentEnd(page, options.key ?? 'Tab', facts.key, startUrl);
+        presses += 2;
+        break;
+      }
+      const wrap = await wrapByHand(page, options.key ?? 'Tab', maxPresses - presses, startUrl);
+      presses += wrap.presses;
+      if (wrap.kind === 'navigated') {
+        end = 'navigated';
+        navigatedTo = wrap.url;
+        break;
+      }
+      if (wrap.kind !== 'wrapped') {
+        end = wrap.kind;
+        break;
+      }
+      facts = wrap.facts;
     }
+    // `wrapByHand` never returns the document, so this only narrows the type.
+    if (facts.key === null) continue;
     const again = seen.get(facts.key);
     if (again) {
       end = again.index === 0 ? 'closed' : 'looped';
@@ -200,6 +240,63 @@ export async function tabWalk(page: Page, options: TabWalkOptions = {}): Promise
 }
 
 /**
+ * In a browser that does not wrap: focus sits on the last stop of the document.
+ * Do by real key presses what a wrapping browser does with one: press the
+ * opposite key until focus stops moving, which is the other end of the
+ * document. Its facts are what the wrapping press would have given. `stuck`
+ * when the opposite key cannot move focus off the last stop either: a trap.
+ * The way there only moves focus. It judges nothing: coming up from below, the
+ * page is still scrolled, and a sticky bar can show stops a top-down walk never
+ * meets (the product page's "back to top" link).
+ */
+async function wrapByHand(
+  page: Page,
+  direction: 'Tab' | 'Shift+Tab',
+  budget: number,
+  startUrl: string,
+): Promise<
+  | { kind: 'wrapped'; facts: FocusFacts; presses: number }
+  | { kind: 'stuck' | 'budget'; presses: number }
+  | { kind: 'navigated'; presses: number; url: string }
+> {
+  const back = sequentialKey(page, direction === 'Tab' ? 'Shift+Tab' : 'Tab');
+  let previous = (await focusFacts(page)).key;
+  let presses = 0;
+  while (presses < budget) {
+    await page.keyboard.press(back);
+    presses++;
+    const facts = await focusFacts(page);
+    if (facts.url !== startUrl) return { kind: 'navigated', presses, url: facts.url };
+    if (facts.onBody || facts.key === null || facts.inIframe) continue;
+    if (facts.key === previous) {
+      return presses === 1 ? { kind: 'stuck', presses } : { kind: 'wrapped', facts, presses };
+    }
+    previous = facts.key;
+  }
+  return { kind: 'budget', presses };
+}
+
+/**
+ * In a browser that does not wrap, at the last stop: one press of the opposite
+ * key must move focus, or the stop is a trap. The forward key then puts focus
+ * back on the last stop, where the walk ended. Two presses, nothing else moves.
+ */
+async function confirmDocumentEnd(
+  page: Page,
+  direction: 'Tab' | 'Shift+Tab',
+  last: number | null,
+  startUrl: string,
+): Promise<WalkEnd> {
+  await page.keyboard.press(sequentialKey(page, direction === 'Tab' ? 'Shift+Tab' : 'Tab'));
+  const back = await focusFacts(page);
+  if (back.url !== startUrl) return 'navigated';
+  if (back.key === last) return 'stuck';
+  await page.keyboard.press(sequentialKey(page, direction));
+  const again = await focusFacts(page);
+  return again.key === last ? 'closed' : 'looped';
+}
+
+/**
  * Press Tab until the element with probe key `key` has focus, from wherever focus
  * is now. Returns the facts at that point, or `null` when the budget ran out.
  * The way to reach a known stop again without `el.focus()`.
@@ -209,14 +306,24 @@ export async function tabTo(
   key: number,
   options: Pick<TabWalkOptions, 'key' | 'maxPresses'> = {},
 ): Promise<FocusFacts | null> {
-  const press = options.key ?? 'Tab';
+  const direction = options.key ?? 'Tab';
+  let press = sequentialKey(page, direction);
+  // In a browser that does not wrap, a target behind focus is reached the other way.
+  const wraps = expected('sequentialFocusWraps', browserOf(page));
   const maxPresses = options.maxPresses ?? 400;
   const now = await focusFacts(page);
   if (now.key === key) return now;
+  let previous = now.key;
+  let turned = false;
   for (let i = 0; i < maxPresses; i++) {
     await page.keyboard.press(press);
     const facts = await focusFacts(page);
     if (facts.key === key) return facts;
+    if (!wraps && !turned && facts.key !== null && facts.key === previous && !facts.inIframe) {
+      press = sequentialKey(page, direction === 'Tab' ? 'Shift+Tab' : 'Tab');
+      turned = true;
+    }
+    previous = facts.key;
   }
   return null;
 }
