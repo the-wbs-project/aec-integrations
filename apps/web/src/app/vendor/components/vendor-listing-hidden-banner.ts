@@ -1,14 +1,9 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  LOCALE_ID,
-  computed,
-  inject,
-  input,
-} from '@angular/core';
+import { Component, LOCALE_ID, computed, inject, input } from '@angular/core';
 import { formatDate } from '@angular/common';
 
 import type { VendorListingHidden } from '@aeci/shared';
+
+import { AecPortalNotice, PORTAL_NOTICE_BODY_CLASS } from '../shared/portal-notice';
 
 /**
  * The listing-hidden banner (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). AECi
@@ -25,44 +20,35 @@ import type { VendorListingHidden } from '@aeci/shared';
  */
 @Component({
   selector: 'aec-vendor-listing-hidden-banner',
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [AecPortalNotice],
+  host: { class: 'block' },
   template: `
     <section
+      aecPortalNotice
       [attr.aria-labelledby]="headingId()"
-      class="mb-6 rounded-(--radius-md) border border-(--border-strong) bg-(--accent-warm) px-5 py-4"
       data-testid="listing-hidden-banner"
     >
-      <div class="max-w-prose">
-        <h2
-          [id]="headingId()"
-          class="font-display text-xl font-semibold text-(--text-primary)"
-          i18n="@@vendor.listingHidden.heading"
+      <h2 [id]="headingId()" i18n="@@vendor.listingHidden.heading">
+        Hidden from the public site by AEC Integrations on {{ date() }}
+      </h2>
+      <p
+        [class]="bodyClass + ' mt-1 whitespace-pre-line'"
+        data-testid="listing-hidden-reason"
+        i18n="@@vendor.listingHidden.reason"
+      >
+        Reason: {{ hidden().reason }}
+      </p>
+      <p [class]="bodyClass + ' mt-2'" i18n="@@vendor.listingHidden.body">
+        Your portal still works and your edits still save. To dispute this, email
+        <a
+          [href]="'mailto:' + supportEmail"
+          class="rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors [overflow-wrap:anywhere] hover:decoration-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+          >{{ supportEmail }}</a
         >
-          Hidden from the public site by AEC Integrations on {{ date() }}
-        </h2>
-        <p
-          class="mt-1 whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          data-testid="listing-hidden-reason"
-          i18n="@@vendor.listingHidden.reason"
-        >
-          Reason: {{ hidden().reason }}
-        </p>
-        <p
-          class="mt-2 text-sm leading-relaxed text-(--text-primary)"
-          i18n="@@vendor.listingHidden.body"
-        >
-          Your portal still works and your edits still save. To dispute this, email
-          <a
-            [href]="'mailto:' + supportEmail"
-            class="font-medium text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >{{ supportEmail }}</a
-          >
-          and quote this message.
-        </p>
-      </div>
+        and quote this message.
+      </p>
     </section>
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorListingHiddenBanner {
   private readonly locale = inject(LOCALE_ID);
@@ -73,6 +59,7 @@ export class VendorListingHiddenBanner {
   readonly headingId = input<string>('vendor-listing-hidden-h');
 
   protected readonly supportEmail = 'support@aecintegrations.com';
+  protected readonly bodyClass = PORTAL_NOTICE_BODY_CLASS;
 
   /** UTC, so the SSR and hydration renders agree on the date. */
   protected readonly date = computed(() => {

@@ -1345,8 +1345,8 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
     expect(el.textContent).toContain('New in 2026.10 · v5');
     expect(el.textContent).toContain('+');
     expect(el.textContent).toContain('1 added');
-    // The edge colour is the unlayered class: a border-colour utility loses to the
-    // unlayered `* { border-color }` rule and rendered grey (AECI-1798 review).
+    // The edge colour is the unlayered class. A border-colour utility rendered grey
+    // until AECI-2088 moved the `* { border-color }` rule into `@layer base`.
     const row = el.querySelector('aec-agreement-badge')?.closest('li');
     expect(row?.classList).toContain('aec-diff-added');
     expect(row?.classList).toContain('border-s-2');

@@ -47,6 +47,7 @@ import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
 import { integrationLiveSentinel } from './live-integration';
 import type { ContestPortalNotificationId } from './notifications/registry';
+import { contestWorkflowStmts } from './workflow-restore';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -527,18 +528,19 @@ export function rerouteToAeciStatements(
           ),
         ),
     );
-    if (contest.workflowId) {
-      stmts.push(
-        workflowTransitionInsert(db, {
-          workflowId: contest.workflowId,
-          fromState: 'open',
-          toState: 'open',
-          actorId: actor.actorId,
-          reason,
-          metadata,
-        }),
-      );
-    }
+    // AECI-1913: an instance the retention prune deleted is re-created and relinked.
+    const workflow = contestWorkflowStmts(db, contest, 'contest', now);
+    stmts.push(
+      ...workflow.stmts,
+      workflowTransitionInsert(db, {
+        workflowId: workflow.workflowId,
+        fromState: 'open',
+        toState: 'open',
+        actorId: actor.actorId,
+        reason,
+        metadata,
+      }),
+    );
     audits.push({
       ...actor,
       action: 'integration.contest.rerouted',

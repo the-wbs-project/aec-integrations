@@ -141,21 +141,41 @@ async function setup(api: ApiMock = makeApiMock(), bansApi: BansApiMock = makeBa
   return { fixture, api, bansApi, store, el: fixture.nativeElement as HTMLElement };
 }
 
-/** Product names of the rendered cards, in DOM order (the sort outcome). */
+/** Product names of the rendered rows, in DOM order (the sort outcome). */
 function productOrder(el: HTMLElement): string[] {
-  return [...el.querySelectorAll('article h3 a')].map((a) => a.textContent?.trim() ?? '');
+  return [...el.querySelectorAll('tr[data-testid="review-row"] th a')].map(
+    (a) => a.textContent?.trim() ?? '',
+  );
 }
 
-function cardFor(el: HTMLElement, productName: string): HTMLElement {
-  const article = [...el.querySelectorAll('article')].find((a) =>
-    a.querySelector('h3')?.textContent?.includes(productName),
+/** A review's summary row (AECI-2102): product, reviewer, scores, dates, status. */
+function rowFor(el: HTMLElement, productName: string): HTMLElement {
+  const row = [...el.querySelectorAll('tr[data-testid="review-row"]')].find((r) =>
+    r.querySelector('th')?.textContent?.includes(productName),
   );
-  if (!article) throw new Error(`No card for "${productName}"`);
-  return article as HTMLElement;
+  if (!row) throw new Error(`No row for "${productName}"`);
+  return row as HTMLElement;
+}
+
+/** A review's detail row: its words, its facts and the decision. The disclosure's
+ *  `aria-controls` names it, so this also proves the wiring. */
+function cardFor(el: HTMLElement, productName: string): HTMLElement {
+  const controls = rowFor(el, productName)
+    .querySelector('[aria-controls]')
+    ?.getAttribute('aria-controls');
+  const detail = controls ? el.querySelector<HTMLElement>(`[id="${controls}"]`) : null;
+  if (!detail) throw new Error(`No detail row for "${productName}"`);
+  return detail;
+}
+
+function disclosureFor(el: HTMLElement, productName: string): HTMLButtonElement {
+  return rowFor(el, productName).querySelector('button[aria-controls]') as HTMLButtonElement;
 }
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
-  const btn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+  const btn = [...root.querySelectorAll('button')]
+    .filter((b) => !b.closest('form[hidden]'))
+    .find((b) => b.textContent?.trim() === text);
   if (!btn) throw new Error(`No button "${text}"`);
   return btn as HTMLButtonElement;
 }
@@ -168,9 +188,9 @@ function clickSort(el: HTMLElement, label: string): void {
 /** The toxicity badge button within a card (the one whose accessible name names
  *  the toxicity score — distinguishes it from Approve/Reject). */
 function toxicityBadge(card: HTMLElement): HTMLButtonElement {
-  const btn = [...card.querySelectorAll('button')].find((b) =>
-    (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
-  );
+  const btn = [...card.querySelectorAll('button')]
+    .filter((b) => !b.closest('form[hidden]'))
+    .find((b) => (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'));
   if (!btn) throw new Error('No toxicity badge button');
   return btn as HTMLButtonElement;
 }
@@ -193,7 +213,91 @@ describe('ReviewQueue', () => {
     expect(el.textContent).toContain('stable since');
     expect(el.textContent).toContain('Overall 4/5');
     // The product links to its detail page.
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/products/');
+    expect(el.querySelector('tr[data-testid="review-row"] th a')?.getAttribute('href')).toContain(
+      '/products/',
+    );
+  });
+
+  it('is one table row per review, its detail opened by a named disclosure (AECI-2102)', async () => {
+    const { el, fixture } = await setup();
+    const table = el.querySelector('table') as HTMLTableElement;
+    const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers).toEqual([
+      'Details',
+      'Product',
+      'Reviewer',
+      'Overall',
+      'Onboarding',
+      'Toxicity',
+      'Submitted',
+      'In queue',
+      'Status',
+    ]);
+    // The region is labelled by the caption, and the detail cell spans every column.
+    const region = el.querySelector('[role="region"]') as HTMLElement;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
+    const detail = cardFor(el, 'Alpha');
+    expect(detail.querySelector('td')?.getAttribute('colspan')).toBe(String(headers.length));
+
+    // Closed: hidden but present, so aria-controls always resolves.
+    const button = disclosureFor(el, 'Alpha');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(detail.hidden).toBe(true);
+    // The name is the same open or closed: aria-expanded carries the state.
+    expect(button.textContent?.trim()).toBe('Review of Alpha by amy@example.test');
+
+    button.click();
+    fixture.detectChanges();
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(detail.hidden).toBe(false);
+    expect(button.textContent?.trim()).toBe('Review of Alpha by amy@example.test');
+    expect(detail.textContent).toContain('stable since');
+    expect(detail.textContent).toContain('Overall 4/5');
+
+    button.click();
+    fixture.detectChanges();
+    expect(detail.hidden).toBe(true);
+  });
+
+  it('pages the loaded set with Previous and Next, keeping the cap note (§5.7)', async () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      makeReview({
+        id: `r${String(i).padStart(2, '0')}`,
+        product: { id: `p${i}`, name: `Product ${String(i).padStart(2, '0')}`, slug: `p${i}` },
+        created_at: `2026-06-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+      }),
+    );
+    const { el, fixture } = await setup(makeApiMock(many, 140));
+    expect(productOrder(el)).toHaveLength(25);
+    // The capped-set note is unchanged: it counts the loaded set against the server total.
+    expect(el.textContent).toContain('Showing the first 30 of 140 pending reviews');
+    expect(el.querySelector('nav[aria-label="Pagination"]')?.textContent).toContain(
+      'Page 1 of 2 · 30 rows',
+    );
+    buttonByText(el, 'Next').click();
+    fixture.detectChanges();
+    expect(productOrder(el)).toHaveLength(5);
+    expect(el.querySelector('nav[aria-label="Pagination"]')?.textContent).toContain('Page 2 of 2');
+    buttonByText(el, 'Previous').click();
+    fixture.detectChanges();
+    expect(productOrder(el)).toHaveLength(25);
+  });
+
+  it('moves focus to the next row after a decision, and to the heading when none is left', async () => {
+    const { el, fixture } = await setup(makeApiMock([ALPHA, BRAVO]));
+    // Toxicity order: Bravo then Alpha. Approving Bravo hands focus to Alpha's disclosure.
+    buttonByText(cardFor(el, 'Bravo'), 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(disclosureFor(el, 'Alpha'));
+
+    buttonByText(cardFor(el, 'Alpha'), 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement?.id).toBe('admin-reviews-heading');
   });
 
   it('defaults to toxicity high→low with null scores last', async () => {
@@ -204,27 +308,29 @@ describe('ReviewQueue', () => {
 
   it('flags a high-toxicity review and labels an unscored one', async () => {
     const { el } = await setup();
-    const bravo = cardFor(el, 'Bravo'); // toxicity 80 → High
+    const bravo = rowFor(el, 'Bravo'); // toxicity 80 → High
     expect(bravo.textContent).toContain('High');
     expect(bravo.textContent).toContain('80');
-    const charlie = cardFor(el, 'Charlie'); // toxicity null
+    // The high score is the console's attention chip, never colour alone ("High").
+    expect(bravo.querySelector('.aec-chip[data-tone="attention"]')?.textContent).toContain('High');
+    const charlie = rowFor(el, 'Charlie'); // toxicity null
     expect(charlie.textContent).toContain('Not scored');
   });
 
   it('exposes each toxicity badge as a button whose label gives the number meaning', async () => {
     const { el } = await setup();
-    const bravo = toxicityBadge(cardFor(el, 'Bravo')); // 80
+    const bravo = toxicityBadge(rowFor(el, 'Bravo')); // 80
     expect(bravo.tagName).toBe('BUTTON');
     expect(bravo.getAttribute('aria-label')).toContain('80');
     expect(bravo.getAttribute('aria-label')).toContain('of 100');
 
-    const charlie = toxicityBadge(cardFor(el, 'Charlie')); // null
+    const charlie = toxicityBadge(rowFor(el, 'Charlie')); // null
     expect(charlie.getAttribute('aria-label')?.toLowerCase()).toContain('not scored');
   });
 
   it('reveals the toxicity scale legend when a badge is opened', async () => {
     const { el, fixture } = await setup();
-    toxicityBadge(cardFor(el, 'Bravo')).click();
+    toxicityBadge(rowFor(el, 'Bravo')).click();
     await settle();
     fixture.detectChanges();
     // The popover content mounts in the CDK overlay container on document.body
@@ -239,9 +345,9 @@ describe('ReviewQueue', () => {
     const { el } = await setup();
     const sortRow = (el.querySelector('[aria-labelledby="admin-reviews-sort-label"]')
       ?.parentElement ?? el) as HTMLElement;
-    const info = [...sortRow.querySelectorAll('button')].find((b) =>
-      (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
-    );
+    const info = [...sortRow.querySelectorAll('button')]
+      .filter((b) => !b.closest('form[hidden]'))
+      .find((b) => (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'));
     expect(info).toBeTruthy();
   });
 
@@ -277,6 +383,53 @@ describe('ReviewQueue', () => {
     expect(buttonByText(group, 'Toxicity').getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('an Approve pressed while Reject is open is never announced as a rejection (AECI-2104)', async () => {
+    const { el, fixture, api } = await setup();
+    let release!: (value: ModerateReviewResponse) => void;
+    api.moderate.mockImplementationOnce(
+      () => new Promise<ModerateReviewResponse>((resolve) => (release = resolve)),
+    );
+    const card = cardFor(el, 'Alpha');
+    buttonByText(card, 'Reject').click();
+    fixture.detectChanges();
+    buttonByText(card, 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+
+    // The approve is in flight. The open reject form is not busy: its confirm keeps
+    // its label and its hidden status line says nothing.
+    expect(api.moderate).toHaveBeenCalledWith('a', { action: 'approve' });
+    expect(card.textContent).not.toContain('Rejecting…');
+    expect(buttonByText(card, 'Confirm rejection')).toBeTruthy();
+    const status = card.querySelector('form:not([hidden]) [role="status"]');
+    expect(status?.textContent?.trim()).toBe('');
+    expect(card.querySelector('form:not([hidden])')?.getAttribute('aria-busy')).toBeNull();
+
+    release({ review: { ...makeReview({ id: 'a' }), status: 'approved' }, repeat_offender: null });
+    await settle();
+    fixture.detectChanges();
+    expect(productOrder(el)).toEqual(['Bravo', 'Charlie']);
+  });
+
+  it('a running reject reads "Rejecting…" in its own form (AECI-2104)', async () => {
+    const { el, fixture, api } = await setup();
+    api.moderate.mockImplementationOnce(() => new Promise<ModerateReviewResponse>(() => {}));
+    const card = cardFor(el, 'Alpha');
+    buttonByText(card, 'Reject').click();
+    fixture.detectChanges();
+    const textarea = card.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
+    textarea.value = 'Off-topic.';
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    buttonByText(card, 'Confirm rejection').click();
+    await settle();
+    fixture.detectChanges();
+
+    const status = card.querySelector('form:not([hidden]) [role="status"]');
+    expect(status?.textContent?.trim()).toBe('Rejecting…');
+    expect(buttonByText(card, 'Rejecting…')).toBeTruthy();
+  });
+
   it('approves a review: calls the API, drops the row, decrements the badge', async () => {
     const { el, fixture, api, store } = await setup();
     store.seed({ reviews: 3 });
@@ -300,12 +453,46 @@ describe('ReviewQueue', () => {
 
     expect(api.moderate).not.toHaveBeenCalled();
     const card = cardFor(el, 'Alpha');
-    const textarea = card.querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = card.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
     expect(textarea.getAttribute('aria-invalid')).toBe('true');
     const errorId = textarea.getAttribute('aria-describedby');
     expect(errorId).toBeTruthy();
     const error = card.querySelector(`#${errorId}`);
     expect(error?.getAttribute('role')).toBe('alert');
+  });
+
+  it('refuses a reject reason over 500 characters with the same message (AECI-2104)', async () => {
+    const { el, fixture, api } = await setup();
+    buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+    fixture.detectChanges();
+    const card = cardFor(el, 'Alpha');
+    const textarea = card.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
+    // No native cap: the rule refuses on confirm, as the 1 to 500 schema did.
+    expect(textarea.getAttribute('maxlength')).toBeNull();
+    textarea.value = `  ${'x'.repeat(501)}  `;
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    buttonByText(card, 'Confirm rejection').click();
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.moderate).not.toHaveBeenCalled();
+    expect(card.querySelector('[role="alert"]')?.textContent).toContain(
+      'Enter a reason between 1 and 500 characters so the reviewer understands the decision.',
+    );
+    expect(document.activeElement).toBe(textarea);
+
+    // Exactly 500 after trimming is accepted.
+    textarea.value = `  ${'x'.repeat(500)}  `;
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    buttonByText(card, 'Confirm rejection').click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.moderate).toHaveBeenCalledWith('a', {
+      action: 'reject',
+      rejection_reason: 'x'.repeat(500),
+    });
   });
 
   it('clears stale validation state when the reject form is reopened on another row', async () => {
@@ -316,9 +503,11 @@ describe('ReviewQueue', () => {
     buttonByText(cardFor(el, 'Alpha'), 'Confirm rejection').click();
     await settle();
     fixture.detectChanges();
-    expect(cardFor(el, 'Alpha').querySelector('textarea')?.getAttribute('aria-invalid')).toBe(
-      'true',
-    );
+    expect(
+      cardFor(el, 'Alpha')
+        .querySelector('form:not([hidden]) textarea')
+        ?.getAttribute('aria-invalid'),
+    ).toBe('true');
 
     // Cancel, then open reject on a different row: the empty form must not carry
     // the prior row's touched/invalid state.
@@ -327,7 +516,9 @@ describe('ReviewQueue', () => {
     buttonByText(cardFor(el, 'Charlie'), 'Reject').click();
     fixture.detectChanges();
 
-    const textarea = cardFor(el, 'Charlie').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = cardFor(el, 'Charlie').querySelector(
+      'form:not([hidden]) textarea',
+    ) as HTMLTextAreaElement;
     expect(textarea.getAttribute('aria-invalid')).toBeNull();
     expect(textarea.getAttribute('aria-describedby')).toBeNull();
     expect(cardFor(el, 'Charlie').querySelector('[role="alert"]')).toBeNull();
@@ -340,7 +531,9 @@ describe('ReviewQueue', () => {
     buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
     fixture.detectChanges();
 
-    const textarea = cardFor(el, 'Alpha').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = cardFor(el, 'Alpha').querySelector(
+      'form:not([hidden]) textarea',
+    ) as HTMLTextAreaElement;
     textarea.value = '  Off-topic and promotional.  ';
     textarea.dispatchEvent(new Event('input'));
     textarea.dispatchEvent(new Event('blur'));
@@ -406,7 +599,11 @@ describe('ReviewQueue', () => {
 
     expect(productOrder(el)).toContain('Bravo'); // still present
     const card = cardFor(el, 'Bravo');
-    expect(card.querySelector('[role="alert"]')?.textContent).toContain('Something went wrong');
+    const alert = card.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain('Something went wrong');
+    // The disabled Approve dropped focus, so it moves to the alert.
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(alert);
   });
 
   it('shows a retryable state when the initial load fails, then recovers', async () => {
@@ -424,7 +621,8 @@ describe('ReviewQueue', () => {
   it('renders the empty state when nothing is pending', async () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.textContent).toContain('No reviews are waiting');
-    expect(el.querySelector('article')).toBeNull();
+    // One line, no table (the console recipe's empty state).
+    expect(el.querySelector('table')).toBeNull();
   });
 
   describe('AECI-218 repeat-offender prompt + ban', () => {
@@ -442,7 +640,9 @@ describe('ReviewQueue', () => {
     ): Promise<void> {
       buttonByText(cardFor(el, productName), 'Reject').click();
       fixture.detectChanges();
-      const textarea = cardFor(el, productName).querySelector('textarea') as HTMLTextAreaElement;
+      const textarea = cardFor(el, productName).querySelector(
+        'form:not([hidden]) textarea',
+      ) as HTMLTextAreaElement;
       textarea.value = reason;
       textarea.dispatchEvent(new Event('input'));
       textarea.dispatchEvent(new Event('blur'));
@@ -454,9 +654,9 @@ describe('ReviewQueue', () => {
     }
 
     function findButton(root: HTMLElement, text: string): HTMLButtonElement | undefined {
-      return [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as
-        | HTMLButtonElement
-        | undefined;
+      return [...root.querySelectorAll('button')]
+        .filter((b) => !b.closest('form[hidden]'))
+        .find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
     }
 
     it('surfaces the "consider a ban" banner when a reject returns a repeat-offender', async () => {
@@ -577,6 +777,184 @@ describe('ReviewQueue', () => {
       expect(instance.banFailed()).toBe(false);
       expect(instance.banTarget()).toEqual(PROMPT);
     });
+
+    // AECI-2102: the disabled confirm drops focus, so a refused ban moves it to the alert.
+    for (const [name, error, alertId] of [
+      ['a failed ban', new HttpErrorResponse({ status: 500 }), 'ban-failed'],
+      [
+        'a last-seat refusal',
+        new HttpErrorResponse({
+          status: 409,
+          error: {
+            error: {
+              code: 'VENDOR_LAST_SEAT_USE_SUSPEND',
+              message: 'last seat',
+              details: { vendor_id: 'vendor-1' },
+            },
+            trace_id: 't',
+          },
+        }),
+        'ban-last-seat',
+      ],
+    ] as const) {
+      it(`moves focus to the dialog's alert after ${name}`, async () => {
+        const api = makeApiMock();
+        api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+        const bansApi = makeBansApiMock();
+        bansApi.ban.mockRejectedValueOnce(error);
+        const { el, fixture } = await setup(api, bansApi);
+        await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+        findButton(el, 'Ban reviewer')!.click();
+        fixture.detectChanges();
+        await settle();
+        fixture.detectChanges();
+        await settle();
+        const instance = fixture.componentInstance as unknown as {
+          banReasonModel: { set: (v: { reason: string }) => void };
+          confirmBan: () => Promise<void>;
+        };
+        instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+        await settle();
+        await instance.confirmBan();
+        await settle();
+        fixture.detectChanges();
+        await fixture.whenStable();
+        const alert = document.getElementById(alertId);
+        expect(alert?.getAttribute('role')).toBe('alert');
+        expect(document.activeElement).toBe(alert);
+        document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.replaceChildren());
+      });
+    }
+  });
+
+  it('shows an absent decision date as a hidden-worded en dash (DESIGN.md absent value)', async () => {
+    const undated = makeReview({
+      id: 'u',
+      product: { id: 'p-u', name: 'Undated', slug: 'undated' },
+      status: 'approved',
+      moderated_at: null,
+    });
+    const { el } = await setup(makeApiMock([undated]));
+    const cells = [...rowFor(el, 'Undated').querySelectorAll('td')];
+    const decided = cells.find((td) => td.textContent?.includes('–'))!;
+    expect(decided.querySelector('[aria-hidden="true"]')?.textContent).toBe('–');
+    expect(decided.querySelector('.sr-only')?.textContent?.trim()).toBe('Not available');
+  });
+
+  describe('AECI-2102 focus and Escape in the decision forms', () => {
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        makeReview({
+          id: `r${String(i).padStart(2, '0')}`,
+          product: { id: `p${i}`, name: `Product ${String(i).padStart(2, '0')}`, slug: `p${i}` },
+          created_at: `2026-06-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+        }),
+      );
+
+    async function drain(fixture: Awaited<ReturnType<typeof setup>>['fixture']) {
+      await settle();
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+
+    it('opening Reject moves focus to the reason field', async () => {
+      const { el, fixture } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      expect(document.activeElement).toBe(
+        cardFor(el, 'Alpha').querySelector('form:not([hidden]) textarea'),
+      );
+    });
+
+    it('Escape in the reject form closes it and returns focus to Reject', async () => {
+      const { el, fixture, api } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      const textarea = cardFor(el, 'Alpha').querySelector(
+        'form:not([hidden]) textarea',
+      ) as HTMLTextAreaElement;
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await drain(fixture);
+      expect(cardFor(el, 'Alpha').querySelector('form:not([hidden])')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(cardFor(el, 'Alpha'), 'Reject'));
+      expect(api.moderate).not.toHaveBeenCalled();
+    });
+
+    it('Cancel in the reject form returns focus to Reject too', async () => {
+      const { el, fixture } = await setup();
+      buttonByText(cardFor(el, 'Alpha'), 'Reject').click();
+      await drain(fixture);
+      buttonByText(cardFor(el, 'Alpha'), 'Cancel').click();
+      await drain(fixture);
+      expect(document.activeElement).toBe(buttonByText(cardFor(el, 'Alpha'), 'Reject'));
+    });
+
+    it('Escape in the remove form, at either step, returns focus to its opener', async () => {
+      const published = makeReview({
+        id: 'pub',
+        product: { id: 'p-pub', name: 'Published', slug: 'published' },
+        status: 'approved',
+        moderated_at: '2026-06-05T00:00:00.000Z',
+      });
+      const { el, fixture, api } = await setup(makeApiMock([published]));
+      const detail = cardFor(el, 'Published');
+      buttonByText(detail, 'Remove from the page').click();
+      await drain(fixture);
+      const ta = detail.querySelector('form:not([hidden]) textarea') as HTMLTextAreaElement;
+      expect(document.activeElement).toBe(ta);
+      ta.value = 'Breach.';
+      ta.dispatchEvent(new Event('input'));
+      (detail.querySelector('form:not([hidden])') as HTMLFormElement).dispatchEvent(
+        new Event('submit'),
+      );
+      await drain(fixture);
+      const confirm = detail.querySelector('form:not([hidden]) [role="group"]') as HTMLElement;
+      expect(document.activeElement).toBe(confirm);
+      confirm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await drain(fixture);
+      expect(detail.querySelector('form:not([hidden])')).toBeNull();
+      expect(document.activeElement).toBe(buttonByText(detail, 'Remove from the page'));
+      expect(api.moderate).not.toHaveBeenCalled();
+    });
+
+    it('leaves focus alone when the decided row was paged away while in flight', async () => {
+      const api = makeApiMock(many(30));
+      let release!: () => void;
+      api.moderate.mockImplementationOnce(
+        (id: string) =>
+          new Promise((resolve) => {
+            release = () =>
+              resolve({
+                review: { ...makeReview({ id }), status: 'approved' },
+                repeat_offender: null,
+              });
+          }),
+      );
+      const { el, fixture } = await setup(api);
+      // Toxicity order keeps the fixture order: Product 00 is on page 1.
+      buttonByText(cardFor(el, 'Product 00'), 'Approve').click();
+      fixture.detectChanges();
+      const next = buttonByText(el, 'Next');
+      next.focus();
+      next.click();
+      fixture.detectChanges();
+      expect(productOrder(el)).toHaveLength(5);
+      release();
+      await drain(fixture);
+      expect(document.activeElement).toBe(next);
+    });
+
+    it('when the only row on the last page is decided, focus goes to the new last row', async () => {
+      const { el, fixture } = await setup(makeApiMock(many(26)));
+      buttonByText(el, 'Next').click();
+      fixture.detectChanges();
+      expect(productOrder(el)).toEqual(['Product 25']);
+      buttonByText(cardFor(el, 'Product 25'), 'Approve').click();
+      await drain(fixture);
+      // Back on page 1, focus is on its LAST row, not its first.
+      expect(productOrder(el)).toHaveLength(25);
+      expect(document.activeElement).toBe(disclosureFor(el, 'Product 24'));
+    });
   });
 
   describe('AECI-1643 status tabs + remove', () => {
@@ -621,7 +999,7 @@ describe('ReviewQueue', () => {
     }
 
     async function submitRemove(fixture: { detectChanges(): void }, el: HTMLElement) {
-      (el.querySelector('[data-testid="remove-form"]') as HTMLFormElement).dispatchEvent(
+      (el.querySelector('[data-testid="remove-form"] form') as HTMLFormElement).dispatchEvent(
         new Event('submit'),
       );
       await settle();
@@ -664,9 +1042,10 @@ describe('ReviewQueue', () => {
       expect(buttonByText(card, 'Remove from the page')).toBeTruthy();
       expect(() => buttonByText(card, 'Approve')).toThrow();
       expect(() => buttonByText(card, 'Reject')).toThrow();
-      expect(card.querySelector('[data-testid="review-status"]')?.textContent?.trim()).toBe(
-        'Approved',
-      );
+      const status = rowFor(ctx.el, 'Published').querySelector('[data-testid="review-status"]');
+      expect(status?.textContent?.trim()).toBe('Approved');
+      // The console tone for Approved, with the word carrying the state.
+      expect(status?.querySelector('.aec-chip')?.getAttribute('data-tone')).toBe('positive');
     });
 
     it('remove needs a reason, then a deliberate confirm, before the PATCH', async () => {
@@ -679,14 +1058,16 @@ describe('ReviewQueue', () => {
       await submitRemove(fixture, el);
       const ta = el.querySelector('[data-testid="remove-form"] textarea') as HTMLTextAreaElement;
       expect(ta.getAttribute('aria-invalid')).toBe('true');
-      expect(ta.getAttribute('aria-describedby')).toContain('remove-reason-pub-error');
+      const error = el.querySelector('[data-testid="remove-form"] [role="alert"]') as HTMLElement;
+      expect(error.textContent).toContain('Write a reason before you confirm.');
+      expect(ta.getAttribute('aria-describedby')).toContain(error.id);
       expect(api.moderate).not.toHaveBeenCalled();
 
       // First submit with a reason only shows the confirm and locks the reason.
       typeReason(el, '  Breaches the conflict-of-interest rule. ');
       fixture.detectChanges();
       await submitRemove(fixture, el);
-      expect(el.querySelector('[data-testid="remove-confirm"]')).not.toBeNull();
+      expect(el.querySelector('form:not([hidden]) [role="group"]')).not.toBeNull();
       expect(ta.readOnly).toBe(true);
       expect(api.moderate).not.toHaveBeenCalled();
 
@@ -713,7 +1094,7 @@ describe('ReviewQueue', () => {
       await submitRemove(fixture, el);
       buttonByText(el, 'Edit the reason').click();
       fixture.detectChanges();
-      expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+      expect(el.querySelector('form:not([hidden]) [role="group"]')).toBeNull();
       const ta = el.querySelector('[data-testid="remove-form"] textarea') as HTMLTextAreaElement;
       expect(ta.readOnly).toBe(false);
       expect(api.moderate).not.toHaveBeenCalled();
@@ -744,18 +1125,22 @@ describe('ReviewQueue', () => {
       );
       expect(card.textContent).toContain('Removed');
       expect(card.textContent).toContain('2026');
-      expect(card.querySelectorAll('button').length).toBe(1); // the toxicity badge only
+      expect(card.querySelectorAll('button').length).toBe(0); // no decision on a removed review
+      // On a decided tab the date column reads "Decided".
+      expect(
+        [...ctx.el.querySelectorAll('thead th')].map((th) => th.textContent?.trim()),
+      ).toContain('Decided');
     });
   });
 
   describe('accessibility (structural)', () => {
-    it('uses a single h2 then h3 cards (no skipped levels, shell owns the h1)', async () => {
+    it('uses a single h2 (the shell owns the h1); rows are table rows, not headings', async () => {
       const { el } = await setup();
       expect(el.querySelectorAll('h1')).toHaveLength(0);
       expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3').length).toBe(ROWS.length);
-      // Card titles sit at h4 (under each h3) — no jump past h3.
-      expect(el.querySelector('h5, h6')).toBeNull();
+      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+      // Each row's identity cell is a row header.
+      expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(ROWS.length);
     });
 
     it('gives the status tabs and the sort control accessible group names', async () => {

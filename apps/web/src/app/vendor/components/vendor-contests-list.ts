@@ -3,6 +3,14 @@ import { Component, Injector, afterNextRender, computed, inject, signal } from '
 
 import type { ContestDecision, ContestStatus, VendorContest } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
@@ -50,39 +58,45 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
  */
 @Component({
   selector: 'aec-vendor-contests-list',
-  imports: [DatePipe, NgTemplateOutlet, VendorContestProtest, VendorDocsLink],
+  imports: [
+    AecButton,
+    AecCard,
+    Chip,
+    DatePipe,
+    NgTemplateOutlet,
+    VendorContestProtest,
+    VendorDocsLink,
+  ],
   styles: [':host { display: block; }'],
   template: `
-    <section aria-labelledby="vendor-contests-heading">
-      <h3
-        id="vendor-contests-heading"
-        class="font-display text-lg font-semibold text-(--text-primary)"
-        i18n="@@vendor.contests.heading"
-      >
-        Change requests
-      </h3>
+    <!-- AECI-1812: the shared white card. Received and Submitted are overline
+         groups, their rows divided by hairlines. -->
+    <section aecCard [class]="'p-6'" aria-labelledby="vendor-contests-heading">
+      <h3 id="vendor-contests-heading" i18n="@@vendor.contests.heading">Change requests</h3>
       <p
-        class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+        class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
         i18n="@@vendor.contests.intro"
       >
         A change request says one detail of an integration is wrong and proposes the right value.
         You can request a change from any integration under your products.
       </p>
-      <p class="mt-1"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
+      <p class="mt-2"><aec-vendor-docs-link page="requesting-changes-and-appeals" /></p>
 
-      <div class="mt-4" [attr.aria-busy]="loading() ? 'true' : null">
+      <div class="mt-6" [attr.aria-busy]="loading() ? 'true' : null">
         @if (loading()) {
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.contests.loading">
             Loading change requests…
           </p>
         } @else if (failed()) {
-          <div class="flex flex-wrap items-center gap-3">
+          <div class="flex flex-wrap items-center gap-4">
             <p class="text-sm text-(--text-primary)" i18n="@@vendor.contests.failed">
               Could not load your change requests.
             </p>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="retryClass"
               (click)="retry()"
               i18n="@@vendor.contests.retry"
             >
@@ -90,17 +104,17 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
             </button>
           </div>
         } @else {
-          <div class="space-y-6">
+          <div class="space-y-8">
             <div>
               <h4
-                class="font-label text-sm font-semibold text-(--text-primary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@vendor.contests.received.heading"
               >
                 Received
               </h4>
               @if (received().length === 0) {
                 <p
-                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  class="mt-2 max-w-[30rem] text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.received.emptyOwner"
                 >
                   Nothing to decide. Once you claim an integration your company owns, change
@@ -110,21 +124,21 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                 </p>
               } @else {
                 <ul
-                  class="mt-2 divide-y divide-(--border-default) border-y border-(--border-default)"
+                  class="mt-2 divide-y divide-(--border-default) border-t border-(--border-default)"
                 >
                   @for (contest of received(); track contest.id) {
-                    <li class="space-y-2 py-4" [attr.data-contest]="contest.id">
+                    <li class="space-y-2 py-4 last:pb-0" [attr.data-contest]="contest.id">
                       <ng-container
                         [ngTemplateOutlet]="summary"
                         [ngTemplateOutletContext]="{ $implicit: contest }"
                       />
-                      <p class="text-xs text-(--text-secondary)">
+                      <p class="text-t-13 text-(--text-secondary)">
                         {{ fromLine(contest) }}
                         <span aria-hidden="true"> · </span>
                         {{ contest.created_at | date: 'mediumDate' }}
                       </p>
                       @if (contest.status === 'open') {
-                        <div class="max-w-prose space-y-2 pt-1">
+                        <div class="max-w-prose space-y-2 pt-2">
                           <label [for]="noteId(contest)" [class]="labelClass">{{
                             noteLabel(contest)
                           }}</label>
@@ -139,16 +153,17 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                           ></textarea>
                           <p
                             [id]="noteId(contest) + '-hint'"
-                            class="text-xs text-(--text-secondary)"
+                            [class]="hintClass"
                             i18n="@@vendor.contests.note.hint"
                           >
                             Optional. If you decline, say why, so the vendor knows what would change
                             your mind.
                           </p>
-                          <div class="flex flex-wrap items-center gap-2">
+                          <div class="flex flex-wrap items-center gap-2 pt-2">
                             <button
+                              aecButton
+                              compact
                               type="button"
-                              [class]="primaryClass"
                               [disabled]="busy() !== null"
                               (click)="decide(contest, 'accept')"
                             >
@@ -160,8 +175,10 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                             <button
+                              aecButton
+                              variant="secondary"
+                              compact
                               type="button"
-                              [class]="secondaryClass"
                               [disabled]="busy() !== null"
                               (click)="decide(contest, 'decline')"
                             >
@@ -173,17 +190,14 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                           </div>
-                          <p
-                            class="text-xs text-(--text-secondary)"
-                            i18n="@@vendor.contests.acceptHint"
-                          >
+                          <p [class]="hintClass" i18n="@@vendor.contests.acceptHint">
                             Accepting changes the public integration page right away.
                           </p>
                         </div>
                       }
                       <aec-vendor-contest-protest [contest]="contest" side="received" />
                       @if (rowError()?.id === contest.id) {
-                        <p role="alert" class="text-sm font-medium text-(--text-primary)">
+                        <p role="alert" class="text-sm font-semibold text-(--text-primary)">
                           {{ rowError()?.message }}
                         </p>
                       }
@@ -195,14 +209,14 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
 
             <div>
               <h4
-                class="font-label text-sm font-semibold text-(--text-primary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@vendor.contests.submitted.heading"
               >
                 Submitted
               </h4>
               @if (submitted().length === 0) {
                 <p
-                  class="mt-2 max-w-prose text-sm text-(--text-secondary)"
+                  class="mt-2 max-w-[30rem] text-sm text-(--text-secondary)"
                   i18n="@@vendor.contests.submitted.empty"
                 >
                   You have not sent any change requests. Open an integration under one of your
@@ -211,15 +225,15 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                 </p>
               } @else {
                 <ul
-                  class="mt-2 divide-y divide-(--border-default) border-y border-(--border-default)"
+                  class="mt-2 divide-y divide-(--border-default) border-t border-(--border-default)"
                 >
                   @for (contest of submitted(); track contest.id) {
-                    <li class="space-y-2 py-4" [attr.data-contest]="contest.id">
+                    <li class="space-y-2 py-4 last:pb-0" [attr.data-contest]="contest.id">
                       <ng-container
                         [ngTemplateOutlet]="summary"
                         [ngTemplateOutletContext]="{ $implicit: contest }"
                       />
-                      <p class="text-xs text-(--text-secondary)">
+                      <p class="text-t-13 text-(--text-secondary)">
                         @if (contest.status === 'open') {
                           {{ routeLabel(contest) }}
                           <span aria-hidden="true"> · </span>
@@ -240,17 +254,21 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                       </p>
                       @if (contest.status === 'open') {
                         @if (confirming() === contest.id) {
+                          <!-- "It cannot be reopened": the confirm is the danger button
+                               (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
                           <div class="flex flex-wrap items-center gap-2">
                             <p
-                              class="text-sm text-(--text-primary)"
+                              class="basis-full text-sm text-(--text-primary)"
                               i18n="@@vendor.contests.withdraw.confirm"
                             >
                               Withdraw this change request? It cannot be reopened.
                             </p>
                             <button
+                              aecButton
+                              variant="danger"
+                              compact
                               type="button"
                               [id]="'vendor-contest-withdraw-' + contest.id"
-                              [class]="secondaryClass"
                               [disabled]="busy() !== null"
                               (click)="withdraw(contest)"
                             >
@@ -262,8 +280,10 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                               <span class="sr-only">&ngsp;{{ rowName(contest) }}</span>
                             </button>
                             <button
+                              aecButton
+                              variant="secondary"
+                              compact
                               type="button"
-                              [class]="secondaryClass"
                               [disabled]="busy() !== null"
                               (click)="cancelWithdraw(contest)"
                               i18n="@@vendor.contests.withdraw.keep"
@@ -273,9 +293,11 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                           </div>
                         } @else {
                           <button
+                            aecButton
+                            variant="secondary"
+                            compact
                             type="button"
                             [id]="'vendor-contest-withdraw-start-' + contest.id"
-                            [class]="secondaryClass"
                             [disabled]="busy() !== null"
                             (click)="startWithdraw(contest)"
                           >
@@ -286,7 +308,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                       }
                       <aec-vendor-contest-protest [contest]="contest" side="submitted" />
                       @if (rowError()?.id === contest.id) {
-                        <p role="alert" class="text-sm font-medium text-(--text-primary)">
+                        <p role="alert" class="text-sm font-semibold text-(--text-primary)">
                           {{ rowError()?.message }}
                         </p>
                       }
@@ -302,10 +324,16 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
 
     <ng-template #summary let-contest>
       <div class="flex flex-wrap items-start justify-between gap-2">
-        <p class="font-label text-sm text-(--text-primary)">{{ rowName(contest) }}</p>
-        <span [class]="pillClass(contest.status)">{{ statusLabelFor(contest) }}</span>
+        <p class="min-w-0 text-sm font-semibold break-words text-(--text-primary)">
+          {{ rowName(contest) }}
+        </p>
+        <aec-chip class="shrink-0" density="dense" [tone]="chipTone(contest.status)">{{
+          statusLabelFor(contest)
+        }}</aec-chip>
       </div>
-      <dl class="grid max-w-prose grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+      <!-- minmax(0, 1fr), not 1fr: a long URL in a value must wrap inside the column,
+           not widen it past a 320px screen (AECI-1812). -->
+      <dl class="grid max-w-prose grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
         <dt class="text-(--text-secondary)" i18n="@@vendor.contests.current">On record</dt>
         <dd class="break-words text-(--text-primary)">{{ currentLine(contest) }}</dd>
         <dt class="text-(--text-secondary)" i18n="@@vendor.contests.proposed">Proposed</dt>
@@ -532,22 +560,13 @@ export class VendorContestsList {
     return contestStatusLabel(contest.status);
   }
 
-  protected pillClass(status: ContestStatus): string {
-    const base =
-      'inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
-    return status === 'open' || status === 'accepted'
-      ? `${base} border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)`
-      : `${base} border-(--border-strong) bg-(--surface-raised) text-(--text-primary)`;
+  /** The old pill colours on the shared chip: Forest while open or accepted, the
+   *  strong edge otherwise. The words carry the state. */
+  protected chipTone(status: ContestStatus): ChipTone {
+    return status === 'open' || status === 'accepted' ? 'forest' : 'strong';
   }
 
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} block leading-[1.6]`;
+  protected readonly hintClass = FIELD_HINT_CLASS;
 }

@@ -239,6 +239,7 @@ const UNDER_REVIEW_MARKED_FIELDS = [
             [productName]="p.name"
             [hosts]="p.extension_of"
             [product]="p"
+            [poweredPairCount]="poweredView().pairCount"
           ></section>
 
           @if (showPowered() && !leadWithPowered()) {

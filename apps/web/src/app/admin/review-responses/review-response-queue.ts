@@ -22,8 +22,24 @@ import {
 } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDangerAction } from '../console/danger-action';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_HELP_CLASS,
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminReviewResponsesApi } from './admin-review-responses-api';
-import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -64,7 +80,8 @@ type DecisionWithoutVersion =
  * reason" and "Cancel". Only "Remove permanently" sends the `PATCH`. Focus moves
  * to the group, which is labelled and described by its own text, so a screen
  * reader hears the warning before any button. This is the inline two-step confirm
- * the seat revoke on `/admin/vendors/:id` uses, not a dialog.
+ * the seat revoke on `/admin/vendors/:id` uses, not a dialog. Both reason forms
+ * are the shared danger form (`admin/console/danger-action.ts`, AECI-2104).
  *
  * ── THE BADGE ───────────────────────────────────────────────────────────────
  * `pending_review_responses` counts `status = 'pending'`. A successful approve or
@@ -72,10 +89,25 @@ type DecisionWithoutVersion =
  * the count. A `409 REVIEW_RESPONSE_WRONG_STATE` does not either: someone else
  * moved the row first (another admin, or the vendor editing or withdrawing it),
  * and the next full visit re-seeds the count.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14) ───────────────────────────────────────
+ * One console table row per reply: product, vendor, author, last change and
+ * status. The review, the reply and the decision sit in the row's expanded
+ * detail. After a decision removes a row, focus moves to the disclosure of the
+ * row that took its place, or to the queue heading when none is left. A failed
+ * decision moves focus to the row's alert.
  */
 @Component({
   selector: 'aec-review-response-queue',
-  imports: [AecFormSubmit, DatePipe, RouterLink],
+  imports: [
+    AdminDangerAction,
+    AdminDisclosureButton,
+    AecButton,
+    AecIcon,
+    Chip,
+    DatePipe,
+    RouterLink,
+  ],
   templateUrl: './review-response-queue.html',
 })
 export class ReviewResponseQueue {
@@ -85,6 +117,39 @@ export class ReviewResponseQueue {
   private readonly injector = inject(Injector);
 
   protected readonly reasonMax = REVIEW_RESPONSE_REASON_MAX;
+
+  /** The reason forms' words. The reason is natively capped at `reasonMax`. The
+   *  remove step's body names the vendor, so it is a template in the row. */
+  protected readonly copy = {
+    reject: $localize`:@@admin.replies.reject:Reject`,
+    remove: $localize`:@@admin.replies.remove:Remove from the page`,
+    rejectLabel: $localize`:@@admin.replies.reason.label.reject:Why you are rejecting it (required)`,
+    removeLabel: $localize`:@@admin.replies.reason.label.remove:Why you are removing it (required)`,
+    reasonHelp: $localize`:@@admin.replies.reason.help:Shown to the vendor in its portal. Name the guideline the reply breaks, so the vendor knows what to change.`,
+    missing: $localize`:@@admin.replies.reason.missing:Write a reason before you confirm.`,
+    rejectConfirm: $localize`:@@admin.replies.reject.confirm:Confirm rejection`,
+    saving: $localize`:@@admin.replies.saving:Saving…`,
+    removeContinue: $localize`:@@admin.replies.remove.continue:Continue to removal`,
+    removeTitle: $localize`:@@admin.replies.removeConfirm.title:Remove this reply permanently?`,
+    removeEdit: $localize`:@@admin.replies.removeConfirm.edit:Edit the reason`,
+    removeConfirm: $localize`:@@admin.replies.removeConfirm.confirm:Remove permanently`,
+    removing: $localize`:@@admin.replies.removing:Removing…`,
+    cancel: $localize`:@@admin.replies.cancel:Cancel`,
+  } as const;
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 6;
+  /** Ids of the rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
 
   /** The loaded replies, in server order (oldest first). */
   private readonly replies = signal<readonly AdminReviewResponse[]>([]);
@@ -96,13 +161,18 @@ export class ReviewResponseQueue {
 
   /** Id of the reply whose decision is in flight (disables its buttons). */
   protected readonly pendingActionId = signal<string | null>(null);
+  /** Which decision is in flight on `pendingActionId` (AECI-2104). A form's busy
+   *  label and its hidden status speak only for its own decision, so an Approve
+   *  pressed while a reason form is open never reads as that form's action. */
+  private readonly pendingDecision = signal<ReviewResponseDecision | null>(null);
+
+  /** The decision `action` is the one in flight on row `id`. */
+  protected busyWith(id: string, action: ReviewResponseDecision): boolean {
+    return this.pendingActionId() === id && this.pendingDecision() === action;
+  }
   /** The reply and decision whose reason form is open, one at a time. */
   protected readonly formOpenId = signal<string | null>(null);
   protected readonly formMode = signal<ReasonedDecision | null>(null);
-  protected readonly formText = signal('');
-  protected readonly reasonMissing = signal(false);
-  /** True once a remove form's reason is in and the final confirm is showing. */
-  protected readonly removeConfirming = signal(false);
   /** Id and message of the reply whose last decision failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -161,6 +231,42 @@ export class ReviewResponseQueue {
 
   // ── Display ──────────────────────────────────────────────────────────────
 
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminReviewResponse): string {
+    const vendor = r.vendor.name;
+    const product = r.product.name;
+    return $localize`:@@admin.replies.row.label:Reply from ${vendor}:vendor: on ${product}:product:`;
+  }
+
+  /** The chip tone for a reply status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: ReviewResponseStatus): ConsoleChipTone {
+    switch (status) {
+      case 'pending':
+        return adminStatusTone('pending');
+      case 'published':
+        return adminStatusTone('published');
+      case 'rejected':
+        return adminStatusTone('rejected');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+      case 'removed':
+        return adminStatusTone('removed');
+    }
+  }
+
   protected statusLabel(status: ReviewResponseStatus): string {
     return this.statusOptions.find((o) => o.key === status)?.label ?? status;
   }
@@ -204,56 +310,39 @@ export class ReviewResponseQueue {
 
   // ── Decisions ────────────────────────────────────────────────────────────
 
-  protected openForm(id: string, mode: ReasonedDecision): void {
-    this.failedActionId.set(null);
-    this.formText.set('');
-    this.reasonMissing.set(false);
-    this.removeConfirming.set(false);
-    this.formMode.set(mode);
-    this.formOpenId.set(id);
+  /** A reason form opened or closed (its opener, Cancel or Escape). One form is
+   *  open at a time. The danger form starts each open clean, focuses its own field
+   *  and ignores a close while the row's request runs. */
+  protected onFormOpen(id: string, mode: ReasonedDecision, open: boolean): void {
+    if (open) {
+      this.failedActionId.set(null);
+      this.formMode.set(mode);
+      this.formOpenId.set(id);
+    } else if (this.formOpenId() === id && this.formMode() === mode) {
+      this.closeForm();
+    }
   }
 
   protected closeForm(): void {
     this.formOpenId.set(null);
     this.formMode.set(null);
-    this.formText.set('');
-    this.reasonMissing.set(false);
-    this.removeConfirming.set(false);
-  }
-
-  protected onFormInput(event: Event): void {
-    this.formText.set((event.target as HTMLTextAreaElement).value);
-    if (this.reasonMissing()) this.reasonMissing.set(false);
   }
 
   protected approve(id: string): Promise<void> {
     return this.submit(id, { decision: 'approve' });
   }
 
-  protected confirmReasoned(id: string, decision: ReasonedDecision): Promise<void> {
-    const reason = this.formText().trim();
-    if (reason === '') {
-      this.reasonMissing.set(true);
-      return Promise.resolve();
-    }
-    // A removal is final, so the first submit only asks for the deliberate confirm.
-    if (decision === 'remove' && !this.removeConfirming()) {
-      this.removeConfirming.set(true);
-      this.focusAfterRender(`reply-remove-confirm-${id}`);
-      return Promise.resolve();
-    }
+  /** The danger form checked the reason. For Remove, this is step two's press. */
+  protected decide(id: string, decision: ReasonedDecision, reason: string): Promise<void> {
     return this.submit(id, { decision, reason });
   }
 
-  /** Leave the remove confirm and unlock the reason. Sends nothing. */
-  protected editRemoveReason(id: string): void {
-    this.removeConfirming.set(false);
-    this.focusAfterRender(`reply-reason-${id}`);
-  }
-
-  private focusAfterRender(elementId: string): void {
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
     afterNextRender(
-      { write: () => this.host.nativeElement.querySelector<HTMLElement>(`#${elementId}`)?.focus() },
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
       { injector: this.injector },
     );
   }
@@ -269,6 +358,7 @@ export class ReviewResponseQueue {
     const input: DecideReviewResponseInput = { ...decision, expected_updated_at: row.updated_at };
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
+    this.pendingDecision.set(decision.decision);
     try {
       await this.api.decide(id, input);
       this.closeForm();
@@ -281,6 +371,7 @@ export class ReviewResponseQueue {
       this.handleDecisionError(id, err);
     } finally {
       this.pendingActionId.set(null);
+      this.pendingDecision.set(null);
     }
   }
 
@@ -313,11 +404,22 @@ export class ReviewResponseQueue {
     this.failedActionMessage.set(
       $localize`:@@admin.replies.action.failed:Something went wrong. Nothing was changed. Please try again.`,
     );
+    this.focusAfterRender(`reply-${id}-failed`);
   }
 
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the heading, or
+   *  nowhere when the row was not on screen. */
   private removeRow(id: string): void {
+    const index = this.replies().findIndex((r) => r.id === id);
     this.replies.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    const target = queueFocusAfterRemoval(index, 1, 1, this.replies());
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-replies-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="reply-${target.row.id}-detail"]` : undefined,
+    );
   }
 }
 

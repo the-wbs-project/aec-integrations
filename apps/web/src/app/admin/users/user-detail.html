@@ -2,33 +2,27 @@
   <!-- The shell's breadcrumb (AECI-777) is the way back to the list; this heading
        names WHOSE account, and falls back to the same word the trail shows until
        the fetch resolves. -->
-  <h2 id="admin-user-heading" class="text-lg font-bold text-(--text-primary)">
-    {{ headingLabel() }}
-  </h2>
+  <h2 id="admin-user-heading">{{ headingLabel() }}</h2>
 
   <!-- One polite live region for the whole page; every action feeds this. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.detail.loading">
-    Loading account…
-  </p>
+  <p [class]="c.statusLine" class="mt-6" i18n="@@admin.users.detail.loading">Loading account…</p>
   } @else if (notFound()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.detail.notFound">
+  <p [class]="c.statusLine" class="mt-6" i18n="@@admin.users.detail.notFound">
     We couldn't find that account. It may have been deleted.
   </p>
   } @else if (loadFailed()) {
-  <div
-    role="alert"
-    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-  >
-    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.users.detail.error">
+  <div role="alert" [class]="c.loadFailed" class="mt-6">
+    <p [class]="c.failedText" i18n="@@admin.users.detail.error">
       We couldn't load this account. Your session may have expired.
     </p>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="retry()"
-      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.users.detail.retry"
     >
       Try again
@@ -37,593 +31,555 @@
   } @else if (user(); as u) {
 
   <!-- ── Identity ─────────────────────────────────────────────────────────── -->
-  <div class="mt-4 flex flex-wrap items-start justify-between gap-3">
+  <!-- AECI-2128: mock-up 14's detail page. The name and email, then the state
+       chips; each section below is a flat console panel of labelled facts. -->
+  <div class="mt-4 flex flex-wrap items-start justify-between gap-4">
     <div class="min-w-0">
-      <p class="text-xl font-bold text-(--text-primary)">{{ displayName() }}</p>
-      <p class="mt-1 text-sm text-(--text-secondary)">{{ emailLabel() }}</p>
+      <p class="text-t-20 font-semibold text-(--text-primary) wrap-anywhere">{{ displayName() }}</p>
+      <p [class]="c.caption" class="mt-1 wrap-anywhere">{{ emailLabel() }}</p>
     </div>
     <div class="flex shrink-0 flex-wrap items-center gap-2">
       @if (u.banned_at) {
-      <span
-        class="inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-        i18n="@@admin.users.badge.banned"
+      <aec-chip density="dense" [tone]="tone('banned')"
+        ><span i18n="@@admin.users.badge.banned"> Banned </span></aec-chip
       >
-        Banned
-      </span>
       } @if (u.repeat_offender) {
-      <span
-        class="inline-flex items-center rounded-full border border-(--border-strong) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-        i18n="@@admin.users.badge.repeatOffender"
+      <aec-chip density="dense" [tone]="tone('repeatOffender')"
+        ><span i18n="@@admin.users.badge.repeatOffender"> Repeat offender </span></aec-chip
       >
-        Repeat offender
-      </span>
       }
-      <span
-        class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-      >
-        {{ roleLabel() }}
-      </span>
+      <aec-chip density="dense" [tone]="tone('role')">{{ roleLabel() }}</aec-chip>
     </div>
   </div>
 
   @if (!u.auth_available) {
-  <p
-    class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3 text-sm text-(--text-secondary)"
-    i18n="@@admin.users.detail.authUnavailable"
-  >
+  <p [class]="c.note" class="mt-4" i18n="@@admin.users.detail.authUnavailable">
     Email, sign-in history and invites are unavailable — the account service could not be reached.
     Everything else on this page is accurate.
   </p>
   }
 
-  <!-- ── Account ──────────────────────────────────────────────────────────── -->
-  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.account">
-    Account
-  </h3>
-  <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.lastSignIn">Last sign-in</dt>
-      <dd class="font-medium text-(--text-primary)">{{ lastSignInLabel() }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.emailConfirmed">
-        Email confirmed
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ emailConfirmedLabel() }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <!--
-        `profiles.created_at` — when this environment first saw them. NOT the
-        auth account's creation, which is a different date and lives above.
-      -->
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.profileCreated">
-        Profile created
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.created_at | date: 'medium' : 'UTC' }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.trustTier">Trust tier</dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.trust_tier }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.workEmail">
-        Work email verified
-      </dt>
-      <dd class="font-medium text-(--text-primary)">
-        @if (u.work_email_verified) {
-        <span i18n="@@admin.users.detail.yes">Yes</span>
-        } @else {
-        <span i18n="@@admin.users.detail.no">No</span>
-        }
-      </dd>
-    </div>
-  </dl>
-
-  <!-- ── About them (AECI-1296) ───────────────────────────────────────────── -->
-  @if (about(); as a) {
-  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.about">
-    About them
-  </h3>
-  <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.users.detail.aboutHelp">
-    What they told us on the onboarding form. Private: only this page and their own account show the
-    firm and LinkedIn link.
-  </p>
-  <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2" data-testid="admin-user-about">
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.onboarding">Onboarding</dt>
-      <dd class="font-medium text-(--text-primary)">
-        @switch (a.onboarding) { @case ('completed') {
-        <span i18n="@@admin.users.detail.onboarding.completed">Answered</span>
-        } @case ('skipped') {
-        <span i18n="@@admin.users.detail.onboarding.skipped">Skipped</span>
-        } @default {
-        <span i18n="@@admin.users.detail.onboarding.pending">Not yet</span>
-        } }
-      </dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.companyType">Works at</dt>
-      <dd class="font-medium text-(--text-primary)">{{ a.companyType ?? '–' }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.companySize">Company size</dt>
-      <dd class="font-medium text-(--text-primary)">{{ a.companySize ?? '–' }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.primaryRole">Role</dt>
-      <dd class="font-medium text-(--text-primary)">{{ a.primaryRole ?? '–' }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.firm">Firm</dt>
-      <dd class="font-medium text-(--text-primary)">{{ a.firmName ?? '–' }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.linkedin">LinkedIn</dt>
-      <dd class="min-w-0 font-medium break-all text-(--text-primary)">
-        @if (a.linkedinUrl) {
-        <a
-          [href]="a.linkedinUrl"
-          target="_blank"
-          rel="noopener nofollow"
-          class="underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >{{ a.linkedinUrl }}</a
-        >
-        } @else { – }
-      </dd>
-    </div>
-    <div class="flex gap-2 sm:col-span-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.audiences">Audiences</dt>
-      <dd class="font-medium text-(--text-primary)">{{ a.audiences || '–' }}</dd>
-    </div>
-  </dl>
-  }
-
-  <!-- ── Vendor access ────────────────────────────────────────────────────── -->
-  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.access">
-    Vendor access
-  </h3>
-  @if (u.seat) {
-  <div
-    class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-  >
-    <p class="text-sm font-medium text-(--text-primary)">
-      {{ u.seat.company_name }} @if (u.seat.owner) {
-      <span class="font-normal text-(--text-secondary)" i18n="@@admin.users.detail.seatOwner">
-        — account owner, can invite and remove colleagues
-      </span>
-      }
-    </p>
-    <!--
-      Seat management links out rather than living here. A revoke un-grants one
-      vendor's access; a ban locks the human out everywhere. They are not peer
-      buttons, and the vendor roster is the only place that shows the blast
-      radius — the other seats, the entitlement — that makes a revoke safe.
-    -->
-    <p class="mt-2 text-sm">
-      <a
-        [routerLink]="['/admin/vendors', u.seat.vendor_id]"
-        class="text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.users.detail.manageSeats"
-      >
-        Manage seats on the vendor page
-      </a>
-    </p>
-  </div>
-  } @else {
-  <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.users.detail.noSeat">
-    This account holds no vendor seat.
-  </p>
-  }
-
-  <!--
-    `null` = the address could not be resolved, so the invite set is UNKNOWN.
-    `[]` = resolved, and there are none. Rendering both as "none" would assert a
-    fact we do not have.
-  -->
-  @if (u.pending_invites === null) {
-  <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.users.detail.invitesUnknown">
-    Pending invites can't be checked without the account service.
-  </p>
-  } @else if (u.pending_invites.length > 0) {
-  <p class="mt-4 text-sm font-medium text-(--text-primary)" i18n="@@admin.users.detail.invites">
-    Pending seat invites
-  </p>
-  <!--
-    Sortable in place (AECI-1243): every live invite to this address is on the
-    page, so a header click reorders the whole set. Default is newest first.
-  -->
-  <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[40rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.users.detail.invites.caption">
-        Seat invitations to this address that have not been accepted, revoked, or expired
-      </caption>
-      <thead>
-        <tr class="border-b border-(--border-strong)">
-          <th
-            scope="col"
-            aec-sort-header
-            sortKey="vendor"
-            i18n-label="@@admin.users.detail.invites.col.vendor"
-            label="Vendor"
-            [activeSort]="inviteSort()"
-            [direction]="inviteDirection('vendor')"
-            (sortChange)="onInviteSortChange($event)"
-            class="py-2 pe-4 text-start"
-          ></th>
-          <th
-            scope="col"
-            aec-sort-header
-            sortKey="invited_by"
-            i18n-label="@@admin.users.detail.invites.col.invitedBy"
-            label="Invited by"
-            [activeSort]="inviteSort()"
-            [direction]="inviteDirection('invited_by')"
-            (sortChange)="onInviteSortChange($event)"
-            class="py-2 pe-4 text-start"
-          ></th>
-          <th
-            scope="col"
-            aec-sort-header
-            sortKey="created"
-            i18n-label="@@admin.users.detail.invites.col.invited"
-            label="Invited on"
-            [activeSort]="inviteSort()"
-            [direction]="inviteDirection('created')"
-            (sortChange)="onInviteSortChange($event)"
-            class="py-2 pe-4 text-start"
-          ></th>
-          <th
-            scope="col"
-            aec-sort-header
-            sortKey="expires"
-            i18n-label="@@admin.users.detail.invites.col.expires"
-            label="Expires"
-            [activeSort]="inviteSort()"
-            [direction]="inviteDirection('expires')"
-            (sortChange)="onInviteSortChange($event)"
-            class="py-2 text-start"
-          ></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (invite of sortedInvites(); track invite.id) {
-        <tr class="border-b border-(--border-default)">
-          <th scope="row" class="py-2 pe-4 text-start font-medium text-(--text-primary)">
-            <a
-              [routerLink]="['/admin/vendors', invite.vendor_id]"
-              class="underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
-              {{ invite.vendor_name }}
-            </a>
-          </th>
-          <td class="py-2 pe-4 text-(--text-secondary)">
-            @if (invite.invited_by) { {{ invite.invited_by }} } @else {
-            <!-- No name: the sender deleted their account (the FK is ON DELETE
-                 SET NULL) or never set a display name. -->
-            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
-            <span class="sr-only" i18n="@@admin.users.detail.invites.noSenderName"
-              >No sender name</span
-            >
+  <div class="mt-6 grid gap-6">
+    <!-- ── Account ──────────────────────────────────────────────────────────── -->
+    <section [class]="c.panel" aria-labelledby="admin-user-account">
+      <h3 id="admin-user-account" i18n="@@admin.users.detail.account">Account</h3>
+      <dl [class]="c.facts" class="mt-4">
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.lastSignIn">Last sign-in</dt>
+          <dd [class]="c.factValue">{{ lastSignInLabel() }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.emailConfirmed">Email confirmed</dt>
+          <dd [class]="c.factValue">{{ emailConfirmedLabel() }}</dd>
+        </div>
+        <div>
+          <!--
+            `profiles.created_at` — when this environment first saw them. NOT the
+            auth account's creation, which is a different date and lives above.
+          -->
+          <dt [class]="c.label" i18n="@@admin.users.detail.profileCreated">Profile created</dt>
+          <dd [class]="c.factValue">{{ u.created_at | date: 'medium' : 'UTC' }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.trustTier">Trust tier</dt>
+          <dd [class]="c.factValue">{{ u.trust_tier }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.workEmail">Work email verified</dt>
+          <dd [class]="c.factValue">
+            @if (u.work_email_verified) {
+            <span i18n="@@admin.users.detail.yes">Yes</span>
+            } @else {
+            <span i18n="@@admin.users.detail.no">No</span>
             }
-          </td>
-          <td class="py-2 pe-4 text-(--text-secondary)">
-            {{ invite.created_at | date: 'medium' : 'UTC' }}
-          </td>
-          <td class="py-2 text-(--text-secondary)">
-            {{ invite.expires_at | date: 'medium' : 'UTC' }}
-          </td>
-        </tr>
-        }
-      </tbody>
-    </table>
-  </div>
-  }
+          </dd>
+        </div>
+      </dl>
+    </section>
 
-  <!-- ── Activity ─────────────────────────────────────────────────────────── -->
-  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.stats">
-    Contributions
-  </h3>
-  <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.reviewsApproved">
-        Reviews approved
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.reviews.approved }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.reviewsPending">
-        Reviews pending
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.reviews.pending }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.reviewsRejected">
-        Reviews rejected
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.reviews.rejected }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.reviewsArchived">
-        Reviews archived
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.reviews.archived }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.reviewsRemoved">
-        Reviews removed
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.reviews.removed }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.invitesSent">Invites sent</dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.seat_invites_sent }}</dd>
-    </div>
-    <div class="flex gap-2">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.licensesGranted">
-        Subscriptions granted
-      </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.counts.licenses_granted }}</dd>
-    </div>
-    <!--
-      AECI-1665: the repeat-infringer count (ADMIN_PANEL_SPEC.md section 5.23). Notices whose
-      material we removed or disabled, less any restored after a counter-notice. The link
-      opens this account's rows on the copyright notice log.
-    -->
-    <div class="flex gap-2" data-testid="user-dmca-count">
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.dmcaTakedowns">
-        Copyright takedowns
-      </dt>
-      <dd class="font-medium text-(--text-primary)">
-        <a
-          [routerLink]="['/admin/dmca']"
-          [queryParams]="{ account: u.id }"
-          class="underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >{{ u.counts.dmca_takedowns }}<span class="sr-only" i18n="@@admin.users.detail.dmcaLink">
-            takedowns. Open the copyright notice log.</span
-          ></a
-        >
-        <span
-          class="font-normal text-(--text-secondary)"
-          i18n="@@admin.users.detail.dmcaCounterNotices"
-          >{u.counts.dmca_counter_notices, plural, =1 {(1 counter-notice)} other {({{
-          u.counts.dmca_counter_notices }} counter-notices)}}</span
-        >
-      </dd>
-    </div>
-    <div class="flex gap-2">
-      <!--
-        Best-effort and labelled so: `vendor_requests` has no user FK, only
-        `submitter_email`. A shared mailbox attributes to the wrong person and a
-        request filed from a second address is missed entirely.
-      -->
-      <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.requests">
-        Requests filed (email match)
-      </dt>
-      <dd class="font-medium text-(--text-primary)">
-        @if (u.counts.requests_by_email === null) {
-        <span class="font-normal italic" i18n="@@admin.users.detail.requestsUnknown"
-          >Unavailable</span
-        >
-        } @else { {{ u.counts.requests_by_email }} }
-      </dd>
-    </div>
-  </dl>
-  <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@admin.users.detail.requestsCaveat">
-    Requests are matched by email address only — submissions are anonymous and carry no account
-    link, so this can miss requests sent from another address.
-  </p>
-
-  <!--
-    No "pages viewed" section, and there never will be. AECI-585 dropped the
-    join column and §9 item 7 forbids visitor↔account correlation.
-  -->
-
-  <!-- ── Moderation ───────────────────────────────────────────────────────── -->
-  <h3 class="mt-8 text-base font-bold text-(--text-primary)" i18n="@@admin.users.detail.moderation">
-    Moderation
-  </h3>
-
-  @if (u.banned_at) {
-  <div class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-4">
-    <p
-      #bannedStatus
-      tabindex="-1"
-      class="text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.users.ban.bannedSince"
-    >
-      Banned since {{ u.banned_at | date: 'medium' : 'UTC' }}.
-    </p>
-    @if (u.ban_reason) {
-    <p class="mt-1 text-sm text-(--text-secondary)">{{ u.ban_reason }}</p>
+    <!-- ── About them (AECI-1296) ───────────────────────────────────────────── -->
+    @if (about(); as a) {
+    <section [class]="c.panel" aria-labelledby="admin-user-about">
+      <h3 id="admin-user-about" i18n="@@admin.users.detail.about">About them</h3>
+      <p [class]="c.help" class="mt-2" i18n="@@admin.users.detail.aboutHelp">
+        What they told us on the onboarding form. Private: only this page and their own account show
+        the firm and LinkedIn link.
+      </p>
+      <dl [class]="c.facts" class="mt-4" data-testid="admin-user-about">
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.onboarding">Onboarding</dt>
+          <dd [class]="c.factValue">
+            @switch (a.onboarding) { @case ('completed') {
+            <span i18n="@@admin.users.detail.onboarding.completed">Answered</span>
+            } @case ('skipped') {
+            <span i18n="@@admin.users.detail.onboarding.skipped">Skipped</span>
+            } @default {
+            <span i18n="@@admin.users.detail.onboarding.pending">Not yet</span>
+            } }
+          </dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.companyType">Works at</dt>
+          <dd [class]="c.factValue">{{ a.companyType ?? '–' }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.companySize">Company size</dt>
+          <dd [class]="c.factValue">{{ a.companySize ?? '–' }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.primaryRole">Role</dt>
+          <dd [class]="c.factValue">{{ a.primaryRole ?? '–' }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.firm">Firm</dt>
+          <dd [class]="c.factValue">{{ a.firmName ?? '–' }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.linkedin">LinkedIn</dt>
+          <dd [class]="c.factValue" class="min-w-0 break-all">
+            @if (a.linkedinUrl) {
+            <a [href]="a.linkedinUrl" target="_blank" rel="noopener nofollow" [class]="c.inlineLink"
+              >{{ a.linkedinUrl }}</a
+            >
+            } @else { – }
+          </dd>
+        </div>
+        <div class="col-span-full">
+          <dt [class]="c.label" i18n="@@admin.users.detail.audiences">Audiences</dt>
+          <dd [class]="c.factValue">{{ a.audiences || '–' }}</dd>
+        </div>
+      </dl>
+    </section>
     }
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.reinstateNote2">
-      Reinstating restores their access on their next request. It does not restore a vendor seat
-      that was separately revoked. Reinstating a seat on a terminated vendor makes the company the
-      owner of its records again. It restores no subscription: Terminate ended those, so grant
-      complimentary subscriptions for the term from the vendor's Billing section.
-    </p>
-    <button
-      type="button"
-      (click)="reinstate()"
-      [disabled]="actionPending()"
-      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    >
-      @if (actionPending()) {
-      <span i18n="@@admin.users.ban.working">Working…</span>
-      } @else {
-      <span i18n="@@admin.users.ban.reinstate">Reinstate</span>
-      }
-    </button>
-  </div>
-  } @else {
-  <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.notBanned">
-    This account is active. Banning blocks their writes everywhere on their next request; it does
-    not remove a vendor seat, and it does not delete anything they have written.
-  </p>
-  @if (u.seat) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.lastSeatRefused">
-    A vendor's last unbanned seat cannot be banned here. To end a vendor, use Suspend on its
-    <a
-      [routerLink]="['/admin/vendors', u.seat.vendor_id]"
-      class="text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >vendor page</a
-    >.
-  </p>
-  } @if (!banFormOpen()) {
-  <button
-    #banButton
-    type="button"
-    (click)="openBanForm()"
-    [disabled]="actionPending()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    i18n="@@admin.users.ban.open"
-  >
-    Ban this account
-  </button>
-  } @else {
-  <form
-    method="dialog"
-    novalidate
-    (aecSubmit)="confirmBan()"
-    class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-4"
-  >
-    <label
-      for="admin-user-ban-reason"
-      class="block text-sm font-medium text-(--text-primary)"
-      i18n="@@admin.users.ban.reasonLabel"
-    >
-      Why are you banning this account?
-    </label>
-    <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.users.ban.reasonHelp">
-      Required. Recorded in the audit trail alongside your name.
-    </p>
-    <textarea
-      #banReasonInput
-      id="admin-user-ban-reason"
-      rows="3"
-      [value]="banReason()"
-      (input)="onReasonInput($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    ></textarea>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button
-        type="submit"
-        [disabled]="actionPending()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >
-        @if (actionPending()) {
-        <span i18n="@@admin.users.ban.working">Working…</span>
-        } @else {
-        <span i18n="@@admin.users.ban.confirm">Confirm ban</span>
-        }
-      </button>
-      <button
-        type="button"
-        (click)="closeBanForm()"
-        [disabled]="actionPending()"
-        class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.users.ban.cancel"
-      >
-        Cancel
-      </button>
-    </div>
-  </form>
-  } } @if (lastSeatVendorId(); as vendorId) {
-  <p
-    #lastSeatAlert
-    tabindex="-1"
-    role="alert"
-    class="mt-3 text-sm text-(--text-primary)"
-    i18n="@@admin.users.ban.error.lastSeat"
-  >
-    This is the vendor's last unbanned seat, so it was not banned. To end a vendor, use Suspend on
-    its
-    <a
-      [routerLink]="['/admin/vendors', vendorId]"
-      class="font-medium underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >vendor page</a
-    >.
-  </p>
-  } @if (actionFailed()) {
-  <p #failedAlert tabindex="-1" role="alert" class="mt-3 text-sm text-(--text-primary)">
-    {{ actionFailed() }}
-  </p>
-  }
 
-  <!-- ── Audit trail (AECI-693) ───────────────────────────────────────────── -->
-  <section aria-labelledby="admin-user-audit">
-    <div class="mt-8 flex flex-wrap items-end justify-between gap-3">
-      <h3
-        id="admin-user-audit"
-        class="text-base font-bold text-(--text-primary)"
-        i18n="@@admin.users.audit.heading"
-      >
-        Audit trail
-      </h3>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <span
-          id="admin-user-audit-scope-label"
-          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.users.audit.scope.label"
-          >Scope</span
-        >
-        <div
-          role="group"
-          aria-labelledby="admin-user-audit-scope-label"
-          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-        >
-          @for (opt of scopeOptions; track opt.key) {
-          <button
-            type="button"
-            (click)="setScope(opt.key)"
-            [attr.aria-pressed]="auditScope() === opt.key"
-            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+    <!-- ── Vendor access ────────────────────────────────────────────────────── -->
+    <section [class]="c.panel" aria-labelledby="admin-user-access">
+      <h3 id="admin-user-access" i18n="@@admin.users.detail.access">Vendor access</h3>
+      @if (u.seat) {
+      <div class="mt-4">
+        <p class="text-t-16 font-semibold text-(--text-primary)">
+          {{ u.seat.company_name }} @if (u.seat.owner) {
+          <span class="font-normal text-(--text-secondary)" i18n="@@admin.users.detail.seatOwner">
+            — account owner, can invite and remove colleagues
+          </span>
+          }
+        </p>
+        <!--
+          Seat management links out rather than living here. A revoke un-grants one
+          vendor's access; a ban locks the human out everywhere. They are not peer
+          buttons, and the vendor roster is the only place that shows the blast
+          radius — the other seats, the entitlement — that makes a revoke safe.
+        -->
+        <p class="mt-2">
+          <a
+            [routerLink]="['/admin/vendors', u.seat.vendor_id]"
+            [class]="c.link"
+            i18n="@@admin.users.detail.manageSeats"
           >
-            {{ opt.label }}
-          </button>
+            Manage seats on the vendor page
+          </a>
+        </p>
+      </div>
+      } @else {
+      <p [class]="c.statusLine" class="mt-4" i18n="@@admin.users.detail.noSeat">
+        This account holds no vendor seat.
+      </p>
+      }
+
+      <!--
+        `null` = the address could not be resolved, so the invite set is UNKNOWN.
+        `[]` = resolved, and there are none. Rendering both as "none" would assert a
+        fact we do not have.
+      -->
+      @if (u.pending_invites === null) {
+      <p [class]="c.caption" class="mt-4" i18n="@@admin.users.detail.invitesUnknown">
+        Pending invites can't be checked without the account service.
+      </p>
+      } @else if (u.pending_invites.length > 0) {
+      <p [class]="c.label" class="mt-6" i18n="@@admin.users.detail.invites">Pending seat invites</p>
+      <!--
+        Sortable in place (AECI-1243): every live invite to this address is on the
+        page, so a header click reorders the whole set. Default is newest first.
+      -->
+      <div
+        [class]="t.region"
+        class="mt-2"
+        role="region"
+        tabindex="0"
+        aria-labelledby="admin-user-invites-caption"
+      >
+        <table [class]="t.table" class="min-w-[40rem]">
+          <caption
+            id="admin-user-invites-caption"
+            [class]="t.caption"
+            i18n="@@admin.users.detail.invites.caption"
+          >
+            Seat invitations to this address that have not been accepted, revoked, or expired
+          </caption>
+          <thead>
+            <tr>
+              <th
+                scope="col"
+                aec-sort-header
+                sortKey="vendor"
+                i18n-label="@@admin.users.detail.invites.col.vendor"
+                label="Vendor"
+                [activeSort]="inviteSort()"
+                [direction]="inviteDirection('vendor')"
+                (sortChange)="onInviteSortChange($event)"
+                [class]="t.head"
+              ></th>
+              <th
+                scope="col"
+                aec-sort-header
+                sortKey="invited_by"
+                i18n-label="@@admin.users.detail.invites.col.invitedBy"
+                label="Invited by"
+                [activeSort]="inviteSort()"
+                [direction]="inviteDirection('invited_by')"
+                (sortChange)="onInviteSortChange($event)"
+                [class]="t.head"
+              ></th>
+              <th
+                scope="col"
+                aec-sort-header
+                sortKey="created"
+                i18n-label="@@admin.users.detail.invites.col.invited"
+                label="Invited on"
+                [activeSort]="inviteSort()"
+                [direction]="inviteDirection('created')"
+                (sortChange)="onInviteSortChange($event)"
+                [class]="t.head"
+              ></th>
+              <th
+                scope="col"
+                aec-sort-header
+                sortKey="expires"
+                i18n-label="@@admin.users.detail.invites.col.expires"
+                label="Expires"
+                [activeSort]="inviteSort()"
+                [direction]="inviteDirection('expires')"
+                (sortChange)="onInviteSortChange($event)"
+                [class]="t.head"
+              ></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invite of sortedInvites(); track invite.id) {
+            <tr [class]="t.row">
+              <th scope="row" [class]="t.rowHead">
+                <a [routerLink]="['/admin/vendors', invite.vendor_id]" [class]="t.link">
+                  {{ invite.vendor_name }}
+                </a>
+              </th>
+              <td [class]="t.cell">
+                @if (invite.invited_by) { {{ invite.invited_by }} } @else {
+                <!-- No name: the sender deleted their account (the FK is ON DELETE
+                     SET NULL) or never set a display name. -->
+                <span class="text-(--text-secondary)" aria-hidden="true">&ndash;</span>
+                <span class="sr-only" i18n="@@admin.users.detail.invites.noSenderName"
+                  >No sender name</span
+                >
+                }
+              </td>
+              <td [class]="t.nowrap">{{ invite.created_at | date: 'medium' : 'UTC' }}</td>
+              <td [class]="t.nowrap">{{ invite.expires_at | date: 'medium' : 'UTC' }}</td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      }
+    </section>
+
+    <!-- ── Activity ─────────────────────────────────────────────────────────── -->
+    <section [class]="c.panel" aria-labelledby="admin-user-stats">
+      <h3 id="admin-user-stats" i18n="@@admin.users.detail.stats">Contributions</h3>
+      <dl [class]="c.facts" class="mt-4">
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.reviewsApproved">Reviews approved</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.approved }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.reviewsPending">Reviews pending</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.pending }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.reviewsRejected">Reviews rejected</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.rejected }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.reviewsArchived">Reviews archived</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.archived }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.reviewsRemoved">Reviews removed</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.reviews.removed }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.invitesSent">Invites sent</dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.seat_invites_sent }}</dd>
+        </div>
+        <div>
+          <dt [class]="c.label" i18n="@@admin.users.detail.licensesGranted">
+            Subscriptions granted
+          </dt>
+          <dd [class]="c.factValue" class="tabular-nums">{{ u.counts.licenses_granted }}</dd>
+        </div>
+        <!--
+          AECI-1665: the repeat-infringer count (ADMIN_PANEL_SPEC.md section 5.23). Notices whose
+          material we removed or disabled, less any restored after a counter-notice. The link
+          opens this account's rows on the copyright notice log.
+        -->
+        <div data-testid="user-dmca-count">
+          <dt [class]="c.label" i18n="@@admin.users.detail.dmcaTakedowns">Copyright takedowns</dt>
+          <dd [class]="c.factValue" class="tabular-nums">
+            <a
+              [routerLink]="['/admin/dmca']"
+              [queryParams]="{ account: u.id }"
+              [class]="c.inlineLink"
+              >{{ u.counts.dmca_takedowns }}<span
+                class="sr-only"
+                i18n="@@admin.users.detail.dmcaLink"
+              >
+                takedowns. Open the copyright notice log.</span
+              ></a
+            >
+            <span class="text-(--text-secondary)" i18n="@@admin.users.detail.dmcaCounterNotices"
+              >{u.counts.dmca_counter_notices, plural, =1 {(1 counter-notice)} other {({{
+              u.counts.dmca_counter_notices }} counter-notices)}}</span
+            >
+          </dd>
+        </div>
+        <div>
+          <!--
+            Best-effort and labelled so: `vendor_requests` has no user FK, only
+            `submitter_email`. A shared mailbox attributes to the wrong person and a
+            request filed from a second address is missed entirely.
+          -->
+          <dt [class]="c.label" i18n="@@admin.users.detail.requests">
+            Requests filed (email match)
+          </dt>
+          <dd [class]="c.factValue" class="tabular-nums">
+            @if (u.counts.requests_by_email === null) {
+            <span class="italic" i18n="@@admin.users.detail.requestsUnknown">Unavailable</span>
+            } @else { {{ u.counts.requests_by_email }} }
+          </dd>
+        </div>
+      </dl>
+      <p [class]="c.help" class="mt-4" i18n="@@admin.users.detail.requestsCaveat">
+        Requests are matched by email address only — submissions are anonymous and carry no account
+        link, so this can miss requests sent from another address.
+      </p>
+    </section>
+
+    <!--
+      No "pages viewed" section, and there never will be. AECI-585 dropped the
+      join column and §9 item 7 forbids visitor↔account correlation.
+    -->
+
+    <!-- ── Moderation ───────────────────────────────────────────────────────── -->
+    <section [class]="c.panel" aria-labelledby="admin-user-moderation">
+      <h3 id="admin-user-moderation" i18n="@@admin.users.detail.moderation">Moderation</h3>
+
+      @if (u.banned_at) {
+      <div [class]="c.stack" class="mt-4">
+        <div>
+          <p
+            #bannedStatus
+            tabindex="-1"
+            class="text-t-16 font-semibold text-(--text-primary)"
+            i18n="@@admin.users.ban.bannedSince"
+          >
+            Banned since {{ u.banned_at | date: 'medium' : 'UTC' }}.
+          </p>
+          @if (u.ban_reason) {
+          <p [class]="c.caption" class="mt-1">{{ u.ban_reason }}</p>
           }
         </div>
+        <p [class]="c.caption" class="max-w-[42rem]" i18n="@@admin.users.ban.reinstateNote2">
+          Reinstating restores their access on their next request. It does not restore a vendor seat
+          that was separately revoked. Reinstating a seat on a terminated vendor makes the company
+          the owner of its records again. It restores no subscription: Terminate ended those, so
+          grant complimentary subscriptions for the term from the vendor's Billing section.
+        </p>
+        <div>
+          <button
+            aecButton
+            variant="secondary"
+            type="button"
+            (click)="reinstate()"
+            [disabled]="actionPending()"
+          >
+            @if (actionPending()) {
+            <span i18n="@@admin.users.ban.working">Working…</span>
+            } @else {
+            <span i18n="@@admin.users.ban.reinstate">Reinstate</span>
+            }
+          </button>
+        </div>
       </div>
-    </div>
-
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.audit.intro">
-      Every recorded change to this account and everything this person did, newest first. Opening it
-      records nothing.
-    </p>
-    <!--
-      The global log filters on one field at a time, so each link shows one half
-      of this trail: the rows this person wrote, or the rows filed against the
-      account.
-    -->
-    <p class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      <a
-        routerLink="/admin/audit"
-        [queryParams]="{ actor_id: u.id }"
-        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.users.audit.actorLink"
-        >Everything this person did, in the audit log</a
+      } @else {
+      <p [class]="c.caption" class="mt-4 max-w-[42rem]" i18n="@@admin.users.ban.notBanned">
+        This account is active. Banning blocks their writes everywhere on their next request; it
+        does not remove a vendor seat, and it does not delete anything they have written.
+      </p>
+      @if (u.seat) {
+      <p [class]="c.caption" class="mt-2 max-w-[42rem]" i18n="@@admin.users.ban.lastSeatRefused">
+        A vendor's last unbanned seat cannot be banned here. To end a vendor, use Suspend on its
+        <a [routerLink]="['/admin/vendors', u.seat.vendor_id]" [class]="c.inlineLink">vendor page</a
+        >.
+      </p>
+      } @if (!banFormOpen()) {
+      <div class="mt-4">
+        <button
+          #banButton
+          aecButton
+          variant="secondary"
+          type="button"
+          (click)="openBanForm()"
+          [disabled]="actionPending()"
+          i18n="@@admin.users.ban.open"
+        >
+          Ban this account
+        </button>
+      </div>
+      } @else {
+      <!-- AECI-2128: the console's inline decision form. Escape cancels, as Cancel
+           does, except while the ban is in flight. -->
+      <form
+        method="dialog"
+        novalidate
+        (aecSubmit)="confirmBan()"
+        (keydown.escape)="onBanFormEscape()"
+        [attr.aria-busy]="actionPending() ? 'true' : null"
+        class="mt-4 grid max-w-[36rem] gap-2 border-t border-(--border-default) pt-4"
       >
-      <a
-        routerLink="/admin/audit"
-        [queryParams]="{ entity_type: 'profile', entity_id: u.id }"
-        class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.users.audit.entityLink"
-        >Rows filed against this account, in the audit log</a
+        <label
+          for="admin-user-ban-reason"
+          [class]="fieldLabelClass"
+          i18n="@@admin.users.ban.reasonLabel"
+        >
+          Why are you banning this account?
+        </label>
+        <p [class]="fieldHintClass" i18n="@@admin.users.ban.reasonHelp">
+          Required. Recorded in the audit trail alongside your name.
+        </p>
+        <textarea
+          #banReasonInput
+          id="admin-user-ban-reason"
+          rows="3"
+          [value]="banReason()"
+          (input)="onReasonInput($event)"
+          [class]="inputClass"
+        ></textarea>
+        <div [class]="c.actions" class="mt-2">
+          <button aecButton variant="danger" type="submit" [disabled]="actionPending()">
+            @if (actionPending()) {
+            <span i18n="@@admin.users.ban.working">Working…</span>
+            } @else {
+            <span i18n="@@admin.users.ban.confirm">Confirm ban</span>
+            }
+          </button>
+          <button
+            aecButton
+            variant="ghost"
+            type="button"
+            (click)="closeBanForm()"
+            [disabled]="actionPending()"
+            i18n="@@admin.users.ban.cancel"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+      } } @if (lastSeatVendorId(); as vendorId) {
+      <p
+        #lastSeatAlert
+        tabindex="-1"
+        role="alert"
+        [class]="c.failedText"
+        class="mt-4 max-w-[42rem]"
+        i18n="@@admin.users.ban.error.lastSeat"
       >
-    </p>
+        This is the vendor's last unbanned seat, so it was not banned. To end a vendor, use Suspend
+        on its
+        <a [routerLink]="['/admin/vendors', vendorId]" [class]="c.inlineLink">vendor page</a>.
+      </p>
+      } @if (actionFailed()) {
+      <p #failedAlert tabindex="-1" role="alert" [class]="c.failedText" class="mt-4 max-w-[42rem]">
+        {{ actionFailed() }}
+      </p>
+      }
+    </section>
 
-    <aec-audit-trail
-      [rows]="auditRows()"
-      [page]="auditPage()"
-      [perPage]="auditPerPage"
-      [total]="auditTotal()"
-      [loading]="auditLoading()"
-      [failed]="auditFailed()"
-      [emailsAvailable]="auditEmailsAvailable()"
-      (pageChange)="goToAuditPage($event)"
-      (retry)="retryAudit()"
-    />
-  </section>
+    <!-- ── Audit trail (AECI-693) ───────────────────────────────────────────── -->
+    <section [class]="c.panel" aria-labelledby="admin-user-audit">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <h3 id="admin-user-audit" i18n="@@admin.users.audit.heading">Audit trail</h3>
+
+        <div [class]="f.group">
+          <span
+            id="admin-user-audit-scope-label"
+            [class]="f.label"
+            i18n="@@admin.users.audit.scope.label"
+            >Scope</span
+          >
+          <div role="group" aria-labelledby="admin-user-audit-scope-label" [class]="f.seg">
+            @for (opt of scopeOptions; track opt.key) {
+            <button
+              type="button"
+              (click)="setScope(opt.key)"
+              [attr.aria-pressed]="auditScope() === opt.key"
+              [class]="f.option"
+            >
+              @if (auditScope() === opt.key) {
+              <aec-icon name="check" decorative [size]="4" />
+              } {{ opt.label }}
+            </button>
+            }
+          </div>
+        </div>
+      </div>
+
+      <p [class]="c.caption" class="mt-4 max-w-[42rem]" i18n="@@admin.users.audit.intro">
+        Every recorded change to this account and everything this person did, newest first. Opening
+        it records nothing.
+      </p>
+      <!--
+        The global log filters on one field at a time, so each link shows one half
+        of this trail: the rows this person wrote, or the rows filed against the
+        account.
+      -->
+      <p class="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+        <a
+          routerLink="/admin/audit"
+          [queryParams]="{ actor_id: u.id }"
+          [class]="c.link"
+          i18n="@@admin.users.audit.actorLink"
+          >Everything this person did, in the audit log</a
+        >
+        <a
+          routerLink="/admin/audit"
+          [queryParams]="{ entity_type: 'profile', entity_id: u.id }"
+          [class]="c.link"
+          i18n="@@admin.users.audit.entityLink"
+          >Rows filed against this account, in the audit log</a
+        >
+      </p>
+
+      <aec-audit-trail
+        [rows]="auditRows()"
+        [page]="auditPage()"
+        [perPage]="auditPerPage"
+        [total]="auditTotal()"
+        [loading]="auditLoading()"
+        [failed]="auditFailed()"
+        [emailsAvailable]="auditEmailsAvailable()"
+        (pageChange)="goToAuditPage($event)"
+        (retry)="retryAudit()"
+      />
+    </section>
+  </div>
   }
 </section>

@@ -13,8 +13,8 @@
  * gate on any plan (AECI-1663, ruling 14). After ownership, `409
  * INTEGRATION_NOT_CLAIMED`, then `409 INTEGRATION_RETIRED` (`retired_at`, which AECI-1091's retire writes).
  *
- * ── 2. TEN FIELDS ───────────────────────────────────────────────────────────
- * `CONNECTOR_POWERED_EDIT_FIELDS`: the eleven standard fields minus
+ * ── 2. NINE FIELDS ──────────────────────────────────────────────────────────
+ * `CONNECTOR_POWERED_EDIT_FIELDS`: the ten standard edit fields minus
  * `mechanism_kind`, which this table has no column for. A body that sends it is a
  * `422 INTEGRATION_INVALID_VALUE` naming it, never a silent drop. `owner` and
  * `notes` stay out through the shared `.strict()` schema, as on `integrations`.

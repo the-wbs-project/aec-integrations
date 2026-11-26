@@ -486,12 +486,17 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
   // Embedded cache tags: the two `product:` tags come from the path
   // (`cacheTagInputsForPath`); push only the data-derived per-mechanism vendor /
   // connector-product tags so a purge on those cascades here.
+  //
+  // The connector is in one of two fields and never both: `powered_by_product` on an
+  // `integrations` row, `via` on a `connector_evidenced_pairs` row (AECI-721). The card
+  // prints either one in the same "Powered by {connector}" byline, so both are tagged.
   for (const mechanism of pair.mechanisms) {
     if (mechanism.built_by_vendor) {
       ctx.embedded.push({ type: 'vendor', slug: mechanism.built_by_vendor.slug });
     }
-    if (mechanism.powered_by_product) {
-      ctx.embedded.push({ type: 'product', slug: mechanism.powered_by_product.slug });
+    const connector = mechanism.via ?? mechanism.powered_by_product;
+    if (connector) {
+      ctx.embedded.push({ type: 'product', slug: connector.slug });
     }
   }
   // AECI-341: the closest matches are data-derived, so a purge on any matched product

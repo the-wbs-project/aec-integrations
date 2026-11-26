@@ -105,7 +105,8 @@ const TREE_LINK =
 
 /**
  * Guide toggle link: the `.aec-nav-tab` underline, which `styles.css` keys off
- * `aria-current` (the global border-color rule beats a utility colour). 44px
+ * `aria-current` (written before AECI-2088, when the global border-color rule
+ * beat a utility colour). 44px
  * tall, weight 400 at rest and 600 when current, as the section nav does.
  */
 const GUIDE_LINK =

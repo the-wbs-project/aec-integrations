@@ -30,7 +30,23 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VENDOR_CREATE_FORM_START_OPEN } from './vendor-integration-create';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import {
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
 const TEXT_FIELDS = ['name', 'description', 'website'] as const;
@@ -77,39 +93,37 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
  */
 @Component({
   selector: 'aec-vendor-product-create',
-  imports: [RouterLink, VendorLogoField],
+  imports: [RouterLink, AecButton, AecCard, KeepClearOfSaveBar, VendorLogoField],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="product-create">
       <div class="flex flex-wrap items-center gap-3">
         <button
           #trigger
+          aecButton
+          variant="secondary"
           type="button"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="formId"
           (click)="toggle()"
-          [class]="triggerClass"
           data-testid="add-product"
           i18n="@@vendor.productCreate.trigger"
         >
           Add a product
         </button>
         @if (!open()) {
-          <p class="text-xs text-(--text-secondary)" i18n="@@vendor.productCreate.teaser">
+          <p [class]="hintClass" i18n="@@vendor.productCreate.teaser">
             List a product your company makes that is not on the site yet.
           </p>
         }
       </div>
 
       @if (result(); as created) {
-        <div
-          class="max-w-3xl space-y-2 rounded-(--radius-md) border border-(--border-default) p-4"
-          data-testid="product-create-result"
-        >
+        <div aecCard class="max-w-3xl space-y-3 p-6" data-testid="product-create-result">
           <p
             #resultHeading
             tabindex="-1"
-            class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="rounded-mark text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           >
             {{ doneLine(created.name) }}
           </p>
@@ -129,8 +143,10 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
             </div>
           }
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryButtonClass"
             (click)="dismissResult()"
             i18n="@@vendor.productCreate.done.dismiss"
           >
@@ -144,12 +160,17 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
           [id]="formId"
           role="group"
           aria-labelledby="vendor-product-create-title"
-          class="max-w-3xl rounded-(--radius-md) border border-(--border-default) p-5"
+          class="max-w-3xl"
           data-testid="product-create-panel"
         >
+          <!-- AECI-1810: the portal form card (vendor/shared/portal-form.ts), its
+               actions in the save bar at the card's foot. -->
           <form
+            aecCard
+            phoneFlush
+            aecKeepClearOfSaveBar
             method="dialog"
-            class="space-y-5"
+            [class]="formClass"
             novalidate
             (submit)="onSubmit($event)"
             aria-labelledby="vendor-product-create-title"
@@ -158,23 +179,23 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
             <div class="max-w-prose space-y-1">
               <p
                 id="vendor-product-create-title"
-                class="text-sm font-semibold text-(--text-primary)"
+                class="text-t-16 font-semibold text-(--text-primary)"
                 i18n="@@vendor.productCreate.title"
               >
                 Add a product
               </p>
-              <p class="text-xs text-(--text-secondary)" i18n="@@vendor.productCreate.intro">
+              <p [class]="hintClass" i18n="@@vendor.productCreate.intro">
                 Your company will own this product. It is listed on the public site as soon as you
                 add it.
               </p>
             </div>
 
             @for (field of textFields; track field) {
-              <div class="max-w-2xl space-y-2">
+              <div [class]="fieldClass">
                 <label [for]="fieldId(field)" [class]="labelClass">
                   {{ fieldLabel(field) }}
                   @if (field !== 'name') {
-                    <span class="font-normal tracking-normal normal-case">{{ optionalLabel }}</span>
+                    <span [class]="optionalClass">{{ optionalLabel }}</span>
                   }
                 </label>
                 @if (field === 'description') {
@@ -220,17 +241,15 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
               (announce)="announcer.announce($event)"
             />
 
-            <fieldset class="space-y-2" aria-describedby="vendor-product-create-categories-hint">
+            <fieldset
+              class="m-0 min-w-0 space-y-2 border-0 p-0"
+              aria-describedby="vendor-product-create-categories-hint"
+            >
               <legend [class]="labelClass">
                 <span i18n="@@vendor.productCreate.field.categories">Categories</span>
-                <span class="ms-1 font-normal tracking-normal normal-case">{{
-                  optionalLabel
-                }}</span>
+                <span class="ms-1" [class]="optionalClass">{{ optionalLabel }}</span>
               </legend>
-              <p
-                id="vendor-product-create-categories-hint"
-                class="max-w-prose text-xs text-(--text-secondary)"
-              >
+              <p id="vendor-product-create-categories-hint" class="max-w-prose" [class]="hintClass">
                 {{ categoriesHint() }}
               </p>
               @if (categories(); as list) {
@@ -241,14 +260,12 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                         <label [class]="rowLabelClass(term.slug)">
                           <input
                             type="checkbox"
-                            class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                            class="mt-1 size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                             [checked]="chosen().has(term.slug)"
                             [disabled]="!togglable(term.slug)"
                             (change)="onCategory(term.slug, $event)"
                           />
-                          <span class="text-sm font-medium text-(--text-primary)">{{
-                            term.name
-                          }}</span>
+                          <span class="text-sm text-(--text-primary)">{{ term.name }}</span>
                         </label>
                       </li>
                     }
@@ -263,8 +280,10 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                     Could not load the categories. You can add the product without them.
                   </p>
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
-                    [class]="secondaryButtonClass"
                     (click)="loadTaxonomy()"
                     i18n="@@vendor.productCreate.categories.retry"
                   >
@@ -290,10 +309,42 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
               once it is listed.
             </p>
 
-            <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
+            <!--
+              The save bar. Its status slot holds the form-level alert, which stays
+              role="alert" (it reports a refused submit, not a status). The alert now
+              comes first in the bar, ahead of Add product and Cancel. Before AECI-1810
+              it came after Cancel.
+            -->
+            <div [class]="saveBarClass">
+              <div [class]="saveStatusClass">
+                @if (notice(); as n) {
+                  <p
+                    role="alert"
+                    class="text-sm font-semibold text-(--text-primary)"
+                    data-testid="product-create-notice"
+                  >
+                    @if (n.kind === 'notOwned') {
+                      <span i18n="@@vendor.productCreate.error.notOwned"
+                        >Your company does not own its records yet, so it cannot add a product from
+                        here.
+                        <a
+                          routerLink="/contact"
+                          [class]="linkClass"
+                          data-testid="product-create-contact"
+                          >Contact us</a
+                        >
+                        to change that.</span
+                      >
+                    } @else {
+                      {{ n.text }}
+                    }
+                  </p>
+                }
+              </div>
               <button
+                aecButton
                 type="submit"
-                [class]="primaryButtonClass"
+                [class]="saveButtonClass"
                 [disabled]="saving()"
                 data-testid="product-create-submit"
               >
@@ -304,8 +355,10 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                 }
               </button>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryButtonClass"
+                [class]="saveButtonClass"
                 [disabled]="saving()"
                 (click)="close()"
                 data-testid="product-create-cancel"
@@ -314,30 +367,6 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                 Cancel
               </button>
             </div>
-
-            @if (notice(); as n) {
-              <p
-                role="alert"
-                class="text-sm font-medium text-(--text-primary)"
-                data-testid="product-create-notice"
-              >
-                @if (n.kind === 'notOwned') {
-                  <span i18n="@@vendor.productCreate.error.notOwned"
-                    >Your company does not own its records yet, so it cannot add a product from
-                    here.
-                    <a
-                      routerLink="/contact"
-                      [class]="linkClass"
-                      data-testid="product-create-contact"
-                      >Contact us</a
-                    >
-                    to change that.</span
-                  >
-                } @else {
-                  {{ n.text }}
-                }
-              </p>
-            }
           </form>
         </div>
       }
@@ -503,7 +532,7 @@ export class VendorProductCreate implements OnInit {
   }
 
   protected rowLabelClass(slug: string): string {
-    const base = 'flex items-start gap-3 px-4 py-2.5 transition-colors';
+    const base = 'flex items-start gap-3 px-4 py-3 transition-colors';
     return this.togglable(slug) ? `${base} cursor-pointer hover:bg-(--surface-sunken)` : base;
   }
 
@@ -606,19 +635,19 @@ export class VendorProductCreate implements OnInit {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
   }
 
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-strong) px-4 py-2 text-sm font-semibold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  // The portal form recipe (AECI-1809) and the shared field recipe (AECI-1810).
+  protected readonly formClass = `${PORTAL_FORM_CLASS} space-y-6 p-6 md:p-8`;
+  protected readonly fieldClass = `${PORTAL_FIELD_CLASS} max-w-2xl`;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
   protected readonly linkClass =
-    'inline-block rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+    'inline-block rounded-mark text-sm font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 }
 
 /** The refusals `POST /api/vendor/products` can answer, mapped to what to do next. */

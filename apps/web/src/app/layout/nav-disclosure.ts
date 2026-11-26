@@ -11,7 +11,8 @@ import { DestroyRef, Directive, inject, signal } from '@angular/core';
  *   - pointer: hovering the host opens, leaving closes. An implementor may set
  *     `openDelayMs` and `closeGraceMs`. The grace lets the pointer cross a gap
  *     between the trigger and the panel (WCAG 1.4.13 "hoverable"). Both default
- *     to 0, which is the admin row's shipped behaviour;
+ *     to 0. The Browse menu and the admin row both close after 260ms
+ *     (AECI-1813);
  *   - keyboard: Escape closes and returns focus to the trigger element (link or
  *     button), and focus leaving the host closes.
  *

@@ -197,7 +197,8 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
     // required for purge correctness when those products are updated.
     // `buildCacheTags` deduplicates; pushing the same slug twice is harmless.
     // `vendor` is nullable (AECI-115) — only tag it when the product has one.
-    if (product.vendor) ctx.embedded.push({ type: 'vendor', slug: product.vendor.slug });
+    if (product.vendor)
+      ctx.embedded.push({ type: 'vendor', slug: product.vendor.slug, lead: true });
     for (const i of product.integrations_as_source) {
       ctx.embedded.push({ type: 'integration', id: i.id });
       ctx.embedded.push({ type: 'product', slug: i.target.slug });

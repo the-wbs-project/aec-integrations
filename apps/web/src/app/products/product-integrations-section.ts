@@ -682,30 +682,38 @@ import { ProductIntegrationsTable } from './product-integrations-table';
            endpoint rows on a page that has integrations elsewhere, such as a connector
            that only powers edges. -->
       @if (!zero()) {
-        <div
-          class="space-y-2 rounded-panel border border-dashed border-(--border-default)
-            bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-        >
-          <!-- §13.3b (AECI-710): an extension usually has no integrations with its
-             host, because it runs inside it. Say so where the reader is looking,
-             in one sentence, and point at the sidebar card that carries the host.
-             Only on the EMPTY branch: a populated section needs no excuse. -->
-          @if (builtWithinLine(); as line) {
-            <p>{{ line }}</p>
-          }
-          <p i18n="@@products.detail.body.integrations.empty">
-            No integrations recorded yet. Vendor data is curated; if you know of one,
-            <a
-              aecRequestTrigger
-              [entity]="'product'"
-              [kind]="'correction'"
-              [slug]="slug()"
-              [href]="'/products/' + slug() + '/correction'"
-              class="text-(--accent-primary) underline underline-offset-2"
-              >suggest a correction</a
-            >.
-          </p>
-        </div>
+        <!-- AECI-2050: on a page that powers pairs, "No integrations recorded yet" is
+             false, because "Integrations it powers" lists them. That page keeps only the
+             Built within sentence, and no box at all when it has no host. -->
+        @if (!powersPairs() || builtWithinLine()) {
+          <div
+            class="space-y-2 rounded-panel border border-dashed border-(--border-default)
+              bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+            data-testid="integrations-empty"
+          >
+            <!-- §13.3b (AECI-710): an extension usually has no integrations with its
+               host, because it runs inside it. Say so where the reader is looking,
+               in one sentence, and point at the sidebar card that carries the host.
+               Only on the EMPTY branch: a populated section needs no excuse. -->
+            @if (builtWithinLine(); as line) {
+              <p>{{ line }}</p>
+            }
+            @if (!powersPairs()) {
+              <p i18n="@@products.detail.body.integrations.empty">
+                No integrations recorded yet. Vendor data is curated; if you know of one,
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="slug()"
+                  [href]="'/products/' + slug() + '/correction'"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >suggest a correction</a
+                >.
+              </p>
+            }
+          </div>
+        }
         <ng-container [ngTemplateOutlet]="reachLine" />
       }
     } @else {
@@ -912,6 +920,16 @@ export class ProductIntegrationsSection {
    * a caller without it keeps the existing empty state.
    */
   readonly product = input<ProductDetail | null>(null);
+  /**
+   * AECI-2050: how many pairs the page lists under "Integrations it powers"
+   * (the page's powered view, pair count). Read ONLY by the empty branch, which
+   * must not say "No integrations recorded yet" beside that list. Zero-defaulted, so
+   * a caller without it keeps the existing empty state.
+   */
+  readonly poweredPairCount = input(0);
+
+  /** Whether the page lists at least one pair under "Integrations it powers". */
+  protected readonly powersPairs = computed(() => this.poweredPairCount() > 0);
 
   /**
    * The product when the page has no integrations on record, else `null`.

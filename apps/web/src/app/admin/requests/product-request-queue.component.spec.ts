@@ -94,6 +94,16 @@ async function render(fixture: ComponentFixture<unknown>): Promise<void> {
 
 const text = (el: Element | null | undefined) =>
   (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+/** AECI-2111: each decision button is described by its row's identifying cell. */
+function describedBy(root: HTMLElement, button: HTMLElement): string {
+  const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  return ids
+    .map((id) => root.querySelector(`[id="${id}"]`)?.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 /** A row's decision button. The filter has buttons with the same labels. */
 const action = (el: HTMLElement, key: string) =>
   el.querySelector<HTMLButtonElement>(`[data-decision="${key}"]`)!;
@@ -125,6 +135,43 @@ afterEach(() => {
 });
 
 describe('ProductRequestQueue', () => {
+  it('names the product on every decision button (AECI-2111)', async () => {
+    const { fixture, el } = await setup([row()]);
+    for (const key of ['added', 'already_listed', 'declined']) {
+      expect(describedBy(el, action(el, key))).toContain('Procore Cloud');
+    }
+    action(el, 'declined').click();
+    await render(fixture);
+    const confirm = el.querySelector<HTMLElement>('[data-testid="product-request-confirm"]')!;
+    expect(describedBy(el, confirm)).toContain('Procore Cloud');
+  });
+
+  it('moves focus into the form, keeps it on a refused submit, and returns it on Escape (AECI-2111)', async () => {
+    const { fixture, el } = await setup([row()]);
+    document.body.appendChild(el);
+    action(el, 'declined').click();
+    await render(fixture);
+    const reason = el.querySelector<HTMLTextAreaElement>('textarea')!;
+    expect(document.activeElement).toBe(reason);
+
+    // Refused before any request: no reason. Focus stays on the confirm.
+    const confirmButton = el.querySelector<HTMLButtonElement>(
+      '[data-testid="product-request-confirm"]',
+    )!;
+    confirmButton.focus();
+    await confirm(fixture, el);
+    expect(text(el.querySelector('[role="alert"]'))).toContain('Enter a reason');
+    expect(document.activeElement).toBe(confirmButton);
+
+    el.querySelector('form')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    await render(fixture);
+    expect(el.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(action(el, 'declined'));
+    el.remove();
+  });
+
   it('lists open requests with the vendor, their product, the typed fields and the note', async () => {
     const { el, api } = await setup([row()]);
     expect(api.listProductRequests).toHaveBeenCalledWith({
@@ -133,13 +180,17 @@ describe('ProductRequestQueue', () => {
       perPage: 100,
     });
     expect(text(el.querySelector('h2'))).toBe('Product requests from vendors');
-    const card = el.querySelector('article')!;
-    expect(text(card.querySelector('h3'))).toBe('Procore Cloud');
+    const card = el.querySelector<HTMLElement>('tbody[data-product-request]')!;
+    expect(text(card.querySelector('th[scope="row"]'))).toContain('Procore Cloud');
     expect(text(card)).toMatch(/Maker\s*Procore Technologies/);
-    expect(text(card)).toMatch(/Vendor\s*Summit BIM/);
-    expect(text(card)).toMatch(/Their product\s*Summit Model Coordination/);
+    // AECI-2111: vendor and their product are table columns now, under their headers.
+    const headers = [...el.querySelectorAll('thead th')].map((th) => text(th));
+    const cells = [...card.querySelectorAll('tr:first-child > *')].map((c) => text(c));
+    expect(cells[headers.indexOf('Vendor')]).toBe('Summit BIM');
+    expect(cells[headers.indexOf('Their product')]).toBe('Summit Model Coordination');
+    expect(cells[headers.indexOf('Status')]).toBe('Open');
     expect(text(card)).toContain('https://procore.example.com');
-    expect(text(card)).toContain('Note We sync RFIs.');
+    expect(text(card)).toMatch(/Note\s*We sync RFIs\./);
     const site = card.querySelector<HTMLAnchorElement>('a[target="_blank"]')!;
     expect(site.getAttribute('rel')).toBe('noopener nofollow');
     expect(site.getAttribute('href')).toBe('https://procore.example.com');
@@ -156,7 +207,7 @@ describe('ProductRequestQueue', () => {
       outcome: 'added',
       product_id: PROCORE.id,
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('tbody[data-product-request]')).toBeNull();
     expect(decrement).toHaveBeenCalledWith('requests');
     expect(text(el.querySelector('[role="status"]'))).toContain('marked as added');
   });
@@ -211,7 +262,7 @@ describe('ProductRequestQueue', () => {
     await render(fixture);
     await pickProcore(fixture, el);
     await confirm(fixture, el);
-    expect(el.querySelector('article')).not.toBeNull();
+    expect(el.querySelector('tbody[data-product-request]')).not.toBeNull();
     expect(text(el.querySelector('[role="alert"]'))).toContain('not promoted yet');
     expect(decrement).not.toHaveBeenCalled();
   });
@@ -228,7 +279,7 @@ describe('ProductRequestQueue', () => {
     reason.dispatchEvent(new Event('input'));
     await render(fixture);
     await confirm(fixture, el);
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector('tbody[data-product-request]')).toBeNull();
     expect(text(el.querySelector('[role="status"]'))).toContain('already decided');
     expect(decrement).not.toHaveBeenCalled();
   });

@@ -1,8 +1,11 @@
-<div class="flex flex-wrap items-center justify-between gap-3">
+<!-- AECI-2112: the panel and its heading are the vendor page's ("Field corrections",
+     mock-up 14). The intro, the opener and the form sit inside it. -->
+<div class="flex flex-wrap items-start justify-between gap-4">
   <p
     [id]="id('heading')"
     tabindex="-1"
-    class="max-w-prose text-sm text-(--text-secondary)"
+    [class]="c.caption"
+    class="max-w-prose focus-visible:outline-3 focus-visible:outline-offset-3"
     i18n="@@admin.fieldCorrections.intro"
   >
     Correct a fact on a record this vendor holds. The correction is locked, so the vendor cannot
@@ -10,12 +13,14 @@
   </p>
   @if (!formOpen()) {
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     [id]="id('open')"
     [attr.aria-expanded]="formOpen()"
     [attr.aria-controls]="id('form')"
     (click)="openForm()"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.fieldCorrections.open"
   >
     Correct a field
@@ -27,24 +32,22 @@
 <form
   method="dialog"
   [id]="id('form')"
-  class="mt-4 max-w-xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  [class]="c.form"
+  class="mt-4"
   novalidate
   [attr.aria-labelledby]="id('form-title')"
   (aecSubmit)="submit()"
+  (keydown.escape)="onFormEscape()"
 >
   <p
     [id]="id('form-title')"
-    class="text-sm font-semibold text-(--text-primary)"
+    class="text-t-16 font-semibold text-(--text-primary)"
     i18n="@@admin.fieldCorrections.form.title"
   >
     Correct a field
   </p>
-  <div>
-    <label
-      [attr.for]="id('record')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.form.record"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('record')" [class]="c.label" i18n="@@admin.fieldCorrections.form.record">
       Record
     </label>
     <select
@@ -52,7 +55,7 @@
       [id]="id('record')"
       [disabled]="pending()"
       (change)="onRecord($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option
         value=""
@@ -66,19 +69,15 @@
       }
     </select>
   </div>
-  <div>
-    <label
-      [attr.for]="id('field')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.form.field"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('field')" [class]="c.label" i18n="@@admin.fieldCorrections.form.field">
       Field
     </label>
     <select
       [id]="id('field')"
       [disabled]="pending() || !record()"
       (change)="onField($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" [selected]="field() === ''" i18n="@@admin.fieldCorrections.form.fieldPick">
         Choose a field
@@ -95,32 +94,25 @@
     section 6.1, rules 3 and 4).
   -->
   <fieldset
-    class="border-0 p-0"
+    class="m-0 grid gap-2 border-0 p-0"
     [attr.aria-describedby]="id('terms-help') + ' ' + id('terms-count')"
   >
-    <legend
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.terms.legend"
-    >
-      Correct terms
-    </legend>
-    <p
-      [id]="id('terms-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.terms.help"
-    >
+    <legend [class]="c.label" i18n="@@admin.fieldCorrections.terms.legend">Correct terms</legend>
+    <p [id]="id('terms-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.terms.help">
       The product's current terms are ticked. Tick every term it should carry. Untick them all to
       remove every term.
     </p>
     @if (taxonomyFailed()) {
-    <p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">
+    <p class="text-t-14 font-semibold text-(--text-primary)" role="alert">
       <span i18n="@@admin.fieldCorrections.terms.loadError"
         >Could not load the terms. Only the product's current terms are listed.</span
       >
       <button
+        aecButton
+        variant="ghost"
         type="button"
+        class="ms-2"
         (click)="loadTaxonomy()"
-        class="ms-2 text-sm font-medium text-(--text-primary) underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.fieldCorrections.terms.retry"
       >
         Try again
@@ -129,16 +121,16 @@
     } @if (taxonomyReady() || (taxonomyFailed() && termOptions().length > 0)) {
     <ul
       [id]="id('terms')"
-      class="mt-2 grid gap-x-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-2 sm:grid-cols-2"
+      class="grid gap-x-4 rounded-control border border-(--border-default) bg-(--surface-base) p-2 sm:grid-cols-2"
     >
       @for (term of termOptions(); track term.slug) {
       <li>
         <label
-          class="flex cursor-pointer items-start gap-2 rounded-(--radius-sm) px-2 py-1.5 text-sm text-(--text-primary) hover:bg-(--surface-sunken)"
+          class="flex min-h-11 cursor-pointer items-center gap-2 rounded-mark px-2 text-t-14 text-(--text-primary) hover:bg-(--surface-sunken)"
         >
           <input
             type="checkbox"
-            class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="c.choice"
             [value]="term.slug"
             [checked]="terms().has(term.slug)"
             [disabled]="termDisabled(term.slug)"
@@ -150,26 +142,16 @@
       }
     </ul>
     } @else if (!taxonomyFailed()) {
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.fieldCorrections.terms.loading">
-      Loading the terms…
-    </p>
+    <p [class]="c.statusLine" i18n="@@admin.fieldCorrections.terms.loading">Loading the terms…</p>
     }
-    <p [id]="id('terms-count')" class="mt-2 text-xs text-(--text-secondary)">{{ termCounter() }}</p>
+    <p [id]="id('terms-count')" [class]="c.hint">{{ termCounter() }}</p>
   </fieldset>
   } @else if (field()) {
-  <div>
-    <label
-      [attr.for]="id('value')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.form.value"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('value')" [class]="c.label" i18n="@@admin.fieldCorrections.form.value">
       Correct value
     </label>
-    <p
-      [id]="id('value-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.form.valueHelp"
-    >
+    <p [id]="id('value-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.form.valueHelp">
       Leave it empty to clear the field, where the vendor could clear it too.
     </p>
     @switch (control()) { @case ('direction') {
@@ -178,7 +160,7 @@
       [attr.aria-describedby]="id('value-help')"
       [disabled]="pending()"
       (change)="onValue($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" i18n="@@admin.fieldCorrections.form.choose">Choose</option>
       @for (o of directionOptions(); track o.value) {
@@ -191,7 +173,7 @@
       [attr.aria-describedby]="id('value-help')"
       [disabled]="pending()"
       (change)="onValue($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" i18n="@@admin.fieldCorrections.form.choose2">Choose</option>
       @for (kind of mechanismKinds; track kind) {
@@ -204,7 +186,7 @@
       [attr.aria-describedby]="id('value-help')"
       [disabled]="pending()"
       (change)="onValue($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" i18n="@@admin.fieldCorrections.ownership.unset">Not specified</option>
       <option value="public" i18n="@@admin.fieldCorrections.ownership.public">Public</option>
@@ -218,7 +200,8 @@
       [disabled]="pending()"
       [value]="value()"
       (input)="onValue($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="min-h-24 resize-y"
     ></textarea>
     } @default {
     <input
@@ -229,24 +212,16 @@
       [disabled]="pending()"
       [value]="value()"
       (input)="onValue($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     />
     } }
   </div>
   }
-  <div>
-    <label
-      [attr.for]="id('source')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.source.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('source')" [class]="c.label" i18n="@@admin.fieldCorrections.source.label">
       Source link (required)
     </label>
-    <p
-      [id]="id('source-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.source.help"
-    >
+    <p [id]="id('source-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.source.help">
       The https:// page you read the value from. Readers see this link beside the correction on the
       public page.
     </p>
@@ -261,32 +236,28 @@
       [attr.aria-describedby]="sourceError() ? id('source-help') + ' ' + id('source-error') : id('source-help')"
       [value]="sourceUrl()"
       (input)="onSource($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     />
     @if (sourceError()) {
     <p
       [id]="id('source-error')"
       role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
+      [class]="c.error"
       i18n="@@admin.fieldCorrections.source.required"
     >
       Enter the source as a full https:// link.
     </p>
     }
   </div>
-  <div>
+  <div [class]="c.field">
     <label
       [attr.for]="id('reason')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      [class]="c.label"
       i18n="@@admin.fieldCorrections.reason.vendorLabel"
     >
       Reason shown to the vendor (required)
     </label>
-    <p
-      [id]="id('reason-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.reason.vendorHelp"
-    >
+    <p [id]="id('reason-help')" [class]="c.hint" i18n="@@admin.fieldCorrections.reason.vendorHelp">
       The vendor reads this in its portal messages and beside the locked field. It is recorded in
       the audit trail with your name.
     </p>
@@ -301,25 +272,22 @@
       [attr.aria-describedby]="reasonError() ? id('reason-help') + ' ' + id('reason-error') : id('reason-help')"
       [value]="reason()"
       (input)="onReason($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
     ></textarea>
     @if (reasonError()) {
     <p
       [id]="id('reason-error')"
       role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
+      [class]="c.error"
       i18n="@@admin.fieldCorrections.reason.vendorRequired"
     >
       Enter a reason for the vendor. The vendor reads it in its portal messages.
     </p>
     }
   </div>
-  <div>
-    <label
-      [attr.for]="id('note')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldCorrections.note.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('note')" [class]="c.label" i18n="@@admin.fieldCorrections.note.label">
       Internal note (optional, never shown to the vendor)
     </label>
     <textarea
@@ -329,18 +297,15 @@
       [disabled]="pending()"
       [value]="internalNote()"
       (input)="onNote($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
     ></textarea>
   </div>
   @if (formError(); as message) {
-  <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+  <p [id]="id('form-error')" tabindex="-1" role="alert" [class]="c.failed">{{ message }}</p>
   }
-  <div class="flex flex-wrap items-center gap-3">
-    <button
-      type="submit"
-      [disabled]="pending()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-    >
+  <div [class]="c.actions">
+    <button aecButton compact type="submit" [disabled]="pending()">
       @if (pending()) {
       <span i18n="@@admin.fieldCorrections.saving">Saving…</span>
       } @else {
@@ -348,9 +313,10 @@
       }
     </button>
     <button
+      aecButton
+      variant="ghost"
       type="button"
       (click)="closeForm()"
-      class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.fieldCorrections.cancel"
     >
       Cancel
@@ -358,120 +324,104 @@
   </div>
 </form>
 } @if (loading()) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldCorrections.loading">
+<p [class]="c.statusLine" class="mt-4" i18n="@@admin.fieldCorrections.loading">
   Loading the field locks…
 </p>
 } @else if (failed()) {
-<div
-  role="alert"
-  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.fieldCorrections.loadError">
+<div role="alert" [class]="c.loadFailed" class="mt-4">
+  <p [class]="c.failedText" i18n="@@admin.fieldCorrections.loadError">
     We couldn't load this vendor's field locks.
   </p>
   <button
+    aecButton
+    variant="secondary"
     type="button"
     (click)="loadLocks()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.fieldCorrections.retry"
   >
     Try again
   </button>
 </div>
 } @else if (locks().length === 0) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldCorrections.empty">
+<p [class]="c.t.empty" class="mt-4" i18n="@@admin.fieldCorrections.empty">
   No field is locked on this vendor's records.
 </p>
 } @else {
-<div class="mt-4 overflow-x-auto">
-  <table class="w-full min-w-[40rem] border-collapse text-sm">
-    <caption class="sr-only" i18n="@@admin.fieldCorrections.caption">
+<!-- The console table recipe (mock-up 14). One tbody per lock, so the row and its lift
+     form stay one group. -->
+<div
+  [class]="c.t.region"
+  class="mt-4"
+  role="region"
+  tabindex="0"
+  [attr.aria-labelledby]="id('caption')"
+>
+  <table [class]="c.t.table" class="min-w-[44rem]">
+    <caption [id]="id('caption')" [class]="c.t.caption" i18n="@@admin.fieldCorrections.caption">
       Fields AEC Integrations corrected and locked on this vendor's records
     </caption>
     <thead>
-      <tr class="border-b border-(--border-strong)">
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldCorrections.col.record"
-        >
-          Record
-        </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldCorrections.col.field"
-        >
+      <tr>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldCorrections.col.record">Record</th>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldCorrections.col.field">
           Field and value
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldCorrections.col.reason"
-        >
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldCorrections.col.reason">
           Reason shown to the vendor
         </th>
-        <th
-          scope="col"
-          class="py-2 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldCorrections.col.actions"
-        >
+        <th scope="col" [class]="c.t.headNum" i18n="@@admin.fieldCorrections.col.actions">
           Actions
         </th>
       </tr>
     </thead>
+    @for (lock of locks(); track lock.id) {
     <tbody>
-      @for (lock of locks(); track lock.id) {
-      <tr class="border-b border-(--border-default) align-top">
-        <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-          <span class="block font-medium text-(--text-primary)"
-            >{{ lock.entity_name ?? lock.entity_id }}</span
-          >
-          <span class="mt-0.5 block text-xs text-(--text-secondary)"
-            >{{ entityLabel(lock.entity_type) }}</span
-          >
+      <tr [class]="liftFor() === lock.id ? c.t.rowOpen : c.t.row">
+        <th scope="row" [class]="c.t.rowHead">
+          {{ lock.entity_name ?? lock.entity_id }}
+          <span [class]="c.t.sub">{{ entityLabel(lock.entity_type) }}</span>
         </th>
-        <td class="py-2.5 pe-4">
-          <span class="block font-medium text-(--text-primary)">{{ fieldLabel(lock.field) }}</span>
-          <span class="mt-0.5 block break-all text-xs text-(--text-secondary)"
-            >{{ valueLabel(lock) }}</span
+        <td [class]="c.t.cell">
+          <span class="block font-semibold text-(--text-primary)"
+            >{{ fieldLabel(lock.field) }}</span
           >
+          <span [class]="c.t.sub" class="break-all">{{ valueLabel(lock) }}</span>
           @if (sourceHref(lock); as href) {
           <a
             [href]="href"
             target="_blank"
             rel="noopener nofollow"
             data-testid="lock-source"
-            class="mt-0.5 inline-flex items-center gap-1 rounded-(--radius-sm) break-all text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="c.sourceLink"
             ><span i18n="@@admin.fieldCorrections.source.link">Source</span><aec-new-tab-icon
           /></a>
           } @else {
-          <span
-            class="mt-0.5 block text-xs text-(--text-secondary)"
-            i18n="@@admin.fieldCorrections.source.none"
+          <span [class]="c.t.sub" i18n="@@admin.fieldCorrections.source.none"
             >No source recorded</span
           >
           }
         </td>
-        <td class="py-2.5 pe-4 text-(--text-secondary)">
-          <span class="block">{{ lock.reason }}</span>
+        <td [class]="c.t.cell" class="text-(--text-secondary)">
+          <span class="block text-(--text-primary)">{{ lock.reason }}</span>
           @if (lock.internal_note) {
-          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldCorrections.internalNote"
+          <span [class]="c.t.sub" i18n="@@admin.fieldCorrections.internalNote"
             >Internal note: {{ lock.internal_note }}</span
           >
           }
-          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldCorrections.setAt"
+          <span [class]="c.t.sub" i18n="@@admin.fieldCorrections.setAt"
             >Locked {{ lock.set_at | date: 'mediumDate' : 'UTC' }}</span
           >
         </td>
-        <td class="py-2.5 text-end">
+        <td [class]="c.t.act">
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
             [id]="liftTriggerId(lock)"
             [attr.aria-expanded]="liftFor() === lock.id"
             [attr.aria-controls]="liftFormId(lock, 'form')"
             (click)="openLift(lock)"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@admin.fieldCorrections.lift"
           >
             Lift
@@ -479,79 +429,89 @@
         </td>
       </tr>
       @if (liftFor() === lock.id) {
-      <tr class="border-b border-(--border-default)">
-        <td colspan="4" class="py-3">
-          <form
-            method="dialog"
-            [id]="liftFormId(lock, 'form')"
-            class="max-w-xl space-y-3"
-            novalidate
-            (aecSubmit)="lift(lock)"
-          >
-            <div>
-              <label
-                [attr.for]="liftFormId(lock, 'reason')"
-                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                i18n="@@admin.fieldCorrections.lift.reasonLabel"
-              >
-                Reason shown to the vendor (required)
-              </label>
-              <textarea
-                #liftReasonInput
-                [id]="liftFormId(lock, 'reason')"
-                rows="2"
-                required
-                [attr.maxlength]="reasonMax"
-                [disabled]="pending()"
-                [value]="liftReason()"
-                (input)="onLiftReason($event)"
-                class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ></textarea>
-            </div>
-            <div>
-              <label
-                [attr.for]="liftFormId(lock, 'note')"
-                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                i18n="@@admin.fieldCorrections.lift.noteLabel"
-              >
-                Internal note (optional, never shown to the vendor)
-              </label>
-              <textarea
-                [id]="liftFormId(lock, 'note')"
-                rows="2"
-                [attr.maxlength]="reasonMax"
-                [disabled]="pending()"
-                [value]="liftNote()"
-                (input)="onLiftNote($event)"
-                class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ></textarea>
-            </div>
-            @if (liftError(); as message) {
-            <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
-            }
-            <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="submit"
-                [disabled]="pending()"
-                class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.fieldCorrections.lift.confirm"
-              >
-                Lift the lock
-              </button>
-              <button
-                type="button"
-                (click)="closeLift(lock)"
-                class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@admin.fieldCorrections.lift.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+      <tr [class]="c.t.detailRow">
+        <td colspan="4" [class]="c.t.detailCell">
+          <div [class]="c.t.detailInner">
+            <form
+              method="dialog"
+              [id]="liftFormId(lock, 'form')"
+              [class]="c.form"
+              novalidate
+              (aecSubmit)="lift(lock)"
+              (keydown.escape)="onLiftEscape(lock)"
+            >
+              <div [class]="c.field">
+                <label
+                  [attr.for]="liftFormId(lock, 'reason')"
+                  [class]="c.label"
+                  i18n="@@admin.fieldCorrections.lift.reasonLabel"
+                >
+                  Reason shown to the vendor (required)
+                </label>
+                <textarea
+                  #liftReasonInput
+                  [id]="liftFormId(lock, 'reason')"
+                  rows="2"
+                  required
+                  [attr.maxlength]="reasonMax"
+                  [disabled]="pending()"
+                  [value]="liftReason()"
+                  (input)="onLiftReason($event)"
+                  [class]="c.input"
+                  class="min-h-20 resize-y"
+                ></textarea>
+              </div>
+              <div [class]="c.field">
+                <label
+                  [attr.for]="liftFormId(lock, 'note')"
+                  [class]="c.label"
+                  i18n="@@admin.fieldCorrections.lift.noteLabel"
+                >
+                  Internal note (optional, never shown to the vendor)
+                </label>
+                <textarea
+                  [id]="liftFormId(lock, 'note')"
+                  rows="2"
+                  [attr.maxlength]="reasonMax"
+                  [disabled]="pending()"
+                  [value]="liftNote()"
+                  (input)="onLiftNote($event)"
+                  [class]="c.input"
+                  class="min-h-20 resize-y"
+                ></textarea>
+              </div>
+              @if (liftError(); as message) {
+              <p [id]="liftFormId(lock, 'error')" tabindex="-1" role="alert" [class]="c.failed">
+                {{ message }}
+              </p>
+              }
+              <div [class]="c.actions">
+                <button
+                  aecButton
+                  compact
+                  type="submit"
+                  [disabled]="pending()"
+                  i18n="@@admin.fieldCorrections.lift.confirm"
+                >
+                  Lift the lock
+                </button>
+                <button
+                  aecButton
+                  variant="ghost"
+                  type="button"
+                  (click)="closeLift(lock)"
+                  i18n="@@admin.fieldCorrections.lift.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </td>
       </tr>
-      } }
+      }
     </tbody>
+    }
   </table>
 </div>
 }

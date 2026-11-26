@@ -1,6 +1,8 @@
 import { Component, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { isReplayedEvent } from '../../core/event-replay';
@@ -37,10 +39,11 @@ import { isReplayedEvent } from '../../core/event-replay';
  */
 @Component({
   selector: 'aec-vendor-seat-invite-form',
+  imports: [AecButton],
   template: `
     <form method="dialog" (submit)="submit($event)">
       <div class="flex flex-wrap items-start gap-2">
-        <div class="min-w-[16rem] flex-1">
+        <div class="min-w-0 flex-[1_1_16rem]">
           <label class="sr-only" for="seat-invite-email" i18n="@@vendor.seats.invite.label">
             Email address
           </label>
@@ -54,13 +57,14 @@ import { isReplayedEvent } from '../../core/event-replay';
             (input)="onInput($event)"
             [attr.aria-invalid]="error() ? 'true' : null"
             [attr.aria-describedby]="error() ? 'seat-invite-error' : null"
-            class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="inputClass"
           />
         </div>
         <button
+          aecButton
           type="submit"
           [disabled]="busy() || email().trim().length === 0"
-          class="rounded-(--radius-sm) border border-(--accent-primary) bg-(--accent-primary) px-3 py-2 text-sm font-label font-semibold text-(--surface-base) transition-opacity disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="'max-sm:w-full'"
         >
           @if (busy()) {
             <span i18n="@@vendor.seats.invite.sending">Sending…</span>
@@ -71,11 +75,16 @@ import { isReplayedEvent } from '../../core/event-replay';
       </div>
 
       @if (error(); as message) {
-        <p id="seat-invite-error" class="mt-2 text-sm text-(--text-primary)" role="alert">
+        <p id="seat-invite-error" [class]="errorClass + ' mt-2'" role="alert">
           {{ message }}
         </p>
       }
       @if (sentTo(); as address) {
+        <!-- A local status line, on purpose: the dialog is modal, and the CDK hides
+             everything outside it from assistive tech while it is open, the portal's
+             shared live region included. So the announcer would say nothing here.
+             This is feedback beside the control just used, which STAGE_2_REALTIME_SPEC
+             §6.3 allows (AECI-1812). -->
         <p class="mt-2 text-sm text-(--text-secondary)" role="status">
           <ng-container i18n="@@vendor.seats.invite.sent">Invite sent to</ng-container>
           {{ address }}
@@ -88,6 +97,11 @@ import { isReplayedEvent } from '../../core/event-replay';
 export class VendorSeatInviteForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** The refusal is the field's error (the input points at it), so it takes the
+   *  shared recipe, whose alert icon means colour is never the only sign. */
+  protected readonly errorClass = FIELD_ERROR_CLASS;
 
   protected readonly email = signal('');
   protected readonly busy = signal(false);

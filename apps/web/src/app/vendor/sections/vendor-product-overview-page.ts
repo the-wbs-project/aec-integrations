@@ -2,6 +2,8 @@ import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@an
 import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
 import { productChecklistRows } from '../checklist-rows';
 import { VendorChecklist } from '../components/vendor-checklist';
 import { VendorPlanPanel } from '../components/vendor-plan-panel';
@@ -25,11 +27,15 @@ import { vendorProductContext } from './vendor-product-context';
  */
 @Component({
   selector: 'aec-vendor-product-overview-page',
-  imports: [VendorChecklist, VendorPlanPanel],
+  imports: [AecButton, AecCard, VendorChecklist, VendorPlanPanel],
   template: `
     @if (product(); as p) {
-      <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
-        <div>
+      <!-- AECI-1810: the checklist and the plan panel as two white cards, the plan
+           in a 400px column (432px from 1280px), the overview's own split. -->
+      <div
+        class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] xl:gap-12"
+      >
+        <div class="min-w-0">
           @if (checklist(); as c) {
             <aec-vendor-checklist
               [heading]="checklistHeading"
@@ -40,9 +46,7 @@ import { vendorProductContext } from './vendor-product-context';
               [total]="c.total"
             />
           } @else if (failed()) {
-            <div
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-            >
+            <div aecCard class="p-6">
               <p
                 class="text-sm text-(--text-primary)"
                 role="alert"
@@ -51,8 +55,10 @@ import { vendorProductContext } from './vendor-product-context';
                 The checklist could not be loaded.
               </p>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="retryClass"
+                class="mt-4"
                 (click)="retry()"
                 i18n="@@vendor.checklist.retry"
               >
@@ -60,10 +66,7 @@ import { vendorProductContext } from './vendor-product-context';
               </button>
             </div>
           } @else {
-            <div
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-              aria-busy="true"
-            >
+            <div aecCard class="p-6" aria-busy="true">
               <p class="text-sm text-(--text-secondary)" i18n="@@vendor.checklist.loading">
                 Loading the checklist…
               </p>
@@ -127,9 +130,6 @@ export class VendorProductOverviewPage {
       ? $localize`:@@vendor.checklist.product.lede.managed:Four checks for this product on Managed. All four count.`
       : $localize`:@@vendor.checklist.product.lede.free:Three checks finish this product on Free. Confirming data flows is optional until Managed.`;
   });
-
-  protected readonly retryClass =
-    'mt-3 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     // Load per product. Moving between products reuses this component, so the

@@ -521,6 +521,48 @@ describe('UserDetail', () => {
       expect(active()).toBe(buttonByText(el, 'Ban this account'));
     });
 
+    // AECI-2128: the console's inline-form rule.
+    const escape = (target: EventTarget) =>
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    it('Escape closes the ban form and returns focus to the ban button', async () => {
+      const { el, fixture, bans } = await setup();
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      escape(el.querySelector('#admin-user-ban-reason')!);
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      expect(el.querySelector('#admin-user-ban-reason')).toBeNull();
+      expect(active()).toBe(buttonByText(el, 'Ban this account'));
+      expect(bans.ban).not.toHaveBeenCalled();
+    });
+
+    it('Escape does nothing while the ban is in flight', async () => {
+      const bans = makeBansMock();
+      let resolve!: (v: { banned_at: string; ban_reason: string }) => void;
+      bans.ban.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+      const { el, fixture } = await setup(makeApiMock(), bans);
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      await typeReason(fixture, el);
+      buttonByText(el, 'Confirm ban')!.click();
+      fixture.detectChanges();
+      escape(el.querySelector('#admin-user-ban-reason')!);
+      fixture.detectChanges();
+      expect(el.querySelector('#admin-user-ban-reason')).not.toBeNull();
+      expect(el.querySelector('form')?.getAttribute('aria-busy')).toBe('true');
+      resolve({ banned_at: '2026-11-20T00:00:00.000Z', ban_reason: 'Coordinated spam.' });
+      await settle();
+      fixture.detectChanges();
+    });
+
+    it('the ban confirm is the danger button and its opener is secondary', async () => {
+      const { el, fixture } = await setup();
+      const opener = buttonByText(el, 'Ban this account')!;
+      expect(opener.classList).toContain('aec-btn-secondary');
+      await click(fixture, opener);
+      expect(buttonByText(el, 'Confirm ban')!.classList).toContain('bg-(--status-error)');
+    });
+
     it('an empty reason keeps focus on the reason', async () => {
       const { el, fixture } = await setup();
       await click(fixture, buttonByText(el, 'Ban this account')!);

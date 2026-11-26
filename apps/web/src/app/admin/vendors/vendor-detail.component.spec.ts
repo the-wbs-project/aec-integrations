@@ -259,7 +259,7 @@ async function setup(
   return { fixture, api, provisionApi, el: fixture.nativeElement as HTMLElement };
 }
 
-/** The page on its Audit Trail tab. The trail is no longer on the landing tab,
+/** The page on its Audit trail tab. The trail is no longer on the landing tab,
  *  so every spec that asserts on it has to open the one it lives on. */
 function setupAudit(api: ApiMock) {
   return setup(api, { provisionSeat: vi.fn() }, 'audit');
@@ -300,6 +300,18 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement | unde
  *  audit trail are all tables, and the first one on the page is the seats table. */
 function diffTable(el: HTMLElement): HTMLTableElement | null {
   return el.querySelector('[id^="audit-diff-"] table');
+}
+
+/** Press "Show changes" and assert it really opened its row (AECI-2128): the diff
+ *  table is built only when open, so a broken toggle leaves no text to read. */
+function openDiff(el: HTMLElement, fixture: { detectChanges: () => void }): void {
+  const toggle = buttonByText(el, 'Show changes')!;
+  expect(diffTable(el)).toBeNull();
+  toggle.click();
+  fixture.detectChanges();
+  const row = el.querySelector<HTMLElement>(`#${toggle.getAttribute('aria-controls')}`)!;
+  expect(row.hidden).toBe(false);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
 }
 
 describe('VendorDetail', () => {
@@ -427,21 +439,25 @@ describe('VendorDetail', () => {
   });
 
   describe('tabs', () => {
+    // AECI-2112: each tab reserves its weight-600 width with an aria-hidden bold copy of
+    // its label (mock-up 14), so a tab's name is its visible span, not its textContent.
+    const tabName = (a: Element) => a.querySelector('span:not([aria-hidden])')?.textContent?.trim();
+
     it('offers the five sections as links, with the open one marked current', async () => {
       // Links, not buttons: the tab is `?tab=` state, so it has to be
       // bookmarkable and reachable with Back.
       const { el } = await setup(makeApiMock(makeVendor()));
       const links = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')];
-      expect(links.map((a) => a.textContent?.trim())).toEqual([
+      expect(links.map(tabName)).toEqual([
         'Vendor',
         'Billing',
         'Products',
         'Integrations',
-        'Audit Trail',
+        'Audit trail',
       ]);
       const current = links.filter((a) => a.getAttribute('aria-current') === 'page');
       expect(current).toHaveLength(1);
-      expect(current[0].textContent?.trim()).toBe('Vendor');
+      expect(tabName(current[0])).toBe('Vendor');
     });
 
     it('does not fetch the products until the Products tab is opened', async () => {
@@ -470,7 +486,7 @@ describe('VendorDetail', () => {
       const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
         (a) => a.getAttribute('aria-current') === 'page',
       );
-      expect(current.map((a) => a.textContent?.trim())).toEqual(['Billing']);
+      expect(current.map(tabName)).toEqual(['Billing']);
       expect(api.getBilling).toHaveBeenCalledWith(VENDOR_ID);
       expect(el.textContent).not.toContain('Basics');
     });
@@ -750,7 +766,7 @@ describe('VendorDetail', () => {
       // it is an href rather than a `routerLink`: an in-app navigation cannot
       // meaningfully open a second tab.
       const { el } = await setup(makeApiMock(makeVendor()));
-      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View Page'));
+      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.includes('View page'));
       expect(link?.getAttribute('href')).toBe('/vendors/autodesk');
       expect(link?.getAttribute('target')).toBe('_blank');
       // Without `noopener` the new browsing context gets a handle on this one.
@@ -1052,8 +1068,7 @@ describe('VendorDetail', () => {
           }),
         ]),
       );
-      buttonByText(el, 'Show changes')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
 
       const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('status');
@@ -1072,8 +1087,7 @@ describe('VendorDetail', () => {
           makeAuditRow({ before_state: { a: 1 }, after_state: { a: 2 } }),
         ]),
       );
-      buttonByText(el, 'Show changes')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
       expect(diffTable(el)?.textContent).toContain('changed');
     });
 
@@ -1085,8 +1099,7 @@ describe('VendorDetail', () => {
           makeAuditRow({ before_state: 'a bare string', after_state: 42 }),
         ]),
       );
-      buttonByText(el, 'Show changes')!.click();
-      fixture.detectChanges();
+      openDiff(el, fixture);
       const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('value');
       expect(text).toContain('a bare string');
@@ -1315,7 +1328,9 @@ describe('VendorDetail — products by role', () => {
       const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
         (a) => a.getAttribute('aria-current') === 'page',
       );
-      expect(current.map((a) => a.textContent?.trim())).toEqual(['Products']);
+      expect(
+        current.map((a) => a.querySelector('span:not([aria-hidden])')?.textContent?.trim()),
+      ).toEqual(['Products']);
       expect(api.listProducts).toHaveBeenCalledTimes(1);
       expect(el.textContent).not.toContain('Basics');
     });
@@ -1576,5 +1591,84 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     const control = el.querySelector('aec-provision-seat-control')!;
     expect(buttonByText(control as HTMLElement, 'Ban')).toBeUndefined();
     expect(buttonByText(control as HTMLElement, 'Set entitlement')).toBeUndefined();
+  });
+});
+
+describe('VendorDetail seat revoke focus (AECI-2112)', () => {
+  const OTHER_SEAT = '00000000-0000-4000-8000-000000000021';
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  async function rerender(fixture: { detectChanges(): void }) {
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+  }
+  const reasonBox = (el: HTMLElement) =>
+    el.querySelector('textarea[id^="seat-revoke-reason-"]') as HTMLTextAreaElement;
+
+  it('Escape closes the confirm and returns focus to Remove seat', async () => {
+    const { el, fixture } = await setup(makeApiMock(makeVendor()));
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    escape(reasonBox(el));
+    await rerender(fixture);
+    expect(reasonBox(el)).toBeNull();
+    expect(document.activeElement?.id).toBe(`seat-revoke-open-${SEAT_ID}`);
+  });
+
+  it('Escape does nothing while the revoke is in flight', async () => {
+    let resolve!: () => void;
+    const api = makeApiMock(makeVendor());
+    api.revokeSeat.mockReturnValue(new Promise<void>((r) => (resolve = r)));
+    const { el, fixture } = await setup(api);
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    escape(reasonBox(el));
+    await rerender(fixture);
+    expect(reasonBox(el)).not.toBeNull();
+    resolve();
+    await rerender(fixture);
+  });
+
+  it('after a removal, focus goes to the next seat, then to the Seats heading', async () => {
+    const { el, fixture } = await setup(
+      makeApiMock(
+        makeVendor({
+          seats: [makeSeat(), makeSeat({ user_id: OTHER_SEAT, display_name: 'Grace Hopper' })],
+        }),
+      ),
+    );
+    el.querySelector<HTMLButtonElement>(`#seat-revoke-open-${SEAT_ID}`)!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe(`seat-revoke-open-${OTHER_SEAT}`);
+
+    el.querySelector<HTMLButtonElement>(`#seat-revoke-open-${OTHER_SEAT}`)!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe('admin-vendor-seats');
+  });
+
+  it('a refused revoke moves focus to its message', async () => {
+    const api = makeApiMock(makeVendor());
+    api.revokeSeat.mockRejectedValueOnce({ status: 500 });
+    const { el, fixture } = await setup(api);
+    buttonByText(el, 'Remove seat')!.click();
+    await rerender(fixture);
+    typeRevokeReason(el);
+    fixture.detectChanges();
+    buttonByText(el, 'Confirm removal')!.click();
+    await rerender(fixture);
+    expect(document.activeElement?.id).toBe(`seat-revoke-failed-${SEAT_ID}`);
   });
 });

@@ -56,6 +56,7 @@ import {
   vendorChecklistFixture,
   withProductPlans,
 } from './vendor-fixtures';
+import { trail } from '../shared/breadcrumb/breadcrumb-trail.harness';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 import { VendorPortalStore } from './vendor-portal-store';
 import { VENDOR_SECTION_ROUTES } from './vendor.routes';
@@ -200,7 +201,7 @@ const editing = (harness: RouterTestingHarness): string | undefined =>
 
 /** A tab by its visible label, in whichever row the shell is showing. */
 function navLink(harness: RouterTestingHarness, label: string): HTMLElement {
-  const item = [...navItems(harness)].find((el) => el.textContent?.trim() === label);
+  const item = [...navItems(harness)].find((el) => tabLabel(el) === label);
   if (!item) throw new Error(`no nav item "${label}"`);
   return item as HTMLElement;
 }
@@ -208,13 +209,13 @@ function navLink(harness: RouterTestingHarness, label: string): HTMLElement {
 const navItems = (harness: RouterTestingHarness) =>
   root(harness).querySelectorAll('aec-vendor-portal-nav a');
 
-const crumbs = (harness: RouterTestingHarness) =>
-  [...root(harness).querySelectorAll('nav[aria-label="Breadcrumb"] li:not([aria-hidden])')].map(
-    (li) => li.textContent?.trim(),
-  );
+/** The shared breadcrumb's trail, as labels (AECI-1809: `aec-breadcrumb`). */
+const crumbs = (harness: RouterTestingHarness) => trail(root(harness)).map((item) => item.label);
 
-const navLabels = (harness: RouterTestingHarness) =>
-  [...navItems(harness)].map((el) => el.textContent?.trim());
+/** A tab's visible label. The link also holds an aria-hidden weight-600 copy. */
+const tabLabel = (el: Element) => el.querySelector('[data-tab-label]')?.textContent?.trim();
+
+const navLabels = (harness: RouterTestingHarness) => [...navItems(harness)].map(tabLabel);
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
   it('lists the nine sections, with Messages, Conversations and Changes between Products and Seats', async () => {

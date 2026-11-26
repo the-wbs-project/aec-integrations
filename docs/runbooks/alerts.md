@@ -61,6 +61,7 @@ thresholds of retired alerts are in `observability/posthog/README.md` "Monitor d
 |---|---|
 | Worker error rate > 1% (1 h) | [High Worker error rate](#high-worker-error-rate) |
 | p95 detail page render > 2.5 s (1 h) | [High p95 detail render](#high-p95-detail-render) |
+| A page went uncached: its cache tags did not fit (any, 24 h, daily) | [Cache tags cut to fit](#cache-tags-cut-to-fit) |
 | API requests stalled (5+ over 10 s, 1 h) | [API requests stalled](#api-requests-stalled) |
 | Cron failure email not sent, or post-write sync failed | [A scheduled job failed](#a-scheduled-job-failed) |
 | Data quality check found ERROR-severity issues (daily) | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
@@ -207,6 +208,44 @@ The first read after the first deploy in an env finds no stored build and builds
 
 **Escalation:** If not explained by a purge/deploy and not recovering, treat as a
 caching regression — page the on-call engineer (Phase 6 rotation TBD).
+
+---
+
+## Cache tags cut to fit
+
+The alert `AECi — A page went uncached: its cache tags did not fit (any, 24 h)` reads
+`aeci.cache.tags.truncated` (AECI-2025). A page named more entities than one `Cache-Tag` header
+can carry: 16 KB, or 1,000 tags. The page still loaded with a 200. The rule and both tiers are in
+`docs/CACHE_STRATEGY.md` §3, "A page never fails on its tag list".
+
+**The alert fires on Tier B only** (`reason:uncacheable_product_tags_dropped`). Its label lists
+the route classes. Tier A (`reason:degraded_ttl`) does not fire. It is the `degraded_renders`
+column of the insight "Alert: a page went uncached because its cache tags did not fit" on the
+"What the alerts are watching" board. Read that column as a watch: a page growing toward Tier B.
+
+The two reasons:
+
+| `reason` | What happened | Is anything served stale? |
+|---|---|---|
+| `degraded_ttl` | Only `integration:`, partner `vendor:` or term tags were left out. The page is cached for 60 s (`TAG_OVERFLOW_TTL`). | A partner vendor's name or a review date can lag a write by up to 60 s. Nothing an "at once" promise covers. |
+| `uncacheable_product_tags_dropped` | A `product:`, `pair:`, lead `vendor:` or mandatory tag did not fit. The page is not stored at all. | No. Every visit renders it, so it costs a render and its API reads each time. |
+
+1. Find the page. Search PostHog Logs for `aeci.cache.tags.truncated`. Each line carries `path`,
+   `tags_total`, `tags_kept`, `tags_bytes`, `tags_invalid` and `dropped_by_type`. A Tier B line
+   is sampled: one per path per Worker isolate per 10 minutes. Its `skipped_since_last_log` says
+   how many renders that isolate did not log. The metric counts every render, so the alert's
+   number is visits, not pages.
+2. A large catalog page is expected to land here. A product with more than about 160 partners is
+   `degraded_ttl`. One with more than about 400 to 500 is `uncacheable_product_tags_dropped`. The
+   exact count depends on slug length. A taxonomy term page goes Tier B above about 520
+   products, and so does every `?page=N` of it. No action is needed unless the render cost shows
+   on `High p95 detail render`.
+3. `tags_invalid` above 0 means a slug or id holds a space, a non-ASCII character or more than
+   1,024 characters. Cloudflare would drop that tag silently. Fix the record's slug, then the
+   page caches again on its next render.
+4. A busy page on `uncacheable_product_tags_dropped` needs a coarser tag scheme. File the issue
+   against `docs/CACHE_STRATEGY.md` §2. Do not raise the limits in `cache-tags.ts`: they are
+   Cloudflare's.
 
 ---
 
@@ -1077,9 +1116,9 @@ ticket again on its own, and the row drops out of the next run.
 2. If the claim needs evidence rather than a decision, open the **Administer** link
    (`/admin/claims/:id`) — that is where the claimant's LinkedIn profile, the `domain_match` signal
    and the operator note live.
-3. To park a claim deliberately (the §5.2 pure-connector case in
-   `STAGE_2_VENDOR_PORTAL_SPEC.md`), write the operator note AND move the Linear ticket out of
-   Backlog. Leaving it in Backlog is what keeps the warning firing.
+3. To park a claim deliberately, write the operator note AND move the Linear ticket out of
+   Backlog. Leaving it in Backlog is what keeps the warning firing. A connector-vendor claim is
+   not a reason to park: it is approved like any other (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2).
 
 ### If the numbers look wrong
 
@@ -1731,7 +1770,9 @@ no company and no claim six years after it was given, and one of a deleted compa
 after its `vendor.deleted` row, which goes in the same batch as the last of them. Since AECI-1718 it
 also deletes a Terms of Service acceptance (`terms_acceptances`) six years after the account was
 deleted, dated by the account's `account.deleted` row, which goes in the same batch as the
-account's last Terms acceptance. It writes one `retention.pruned` row
+account's last Terms acceptance. Since AECI-1913 it also deletes workflow history four years after
+the action: a `workflow_transitions` row once it is four years old, and a `workflow_instances` row,
+with its transitions, once its latest action is. It writes one `retention.pruned` row
 per run with `metadata.source = 'legal-retention-prune'`, and lists the acceptance and grant ids in it.
 Nothing falls due before about 2030.
 
@@ -1744,10 +1785,12 @@ Nothing falls due before about 2030.
   the job, or a hold, reclaim or license landing mid-run. Nothing was deleted, no failure email
   went out, and the next night plans from scratch. `failed` is only ever a crash.
 - `aeci.legal_retention.rows_deleted{table}`: rows removed from `audit_log`,
-  `agreement_acceptances`, `license_grants` and `litigation_holds` (holds released four years
-  ago), every run, zeros included.
+  `agreement_acceptances`, `license_grants`, `litigation_holds` (holds released four years
+  ago), `terms_acceptances`, `workflow_instances` and `workflow_transitions` (cascaded rows
+  included), every run, zeros included.
 - `aeci.legal_retention.prune.truncated{table}`: the run stopped at its cap (10,000 audit rows, 200
-  acceptances, 200 grants). The next night continues.
+  acceptances, 200 grants, 200 Terms acceptances, 200 workflow instances, 200 direct workflow
+  transitions). The next night continues.
 
 **Skipped is expected while a global hold is open.** Check `/admin/legal` "Litigation holds". If no
 matter needs the hold any more, release it there (`docs/runbooks/legal.md` "Litigation hold

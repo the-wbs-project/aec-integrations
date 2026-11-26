@@ -135,6 +135,20 @@ describe('VendorLogoField', () => {
 
     expect(fixture.componentInstance.save).toHaveBeenCalledWith('https://example.com/new.png');
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Logo saved.');
+    // AECI-1810: the confirmation is plain text. The host announces it through the
+    // portal's one live region via (announce); the row adds no second region.
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('labels the row with the Label role and its button with aecButton (AECI-1810)', async () => {
+    const fixture = await mount();
+    const el = fixture.nativeElement as HTMLElement;
+    const label = el.querySelector('#test-logo-label') as HTMLElement;
+    expect(label.textContent?.trim()).toBe('Logo');
+    expect(label.className).toContain('text-t-13');
+    expect(label.className).toContain('font-semibold');
+    expect(label.className).not.toContain('uppercase');
+    expect(el.querySelector('[data-testid="logo-edit"]')?.className).toContain('aec-btn');
   });
 
   it('shows a linked logo as its URL with a Copy button', async () => {

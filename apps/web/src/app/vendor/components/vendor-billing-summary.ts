@@ -1,5 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 
+import { AecCard } from '../../shared/card/card';
+
 import type { VendorBillingLicense } from '@aeci/shared';
 
 /**
@@ -13,23 +15,23 @@ import type { VendorBillingLicense } from '@aeci/shared';
  * holding no live license from any vendor. It shows only when above zero, as does
  * "Coming off at renewal". When the read is truncated the counts
  * are lower bounds, and the card says so.
+ *
+ * The shared white card since AECI-1812, rows split by hairlines.
  */
 @Component({
   selector: 'aec-vendor-billing-summary',
+  imports: [AecCard],
   template: `
     <section
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+      aecCard
+      [class]="'p-6'"
       aria-labelledby="vendor-billing-summary-heading"
       data-testid="billing-summary"
     >
-      <h3
-        id="vendor-billing-summary-heading"
-        class="font-label text-sm font-semibold text-(--text-primary)"
-        i18n="@@vendor.billing.summary.heading"
-      >
+      <h3 id="vendor-billing-summary-heading" i18n="@@vendor.billing.summary.heading">
         At a glance
       </h3>
-      <dl class="mt-2 divide-y divide-(--border-default) text-sm">
+      <dl class="mt-4 divide-y divide-(--border-default) text-t-14">
         <div class="flex items-baseline justify-between gap-4 py-2">
           <dt class="text-(--text-secondary)" i18n="@@vendor.billing.summary.total">
             Live subscriptions
@@ -88,7 +90,7 @@ import type { VendorBillingLicense } from '@aeci/shared';
         }
       </dl>
       @if (truncated()) {
-        <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.billing.summary.truncated">
+        <p class="mt-4 text-xs text-(--text-secondary)" i18n="@@vendor.billing.summary.truncated">
           Counts cover the subscriptions shown below, not every subscription.
         </p>
       }

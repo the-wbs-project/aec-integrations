@@ -20,9 +20,10 @@ import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/br
 
 import { LICENSE_RELEASE_REASON_MAX, type VendorBillingLicense } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecIcon } from '../../shared/icon/icon';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
+  CHOICE_INPUT_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
@@ -82,6 +83,8 @@ type MenuAction = 'release' | 'keep';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   imports: [
+    AecButton,
+    AecIcon,
     BrnPopover,
     BrnPopoverContent,
     BrnPopoverTrigger,
@@ -95,6 +98,9 @@ type MenuAction = 'release' | 'keep';
     <div class="flex items-center justify-end gap-3">
       <button
         #triggerEl
+        aecButton
+        variant="ghost"
+        iconOnly
         type="button"
         brnPopoverTrigger
         [brnPopoverTriggerFor]="actionsMenu"
@@ -102,11 +108,7 @@ type MenuAction = 'release' | 'keep';
         [class]="triggerClass"
         data-testid="license-actions-trigger"
       >
-        <svg class="size-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <circle cx="12" cy="5" r="1.75" />
-          <circle cx="12" cy="12" r="1.75" />
-          <circle cx="12" cy="19" r="1.75" />
-        </svg>
+        <aec-icon name="more-vertical" decorative />
       </button>
     </div>
 
@@ -114,7 +116,7 @@ type MenuAction = 'release' | 'keep';
       <ng-template brnPopoverContent>
         <ul
           [attr.aria-label]="triggerLabel()"
-          class="m-0 flex min-w-[12rem] list-none flex-col gap-0.5 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+          class="aec-popover m-0 flex min-w-[12rem] list-none flex-col gap-1 p-2"
           data-testid="license-actions-menu"
         >
           @if (canRelease()) {
@@ -150,7 +152,7 @@ type MenuAction = 'release' | 'keep';
     @if (notice(); as message) {
       <p
         role="alert"
-        class="mt-2 ms-auto max-w-[22rem] text-end text-xs font-medium text-(--text-primary)"
+        [class]="errorClass + ' mt-2 ms-auto max-w-[22rem] justify-end text-end'"
         data-testid="license-actions-error"
       >
         {{ message }}
@@ -160,36 +162,28 @@ type MenuAction = 'release' | 'keep';
     <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" #releaseDialog="brnDialog">
       <ng-template brnDialogContent>
         <div
-          class="max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6 text-start text-(--text-primary) md:p-8"
+          class="aec-dialog max-h-[85vh] w-[min(92vw,32rem)] overflow-y-auto p-6 text-start md:p-8"
         >
           <div class="flex items-start justify-between gap-4">
             <h2
               brnDialogTitle
               tabindex="-1"
-              class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
               i18n="@@vendor.billing.release.heading"
             >
               Release subscription
             </h2>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               brnDialogClose
               type="button"
-              class="-me-1 -mt-1 shrink-0 rounded-(--radius-sm) p-1 text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="'-me-2 -mt-2'"
               i18n-aria-label="@@vendor.billing.release.close"
               aria-label="Close"
             >
-              <svg
-                class="size-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative />
             </button>
           </div>
 
@@ -201,8 +195,8 @@ type MenuAction = 'release' | 'keep';
             {{ description() }}
           </p>
 
-          <form method="dialog" class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
-            <fieldset class="space-y-3">
+          <form method="dialog" class="mt-6 space-y-6" (submit)="submit($event)" novalidate>
+            <fieldset class="mx-0 min-w-0 space-y-3 border-0 p-0">
               <legend class="sr-only" i18n="@@vendor.billing.release.when">
                 When should the subscription come off?
               </legend>
@@ -214,16 +208,16 @@ type MenuAction = 'release' | 'keep';
                     value="renewal"
                     [checked]="timing() === 'renewal'"
                     (change)="pick('renewal')"
-                    class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary)"
+                    [class]="choiceInputClass + ' mt-1'"
                   />
                   <span>
                     <span
-                      class="block text-sm font-medium text-(--text-primary)"
+                      class="block text-t-14 font-semibold text-(--text-primary)"
                       i18n="@@vendor.billing.release.renewal"
                       >At renewal</span
                     >
                     <span
-                      class="mt-0.5 block text-sm leading-relaxed text-(--text-secondary)"
+                      class="mt-1 block text-t-14 leading-[1.6] font-normal text-(--text-secondary)"
                       i18n="@@vendor.billing.release.renewalHelp"
                       >The subscription stays on the product until the term renews, then comes off.
                       You can undo this until then.</span
@@ -239,16 +233,16 @@ type MenuAction = 'release' | 'keep';
                     value="now"
                     [checked]="timing() === 'now'"
                     (change)="pick('now')"
-                    class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary)"
+                    [class]="choiceInputClass + ' mt-1'"
                   />
                   <span>
                     <span
-                      class="block text-sm font-medium text-(--text-primary)"
+                      class="block text-t-14 font-semibold text-(--text-primary)"
                       i18n="@@vendor.billing.release.now"
                       >Now</span
                     >
                     <span
-                      class="mt-0.5 block text-sm leading-relaxed text-(--text-secondary)"
+                      class="mt-1 block text-t-14 leading-[1.6] font-normal text-(--text-secondary)"
                       i18n="@@vendor.billing.release.nowHelp"
                       >AEC Integrations reviews the request. If it is approved, the subscription
                       comes off now.</span
@@ -259,7 +253,7 @@ type MenuAction = 'release' | 'keep';
             </fieldset>
 
             @if (timing() === 'now') {
-              <div class="space-y-1.5">
+              <div class="space-y-2">
                 <label
                   [for]="id('reason')"
                   [class]="labelClass"
@@ -298,21 +292,22 @@ type MenuAction = 'release' | 'keep';
               </p>
             }
 
-            <div class="flex flex-wrap items-center justify-end gap-3">
+            <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
+                aecButton
+                variant="secondary"
                 brnDialogClose
                 type="button"
                 [disabled]="busy()"
-                [class]="secondaryClass"
                 i18n="@@vendor.billing.release.cancel"
               >
                 Cancel
               </button>
               <button
+                aecButton
                 type="submit"
                 [disabled]="busy()"
                 [attr.aria-busy]="busy() ? 'true' : null"
-                [class]="primaryClass"
                 data-testid="license-release-submit"
               >
                 @if (busy()) {
@@ -502,12 +497,17 @@ export class VendorLicenseActions {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = `${BUTTON_SECONDARY_CLASS} disabled:cursor-not-allowed disabled:opacity-50`;
-  protected readonly triggerClass =
-    'inline-flex size-9 shrink-0 items-center justify-center rounded-(--radius-md) text-(--text-secondary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-primary) aria-expanded:bg-(--surface-sunken) aria-expanded:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
+  /** The ghost icon button keeps a sunken fill while its menu is open. */
+  protected readonly triggerClass = 'aria-expanded:bg-(--surface-sunken)';
+  /**
+   * A menu item: the header account menu's item recipe (`layout/user-menu.ts`). It
+   * stays a native button, because a menu row is not a button look: full width, text
+   * at the start, no frame.
+   */
   protected readonly itemClass =
-    'block w-full cursor-pointer rounded-(--radius-sm) px-3 py-2 text-start text-sm text-(--text-primary) outline-none hover:bg-(--surface-sunken) focus:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-(--accent-primary)';
+    'block min-h-11 w-full cursor-pointer rounded-mark px-3 py-2 text-start text-t-14 text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  /** A timing option: the shared choice card's look, taller for its help line. */
   protected readonly optionClass =
-    'flex cursor-pointer items-start gap-3 rounded-(--radius-md) border border-(--border-default) p-4 transition-colors hover:bg-(--surface-sunken) has-[:checked]:bg-(--surface-sunken) has-[:checked]:shadow-[inset_0_0_0_2px_var(--accent-primary)]';
+    'aec-choice-card flex cursor-pointer items-start gap-3 rounded-control border bg-(--surface-base) p-4 text-(--text-primary) has-[:checked]:bg-(--accent-primary-soft)';
 }

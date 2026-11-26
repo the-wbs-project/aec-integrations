@@ -88,6 +88,16 @@ async function render(fixture: ComponentFixture<unknown>): Promise<void> {
 
 const text = (el: Element | null | undefined) =>
   (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+/** AECI-2111: each decision button is described by its row's identifying cell. */
+function describedBy(root: HTMLElement, button: HTMLElement): string {
+  const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  return ids
+    .map((id) => root.querySelector(`[id="${id}"]`)?.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 const action = (el: HTMLElement, key: string) =>
   el.querySelector<HTMLButtonElement>(`[data-decision="${key}"]`)!;
 const live = (el: HTMLElement) => text(el.querySelector('[role="status"]'));
@@ -105,6 +115,19 @@ async function typeReason(fixture: ComponentFixture<unknown>, el: HTMLElement, v
 }
 
 describe('LicenseReleaseQueue', () => {
+  it('names the product on every decision button (AECI-2111)', async () => {
+    const { fixture, el } = await setup([row()]);
+    for (const key of ['approve', 'decline']) {
+      const opener = el.querySelector<HTMLElement>(`[data-decision="${key}"]`)!;
+      expect(describedBy(el, opener)).toBe('Summit Coordination');
+    }
+    el.querySelector<HTMLButtonElement>('[data-decision="decline"]')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const confirm = el.querySelector<HTMLElement>('[data-testid="license-release-confirm"]')!;
+    expect(describedBy(el, confirm)).toBe('Summit Coordination');
+  });
+
   it('renders the section with its own h2, filter and an open row', async () => {
     const { el, api } = await setup([row()]);
     expect(api.listLicenseReleaseRequests).toHaveBeenCalledWith({
@@ -114,9 +137,9 @@ describe('LicenseReleaseQueue', () => {
     });
     expect(text(el.querySelector('h2'))).toBe('Early-unassign requests');
     const group = el.querySelector('[role="group"]')!;
-    expect(group.getAttribute('aria-labelledby')).toBe('admin-license-releases-heading');
-    const card = el.querySelector('article')!;
-    expect(text(card.querySelector('h3'))).toBe('Summit Coordination');
+    expect(group.getAttribute('aria-labelledby')).toBe('admin-license-releases-status-label');
+    const card = el.querySelector<HTMLElement>('tbody[data-license-release]')!;
+    expect(text(card.querySelector('th[scope="row"]'))).toBe('Summit Coordination');
     expect(text(card)).toContain('Summit BIM');
     expect(text(card)).toContain('Term ends Jun 30, 2027');
     expect(text(card)).toContain('We retired this product.');
@@ -137,7 +160,7 @@ describe('LicenseReleaseQueue', () => {
     await confirm(fixture, el);
     expect(decide).toHaveBeenCalledWith(row().id, { action: 'approve' });
     expect(decrement).toHaveBeenCalledWith('requests');
-    expect(el.querySelectorAll('article')).toHaveLength(0);
+    expect(el.querySelectorAll('tbody[data-license-release]')).toHaveLength(0);
     expect(live(el)).toContain('Subscription freed from Summit Coordination');
   });
 
@@ -200,8 +223,8 @@ describe('LicenseReleaseQueue', () => {
     expect(action(el, 'approve').disabled).toBe(true);
     expect(action(el, 'decline').disabled).toBe(false);
     expect(el.querySelector('[data-testid="license-release-moved"]')).not.toBeNull();
-    expect(text(el.querySelector('article'))).toContain('No end date');
-    expect(text(el.querySelector('article'))).not.toContain('Monthly');
+    expect(text(el.querySelector('tbody[data-license-release]'))).toContain('No end date');
+    expect(text(el.querySelector('tbody[data-license-release]'))).not.toContain('Monthly');
   });
 
   it('reads a Stripe license with no end as monthly, and any other source as no end date', async () => {
@@ -216,7 +239,7 @@ describe('LicenseReleaseQueue', () => {
       row({ id: 'r-stripe', license: term('stripe') }),
       row({ id: 'r-comp', license: term('complimentary') }),
     ]);
-    const cards = [...el.querySelectorAll('article')].map((a) => text(a));
+    const cards = [...el.querySelectorAll('tbody[data-license-release]')].map((a) => text(a));
     expect(cards[0]).toContain('Monthly, renews until cancelled');
     expect(cards[1]).toContain('No end date');
     expect(cards[1]).not.toContain('Monthly');
@@ -226,8 +249,8 @@ describe('LicenseReleaseQueue', () => {
     const { fixture, el, api } = await setup([
       row({ status: 'declined', decision_note: 'Not yet.', product: null }),
     ]);
-    const card = el.querySelector('article')!;
-    expect(text(card.querySelector('h3'))).toBe('A product no longer on record');
+    const card = el.querySelector<HTMLElement>('tbody[data-license-release]')!;
+    expect(text(card.querySelector('th[scope="row"]'))).toBe('A product no longer on record');
     expect(text(card.querySelector('[data-testid="license-release-outcome"]'))).toBe(
       'Declined. Reason: Not yet.',
     );

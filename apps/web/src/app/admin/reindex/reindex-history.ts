@@ -20,11 +20,25 @@ import {
   type ReindexSubmissionCause,
   type ReindexSubmissionEntity,
   type ReindexSubmissionRow,
+  type RecrawlSubmissionOutcome,
 } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
 import { describeAuditAction } from '../audit/audit-action-labels';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminReindexApi } from './admin-reindex.api';
 
 /** Rows per page, as on `/admin/email`. */
@@ -64,7 +78,7 @@ interface VendorFilter {
  */
 @Component({
   selector: 'aec-reindex-history',
-  imports: [AdminPaginator, AecSelect, DatePipe, RouterLink],
+  imports: [AdminPaginator, AecButton, AecSelect, Chip, DatePipe, RouterLink],
   templateUrl: './reindex-history.html',
 })
 export class ReindexHistory {
@@ -72,6 +86,17 @@ export class ReindexHistory {
   private readonly injector = inject(Injector);
   private readonly heading = viewChild.required<ElementRef<HTMLElement>>('heading');
   private readonly vendorRemove = viewChild<ElementRef<HTMLButtonElement>>('vendorRemove');
+
+  // AECI-2125: the console recipe.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  /** A link in a cell's body: underlined at rest, Forest on hover. */
+  protected readonly inlineLinkClass =
+    'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3';
 
   protected readonly perPage = PER_PAGE;
 
@@ -252,20 +277,25 @@ export class ReindexHistory {
   protected readonly channelLabel = channelLabel;
   protected readonly outcomeLabel = outcomeLabel;
 
-  /** Badge styling per outcome. The word carries the meaning; colour only draws
-   *  the eye to the two that did not go through. */
-  protected outcomeClass(outcome: string): string {
+  /** The console chip tone per outcome (AECI-2125). The word carries the meaning;
+   *  the tone draws the eye to the two that did not go through. Exhaustive, so a
+   *  new outcome is a compile error rather than a silent default. */
+  protected outcomeTone(outcome: RecrawlSubmissionOutcome): ConsoleChipTone {
     switch (outcome) {
       case 'accepted':
-        return 'bg-(--accent-primary-soft) text-(--accent-primary)';
+        return adminStatusTone('accepted');
       case 'requested':
-        return 'bg-(--accent-warm) text-(--text-primary)';
+        return adminStatusTone('requested');
       case 'refused':
-        return 'bg-(--surface-sunken) font-bold text-(--accent-secondary-deep)';
+        // An IndexNow 4xx (a 429 included) is not a fault: the drain keeps it out of
+        // `failed` on purpose (`apps/api/src/lib/indexnow-drain.ts`). Ruled 2026-11-24.
+        return adminStatusTone('indexNowRefused');
       case 'failed':
-        return 'bg-(--surface-sunken) font-bold text-(--status-error)';
-      default:
-        return 'bg-(--surface-sunken) text-(--text-primary)';
+        return adminStatusTone('failed');
+      default: {
+        const unhandled: never = outcome;
+        return unhandled;
+      }
     }
   }
 

@@ -234,7 +234,7 @@ describe('AuditLog', () => {
 
     it('links each row to that entity in the same log, with an absolute href', async () => {
       const { el } = await setup('/admin/audit?action=vendor.updated');
-      const link = el.querySelector('tbody td:nth-of-type(3) a') as HTMLAnchorElement;
+      const link = el.querySelector('tbody td:nth-of-type(4) a') as HTMLAnchorElement;
       expect(link.getAttribute('href')).toBe(
         `/admin/audit?entity_type=vendor&entity_id=${VENDOR_ID}`,
       );
@@ -482,7 +482,7 @@ describe('AuditLog', () => {
       expect(el.textContent).toContain('No entries on this page.');
       expect(buttonByText(el, 'First page')).toBeDefined();
       // The flag says rows exist that way, but there is no cursor to send.
-      expect(buttonByText(el, 'Previous').disabled).toBe(true);
+      expect(buttonByText(el, 'Previous').getAttribute('aria-disabled')).toBe('true');
     });
   });
 

@@ -177,4 +177,27 @@ describe('LogoInput', () => {
     http.expectNone('/api/vendor/logo');
     expect(fixture.nativeElement.textContent).toContain('one image');
   });
+  it('draws the drag highlight with a data variant, so it beats the resting edge (AECI-1810)', async () => {
+    // A static `border-(--border-strong)` and a bound `border-(--accent-primary)` are two
+    // utilities of one kind, and Tailwind's emit order made the resting edge win: the
+    // highlight never showed. A `data-[dragging=true]:` variant sorts after the base
+    // utility, so it wins while the attribute is set.
+    const fixture = mount();
+    const dropZone = fixture.nativeElement.querySelector('div.border-dashed') as HTMLElement;
+    expect(dropZone.className).toContain('data-[dragging=true]:border-(--accent-primary)');
+    expect(dropZone.className).not.toMatch(/(^|\s)border-\(--accent-primary\)(\s|$)/);
+    expect(dropZone.getAttribute('data-dragging')).toBe('false');
+
+    const over = new Event('dragover', { cancelable: true });
+    dropZone.dispatchEvent(over);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(over.defaultPrevented).toBe(true);
+    expect(dropZone.getAttribute('data-dragging')).toBe('true');
+
+    dropZone.dispatchEvent(new Event('dragleave'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(dropZone.getAttribute('data-dragging')).toBe('false');
+  });
 });

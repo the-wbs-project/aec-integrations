@@ -1,6 +1,15 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type {
@@ -9,10 +18,30 @@ import type {
   LicenseReleaseRequestStatus,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_HINT_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FORM_CLASS,
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminRequestsApi } from './admin-requests-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers the backlog. The API caps `perPage` at 100. */
 const PAGE_SIZE = 100;
@@ -42,7 +71,7 @@ type Refusal = 'decided' | 'license_moved' | 'failed';
  */
 @Component({
   selector: 'aec-license-release-queue',
-  imports: [DatePipe, RouterLink],
+  imports: [AdminDisclosureButton, AecButton, AecIcon, Chip, DatePipe, RouterLink],
   host: { class: 'mt-14 block' },
   templateUrl: './license-release-queue.html',
 })
@@ -50,6 +79,26 @@ export class LicenseReleaseQueue {
   private readonly api = inject(AdminRequestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly locale = inject(LOCALE_ID);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  // AECI-2111: the console recipe and the queues' shared detail-row classes.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** Disclosure, product, vendor, subscription, submitted, status. */
+  protected readonly columnCount = 6;
+
+  /** The rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
 
   protected readonly rows = signal<readonly AdminLicenseReleaseRequest[]>([]);
   protected readonly total = signal(0);
@@ -76,11 +125,6 @@ export class LicenseReleaseQueue {
     { key: 'approved', label: $localize`:@@admin.licenseReleases.filter.approved:Approved` },
     { key: 'declined', label: $localize`:@@admin.licenseReleases.filter.declined:Declined` },
   ];
-
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 
   constructor() {
     afterNextRender(() => void this.load());
@@ -118,6 +162,19 @@ export class LicenseReleaseQueue {
     this.decision.set(kind);
     this.reason.set('');
     this.formError.set(null);
+    // The openers leave the DOM with the form open: focus the reason field, or the
+    // sentence that says what Approve does, so it is heard before the confirm.
+    this.focusAfterRender(
+      kind === 'decline' ? `license-release-reason-${row.id}` : `license-release-summary-${row.id}`,
+    );
+  }
+
+  /** Cancel or Escape: close the form and return focus to the decision that opened it. */
+  protected dismiss(row: AdminLicenseReleaseRequest): void {
+    if (this.pending()) return;
+    const kind = this.decision();
+    this.cancel();
+    if (kind) this.focusAfterRender(`license-release-${row.id}-${kind}`);
   }
 
   protected cancel(): void {
@@ -180,6 +237,9 @@ export class LicenseReleaseQueue {
             $localize`:@@admin.requests.action.failed:Something went wrong. Please try again.`,
           );
       }
+      // A refused decision moves focus to its message. (A form refused before the
+      // request, for a missing reason, keeps focus where it was.)
+      if (this.formError()) this.focusAfterRender(`license-release-error-${row.id}`);
     } finally {
       this.pending.set(false);
     }
@@ -249,9 +309,76 @@ export class LicenseReleaseQueue {
       : $localize`:@@admin.licenseReleases.announce.declined:Request for ${name}:NAME: declined. The vendor has been told.`;
   }
 
+  /** The chip tone for a request status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: LicenseReleaseRequestStatus) {
+    let key: AdminStatusKey;
+    switch (status) {
+      case 'open':
+        key = 'open';
+        break;
+      case 'approved':
+        key = 'approved';
+        break;
+      case 'declined':
+        key = 'declined';
+        break;
+    }
+    return adminStatusTone(key);
+  }
+
+  /** The status in words: the filter's own labels. */
+  protected statusLabel(status: LicenseReleaseRequestStatus): string {
+    return this.statusOptions.find((o) => o.key === status)?.label ?? status;
+  }
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(row: AdminLicenseReleaseRequest): string {
+    const product = this.productName(row);
+    const vendor = row.vendor?.name ?? $localize`:@@admin.productRequests.gone:No longer on record`;
+    return $localize`:@@admin.licenseReleases.row.label:Early-unassign request for ${product}:product: from ${vendor}:vendor:`;
+  }
+
+  /** Drop a decided row, then move focus by the queues' one rule (AECI-2102). */
   private drop(id: string): void {
+    const index = this.rows().findIndex((r) => r.id === id);
     this.rows.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    this.openIds.update((ids) => {
+      if (!ids.has(id)) return ids;
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    const target = queueFocusAfterRemoval(index, 1, 1, this.rows());
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-license-releases-heading' : undefined,
+      target.kind === 'row'
+        ? `[aria-controls="license-release-${target.row.id}-detail"]`
+        : undefined,
+    );
+  }
+
+  /** Focus an element of this section once the next render lands. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
+    afterNextRender(
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
+      { injector: this.injector },
+    );
   }
 }
 

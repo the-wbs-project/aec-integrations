@@ -134,6 +134,7 @@ import {
   VENDOR_BANNED_CANCEL_REASON,
 } from './license';
 import { liveInvitesFor } from './vendor-seat-invites';
+import { contestWorkflowStmts } from './workflow-restore';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -1282,18 +1283,18 @@ function rerouteContest(
   // contest first leaves the UPDATE matching nothing, and the batch must then abort
   // rather than commit a `rerouted` row and a transition for a move it did not make.
   if (move.to === 'owner') batch.stmts.push(contestRowChangedSentinel(db));
-  if (contest.workflowId) {
-    const transition: WorkflowTransitionEntry = {
-      workflowId: contest.workflowId,
-      fromState: 'open',
-      toState: 'open',
-      actorId: actor.actorId,
-      reason: move.transitionReason,
-      metadata,
-    };
-    batch.stmts.push(workflowTransitionInsert(db, transition));
-    batch.transitions.push(transition);
-  }
+  // AECI-1913: an instance the retention prune deleted is re-created and relinked.
+  const workflow = contestWorkflowStmts(db, contest, 'contest', now);
+  const transition: WorkflowTransitionEntry = {
+    workflowId: workflow.workflowId,
+    fromState: 'open',
+    toState: 'open',
+    actorId: actor.actorId,
+    reason: move.transitionReason,
+    metadata,
+  };
+  batch.stmts.push(...workflow.stmts, workflowTransitionInsert(db, transition));
+  batch.transitions.push(transition);
   batch.audits.push({
     ...actor,
     action: 'integration.contest.rerouted',

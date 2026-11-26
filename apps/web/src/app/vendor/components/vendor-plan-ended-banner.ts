@@ -1,16 +1,17 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  LOCALE_ID,
-  computed,
-  inject,
-  input,
-} from '@angular/core';
+import { Component, LOCALE_ID, computed, inject, input } from '@angular/core';
 import { formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import {
+  AecPortalNotice,
+  PORTAL_NOTICE_ACTIONS_CLASS,
+  PORTAL_NOTICE_BODY_CLASS,
+  PORTAL_NOTICE_COLUMNS_CLASS,
+  PORTAL_NOTICE_LIST_CLASS,
+} from '../shared/portal-notice';
 import { parseDate, planHasEnded } from '../vendor-plan';
 
 /**
@@ -42,25 +43,21 @@ import { parseDate, planHasEnded } from '../vendor-plan';
  */
 @Component({
   selector: 'aec-vendor-plan-ended-banner',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink],
+  imports: [RouterLink, AecButton, AecPortalNotice],
+  host: { class: 'block' },
   template: `
     @if (show()) {
       <section
+        aecPortalNotice
         aria-labelledby="vendor-plan-ended-h"
-        class="mb-6 rounded-(--radius-md) border border-(--border-strong) bg-(--accent-warm) p-5 md:p-6"
         data-testid="plan-ended-banner"
       >
-        <h2
-          id="vendor-plan-ended-h"
-          class="font-display text-xl font-semibold text-(--text-primary)"
-          i18n="@@vendor.planEnded.heading"
-        >
+        <h2 id="vendor-plan-ended-h" i18n="@@vendor.planEnded.heading">
           Your Managed plan has ended
         </h2>
-        <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
+        <p [class]="bodyClass + ' mt-2'">{{ lede() }}</p>
 
-        <div class="mt-4 grid gap-x-8 gap-y-4 md:grid-cols-2">
+        <div [class]="columnsClass">
           <div>
             <h3
               class="aec-overline text-(--text-secondary)"
@@ -107,21 +104,21 @@ import { parseDate, planHasEnded } from '../vendor-plan';
           </div>
         </div>
 
-        <p class="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-(--text-secondary)">
+        <p [class]="actionsClass">
           <!--
             AECI-1408: an owner is sent to the Billing tab to get licenses. A
             member seat cannot open Billing, so it keeps the contact path.
           -->
           @if (billingLink(); as link) {
             <a
+              aecButton
               [routerLink]="link"
-              [class]="ctaClass"
               data-testid="plan-ended-get-licenses"
               i18n="@@vendor.planEnded.cta.getLicenses"
               >Go to Billing</a
             >
           } @else {
-            <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.planEnded.cta"
+            <a aecButton routerLink="/contact" i18n="@@vendor.planEnded.cta"
               >Talk to us about Managed</a
             >
           }
@@ -132,7 +129,6 @@ import { parseDate, planHasEnded } from '../vendor-plan';
       </section>
     }
   `,
-  styles: [':host { display: block; }'],
 })
 export class VendorPlanEndedBanner {
   private readonly locale = inject(LOCALE_ID);
@@ -154,9 +150,8 @@ export class VendorPlanEndedBanner {
     return $localize`:@@vendor.planEnded.lede:It ended on ${date}:DATE:. Your products are now on the Free plan. Ending a plan removes nothing you entered.`;
   });
 
-  protected readonly ctaClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  protected readonly listClass =
-    'mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-primary)';
+  protected readonly bodyClass = PORTAL_NOTICE_BODY_CLASS;
+  protected readonly columnsClass = PORTAL_NOTICE_COLUMNS_CLASS;
+  protected readonly listClass = PORTAL_NOTICE_LIST_CLASS;
+  protected readonly actionsClass = PORTAL_NOTICE_ACTIONS_CLASS;
 }

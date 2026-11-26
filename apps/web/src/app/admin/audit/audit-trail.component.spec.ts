@@ -64,8 +64,29 @@ function setup(rows: AdminAuditRow[], over: Partial<Record<string, unknown>> = {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
+/** The diff toggle's visible words (kept, ruled on PR #1495). */
+const DIFF_TOGGLE = 'Show changes';
+
 function buttonByText(el: HTMLElement, text: string): HTMLButtonElement | undefined {
   return [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+}
+
+/**
+ * Open the diff for `ROW_ID` and return its detail row. Asserts the toggle really
+ * opened it: the diff table is built only when open, so a broken toggle leaves
+ * no text to find.
+ */
+function openDiff(fixture: { detectChanges: () => void }, el: HTMLElement): HTMLElement {
+  const toggle = buttonByText(el, DIFF_TOGGLE)!;
+  const row = el.querySelector<HTMLElement>(`#audit-diff-${ROW_ID}`)!;
+  expect(row.hidden).toBe(true);
+  expect(row.querySelector('table')).toBeNull();
+  toggle.click();
+  fixture.detectChanges();
+  expect(row.hidden).toBe(false);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(toggle.textContent?.trim()).toBe('Hide changes');
+  return row;
 }
 
 describe('AuditTrail', () => {
@@ -138,12 +159,10 @@ describe('AuditTrail', () => {
         after_state: { status: 'revoked', invoice_ref: 'PO-9' },
       }),
     ]);
-    buttonByText(el, 'Show changes')!.click();
-    fixture.detectChanges();
-
-    const diff = el.querySelector(`#audit-diff-${ROW_ID}`);
-    expect(diff?.closest('tr')).not.toBeNull();
-    const text = diff?.textContent ?? '';
+    // The detail row is always there, hidden; its table is built only when opened.
+    const diff = openDiff(fixture, el);
+    expect(diff.tagName).toBe('TR');
+    const text = diff.textContent ?? '';
     expect(text).toContain('status');
     expect(text).toContain('changed');
     // A key present on only one side must still appear: dropping it would hide
@@ -156,9 +175,7 @@ describe('AuditTrail', () => {
 
   it('renders a SCALAR snapshot as a single value row instead of throwing', () => {
     const { fixture, el } = setup([makeRow({ before_state: 'a bare string', after_state: 42 })]);
-    buttonByText(el, 'Show changes')!.click();
-    fixture.detectChanges();
-    const text = el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent ?? '';
+    const text = openDiff(fixture, el).textContent ?? '';
     expect(text).toContain('value');
     expect(text).toContain('a bare string');
     expect(text).toContain('42');
@@ -166,7 +183,7 @@ describe('AuditTrail', () => {
 
   it('offers no diff toggle for a row with no snapshots', () => {
     const { el } = setup([makeRow()]);
-    expect(buttonByText(el, 'Show changes')).toBeUndefined();
+    expect(buttonByText(el, DIFF_TOGGLE)).toBeUndefined();
   });
 
   it('renders the loading, failure and empty states instead of a table', () => {
@@ -207,7 +224,7 @@ describe('AuditTrail', () => {
     it('does not link a row that names a type but no id', () => {
       const { el } = setup([makeRow({ entity_id: null })], { linkEntities: true });
       expect(el.querySelector('tbody a')).toBeNull();
-      expect(el.querySelector('tbody td:nth-child(4)')?.textContent).toContain(
+      expect(el.querySelector('tbody td:nth-child(5)')?.textContent).toContain(
         'vendor_entitlement',
       );
     });
@@ -227,7 +244,10 @@ describe('AuditTrail', () => {
       const body = el.querySelector('[data-testid="audit-trail-body"]')!;
       expect(body.getAttribute('aria-busy')).toBe('true');
       expect(body.classList).toContain('opacity-60');
-      expect(buttonByText(el, 'Next')!.disabled).toBe(true);
+      // AECI-2102: the pager stays focusable during the refetch. It is aria-busy, and
+      // its presses do nothing until the fetch lands.
+      expect(el.querySelector('nav[aria-busy="true"]')).not.toBeNull();
+      expect(buttonByText(el, 'Next')!.disabled).toBe(false);
     });
 
     it('is not busy once the fetch lands', () => {
@@ -280,7 +300,9 @@ describe('AuditTrail', () => {
       fixture.componentInstance.next.subscribe(() => seen.push('next'));
       fixture.componentInstance.prev.subscribe(() => seen.push('prev'));
       const prev = buttonByText(el, 'Previous')!;
-      expect(prev.disabled).toBe(true);
+      // AECI-2102: aria-disabled keeps the edge focusable; its press does nothing.
+      expect(prev.getAttribute('aria-disabled')).toBe('true');
+      prev.click();
       buttonByText(el, 'Next')!.click();
       expect(seen).toEqual(['next']);
     });
@@ -325,7 +347,7 @@ describe('AuditTrail', () => {
     it('links the Who cell to that actor in the global log when linkActors is on', () => {
       const row = makeRow();
       const { el } = setup([row], { linkActors: true });
-      const link = el.querySelector('tbody td:nth-of-type(2) a') as HTMLAnchorElement;
+      const link = el.querySelector('tbody td:nth-of-type(3) a') as HTMLAnchorElement;
       expect(link.getAttribute('href')).toBe(`/admin/audit?actor_id=${row.actor!.id}`);
       expect(link.getAttribute('title')).toBe('Show every entry by this account');
       expect(link.textContent).toContain('Ada Lovelace');
@@ -336,15 +358,17 @@ describe('AuditTrail', () => {
       expect(
         setup([makeRow({ actor: null, actor_type: 'system' })], {
           linkActors: true,
-        }).el.querySelector('tbody td:nth-of-type(2) a'),
+        }).el.querySelector('tbody td:nth-of-type(3) a'),
       ).toBeNull();
-      expect(setup([makeRow()]).el.querySelector('tbody td:nth-of-type(2) a')).toBeNull();
+      expect(setup([makeRow()]).el.querySelector('tbody td:nth-of-type(3) a')).toBeNull();
     });
 
     it('renders the absolute UTC minute under the relative stamp when asked', () => {
       expect(setup([makeRow()]).el.textContent).not.toContain('2026-08-27 12:00 UTC');
       const { el } = setup([makeRow()], { absoluteTime: true });
-      expect(el.querySelector('tbody td')?.textContent).toContain('2026-08-27 12:00 UTC');
+      expect(el.querySelector('tbody td:nth-of-type(2)')?.textContent).toContain(
+        '2026-08-27 12:00 UTC',
+      );
     });
 
     it('makes When a sort header that emits the flipped order', () => {
@@ -378,16 +402,29 @@ describe('AuditTrail', () => {
 
     it('wires the diff toggle to what it controls', () => {
       const { el } = setup([makeRow({ after_state: { a: 1 } })]);
-      const toggle = buttonByText(el, 'Show changes')!;
+      const toggle = buttonByText(el, DIFF_TOGGLE)!;
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBe(`audit-diff-${ROW_ID}`);
+      // Described by its row's header, so two toggles can be told apart.
+      const describedBy = toggle.getAttribute('aria-describedby');
+      const header = el.querySelector(`#${describedBy}`);
+      expect(header?.getAttribute('scope')).toBe('row');
+      expect(header?.textContent).toContain('Entitlement set');
     });
 
     it('states the change in words, never by colour alone', () => {
       const { fixture, el } = setup([makeRow({ before_state: { a: 1 }, after_state: { a: 2 } })]);
-      buttonByText(el, 'Show changes')!.click();
+      expect(openDiff(fixture, el).textContent).toContain('changed');
+    });
+
+    it('closes again: Hide changes hides the row and drops the table', () => {
+      const { fixture, el } = setup([makeRow({ after_state: { a: 1 } })]);
+      const row = openDiff(fixture, el);
+      buttonByText(el, 'Hide changes')!.click();
       fixture.detectChanges();
-      expect(el.querySelector(`#audit-diff-${ROW_ID}`)?.textContent).toContain('changed');
+      expect(row.hidden).toBe(true);
+      expect(row.querySelector('table')).toBeNull();
+      expect(buttonByText(el, DIFF_TOGGLE)!.getAttribute('aria-expanded')).toBe('false');
     });
   });
 });

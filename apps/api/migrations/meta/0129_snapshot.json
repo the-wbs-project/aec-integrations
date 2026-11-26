@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f7d89f92-27de-465b-b384-f5d83d4d411c",
+  "id": "07c35aff-2064-4d5c-b5f2-8dc3fede8f19",
   "prevId": "56fd0ea5-a588-477a-b89a-d724c926be3b",
   "tables": {
     "acceptance_chain_exports": {
@@ -6816,17 +6816,6 @@
           "isUnique": false,
           "where": "\"is_operator\" = 1"
         },
-        "page_views_crawl_path_idx": {
-          "name": "page_views_crawl_path_idx",
-          "columns": [
-            "bot_name",
-            "concrete_path",
-            "created_at",
-            "cf_verified_bot_category"
-          ],
-          "isUnique": false,
-          "where": "\"is_bot\" = 1 AND \"concrete_path\" IS NOT NULL"
-        },
         "page_views_dedupe_key_idx": {
           "name": "page_views_dedupe_key_idx",
           "columns": [
@@ -10884,6 +10873,14 @@
             "created_at"
           ],
           "isUnique": false
+        },
+        "vendor_requests_linear_issue_idx": {
+          "name": "vendor_requests_linear_issue_idx",
+          "columns": [
+            "linear_issue_id"
+          ],
+          "isUnique": false,
+          "where": "\"linear_issue_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {

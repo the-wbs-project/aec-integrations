@@ -18,10 +18,14 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import { BAND_WRAP_CLASS } from '../../shared/band-wrap';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { injectInPageHrefFor } from '../../shared/in-page-href';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
-import { VendorDocsLink } from '../components/vendor-docs-link';
+import { STANDALONE_LINK_CLASS, VendorDocsLink } from '../components/vendor-docs-link';
 import { vendorProductContext } from '../sections/vendor-product-context';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -79,6 +83,9 @@ const SPY_TOP_PX = 80;
   selector: 'aec-vendor-integration-detail-page',
   imports: [
     RouterLink,
+    AecButton,
+    AecCard,
+    AecIcon,
     LogoOrInitial,
     NewTabIcon,
     VendorTip,
@@ -95,21 +102,10 @@ const SPY_TOP_PX = 80;
     <nav
       i18n-aria-label="@@vendor.im.breadcrumb.aria"
       aria-label="Integration breadcrumb"
-      class="mt-2"
+      class="-mt-2"
     >
       <a routerLink=".." [class]="backLinkClass">
-        <svg
-          aria-hidden="true"
-          class="h-4 w-4 rtl:-scale-x-100"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="m15 18-6-6 6-6" />
-        </svg>
+        <aec-icon name="chevron-left" decorative [size]="4" [mirrorRtl]="true" />
         <span i18n="@@vendor.im.back">All integrations</span>
       </a>
     </nav>
@@ -121,7 +117,7 @@ const SPY_TOP_PX = 80;
           data-testid="integration-sticky-bar"
           class="fixed inset-x-0 top-0 z-30 border-b border-(--border-default) bg-(--surface-base)"
         >
-          <div class="mx-auto flex h-14 max-w-7xl items-center gap-3 px-6 md:px-8">
+          <div [class]="slimWrapClass">
             <span aria-hidden="true" class="hidden shrink-0 items-center sm:flex">
               <aec-logo-or-initial
                 [claimStatus]="'stored'"
@@ -137,7 +133,9 @@ const SPY_TOP_PX = 80;
                 size="sm"
               />
             </span>
-            <p class="id-h3-slim min-w-0 truncate text-(--text-primary)">{{ title() }}</p>
+            <p class="min-w-0 truncate font-display text-t-20 font-semibold text-(--text-primary)">
+              {{ title() }}
+            </p>
             <aec-vendor-tip
               variant="pill"
               [label]="statusText()"
@@ -158,12 +156,9 @@ const SPY_TOP_PX = 80;
         </section>
       }
 
-      <div
-        #titleBlock
-        class="id-card mt-4 flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6"
-      >
+      <div #titleBlock aecCard class="mt-2 flex flex-wrap items-start justify-between gap-4 p-6">
         <div class="flex min-w-0 items-start gap-4">
-          <span aria-hidden="true" class="flex shrink-0 items-center pt-0.5">
+          <span aria-hidden="true" class="flex shrink-0 items-center pt-1">
             <aec-logo-or-initial
               [claimStatus]="'stored'"
               [src]="i.context_product.logo_url"
@@ -179,7 +174,7 @@ const SPY_TOP_PX = 80;
             />
           </span>
           <div class="min-w-0">
-            <h2 class="id-h2 break-words text-(--text-primary)" data-testid="integration-title">
+            <h2 class="break-words text-(--text-primary)" data-testid="integration-title">
               {{ title() }}
             </h2>
             <div class="mt-2">
@@ -205,11 +200,12 @@ const SPY_TOP_PX = 80;
       </div>
 
       <section
-        class="id-callout mt-4 p-5 text-sm"
+        aecCard
+        class="mt-6 p-6 text-sm"
         aria-labelledby="integration-needs-heading"
         data-testid="integration-needs"
       >
-        <h3 id="integration-needs-heading" class="id-h3-slim text-(--text-primary)">
+        <h3 id="integration-needs-heading" class="text-(--text-primary)">
           @if (needs().yours.length > 0) {
             <span i18n="@@vendor.im.needs.heading">Things that need you</span>
           } @else {
@@ -217,13 +213,12 @@ const SPY_TOP_PX = 80;
           }
         </h3>
         @if (needs().yours.length > 0) {
-          <ul class="mt-2 list-none space-y-1.5 p-0">
+          <ul [class]="needListClass">
             @for (item of needs().yours; track item.key) {
-              <li class="flex items-start gap-2">
-                <span
-                  aria-hidden="true"
-                  class="mt-2 h-2 w-2 shrink-0 rounded-full bg-(--accent-secondary-deep)"
-                ></span>
+              <li class="flex items-start gap-3 py-3">
+                <span class="mt-1 flex shrink-0 text-(--text-primary)">
+                  <aec-icon name="exclamation" decorative [size]="4" />
+                </span>
                 <button type="button" [class]="needLinkClass" (click)="jumpToItem(item)">
                   {{ item.text }}
                 </button>
@@ -232,16 +227,15 @@ const SPY_TOP_PX = 80;
           </ul>
         }
         @if (needs().waiting.length > 0) {
-          <h4 class="id-h4 mt-3 text-(--text-secondary)" i18n="@@vendor.im.needs.waiting">
+          <h4 class="aec-overline mt-6 text-(--text-secondary)" i18n="@@vendor.im.needs.waiting">
             Waiting on someone else
           </h4>
-          <ul class="mt-1 list-none space-y-1.5 p-0">
+          <ul [class]="needListClass">
             @for (item of needs().waiting; track item.key) {
-              <li class="flex items-start gap-2">
-                <span
-                  aria-hidden="true"
-                  class="mt-2 h-2 w-2 shrink-0 rounded-full bg-(--text-secondary)"
-                ></span>
+              <li class="flex items-start gap-3 py-3">
+                <span class="mt-1 flex shrink-0 text-(--text-secondary)">
+                  <aec-icon name="clock" decorative [size]="4" />
+                </span>
                 <button type="button" [class]="needLinkClass" (click)="jumpToItem(item)">
                   {{ item.text }}
                 </button>
@@ -257,13 +251,13 @@ const SPY_TOP_PX = 80;
           aria-label="Integration sections"
           class="lg:sticky lg:top-20 lg:self-start"
         >
-          <ul class="m-0 list-none space-y-0.5 p-0">
+          <ul class="m-0 list-none border-s border-(--border-default) p-0">
             @for (item of navItems; track item.id) {
               <li>
                 <a
                   [href]="hrefFor()(item.id)"
                   data-smooth-scroll
-                  class="id-navlink block rounded-e-(--radius-sm) px-3 py-2 text-sm text-(--text-secondary) no-underline hover:bg-(--surface-sunken) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  [class]="navLinkClass"
                   [attr.aria-current]="active() === item.id ? 'location' : null"
                   [attr.data-testid]="'section-nav-' + item.id"
                   (click)="onNav(item.id)"
@@ -279,18 +273,19 @@ const SPY_TOP_PX = 80;
             #spy
             id="overview"
             data-section="overview"
-            class="id-card scroll-mt-20 p-5 sm:p-6"
+            aecCard
+            class="scroll-mt-20 p-6"
             aria-labelledby="overview-heading"
           >
             <h3
               id="overview-heading"
               tabindex="-1"
-              class="id-h3 text-(--text-primary) focus:outline-none"
+              class="text-(--text-primary) focus:outline-none"
               i18n="@@vendor.im.section.overview"
             >
               Overview
             </h3>
-            <p class="mt-1"><aec-vendor-docs-link page="owning-an-integration" /></p>
+            <p><aec-vendor-docs-link page="owning-an-integration" /></p>
             <div class="mt-2"><aec-integration-overview [integration]="i" /></div>
           </section>
 
@@ -298,7 +293,8 @@ const SPY_TOP_PX = 80;
             #spy
             id="data-shared"
             data-section="data-shared"
-            class="id-card scroll-mt-20 p-5 sm:p-6"
+            aecCard
+            class="scroll-mt-20 p-6"
             aria-labelledby="data-shared-heading"
           >
             <aec-integration-shared-data [integration]="i" />
@@ -308,7 +304,8 @@ const SPY_TOP_PX = 80;
             #spy
             id="links"
             data-section="links"
-            class="id-card scroll-mt-20 p-5 sm:p-6"
+            aecCard
+            class="scroll-mt-20 p-6"
             aria-labelledby="links-heading"
           >
             <aec-integration-links [integration]="i" />
@@ -318,7 +315,8 @@ const SPY_TOP_PX = 80;
             #spy
             id="change-requests"
             data-section="change-requests"
-            class="id-card scroll-mt-20 p-5 sm:p-6"
+            aecCard
+            class="scroll-mt-20 p-6"
             aria-labelledby="change-requests-heading"
           >
             <aec-integration-change-requests [integration]="i" />
@@ -328,18 +326,19 @@ const SPY_TOP_PX = 80;
             #spy
             id="settings"
             data-section="settings"
-            class="id-card scroll-mt-20 p-5 sm:p-6"
+            aecCard
+            class="scroll-mt-20 p-6"
             aria-labelledby="settings-heading"
           >
             <h3
               id="settings-heading"
               tabindex="-1"
-              class="id-h3 text-(--text-primary) focus:outline-none"
+              class="text-(--text-primary) focus:outline-none"
               i18n="@@vendor.im.section.settings"
             >
               Settings
             </h3>
-            <div class="mt-3"><aec-integration-settings [integration]="i" /></div>
+            <div class="mt-4"><aec-integration-settings [integration]="i" /></div>
           </section>
         </div>
       </div>
@@ -352,21 +351,26 @@ const SPY_TOP_PX = 80;
         <p class="text-sm text-(--text-primary)" i18n="@@vendor.im.failed">
           Could not load this integration.
         </p>
-        <button type="button" [class]="retryClass" (click)="retry()" i18n="@@vendor.im.retry">
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          (click)="retry()"
+          i18n="@@vendor.im.retry"
+        >
           Try again
         </button>
       </div>
     } @else {
       <h2
-        class="id-h2 mt-6 text-(--text-primary)"
+        class="mt-6 text-(--text-primary)"
         data-testid="integration-not-found"
         i18n="@@vendor.im.notFound.heading"
       >
         Integration not found
       </h2>
-      <p
-        class="mt-4 max-w-prose rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
-      >
+      <p [class]="notFoundClass">
         <span i18n="@@vendor.im.notFound.body"
           >This integration is not one of {{ productPossessive() }} integrations. It may have been
           removed, or the link may be wrong.</span
@@ -690,14 +694,27 @@ export class VendorIntegrationDetailPage {
   }
 
   protected readonly backLinkClass =
-    'inline-flex min-h-6 items-center gap-1 rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly publicLinkClass =
-    'inline-flex min-h-6 items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'inline-flex min-h-11 items-center gap-1 rounded-mark text-t-14 font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  /** DESIGN.md's standalone link, as part 1 draws "View public page". */
+  protected readonly publicLinkClass = STANDALONE_LINK_CLASS;
+  /** The slim bar's row: the page wrap, so its content lines up with the page below. */
+  protected readonly slimWrapClass = `${BAND_WRAP_CLASS} flex h-14 items-center gap-3`;
+  /** "Things that need you": one list divided by hairlines (mock-up 13's "What needs you"). */
+  protected readonly needListClass =
+    'mt-2 list-none divide-y divide-(--border-default) border-b border-(--border-default) p-0';
   protected readonly needLinkClass =
-    'cursor-pointer rounded-(--radius-sm) text-start text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'cursor-pointer rounded-mark text-start text-t-14 font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  /**
+   * The section nav: the portal tab row's language on its side. Secondary ink at rest;
+   * the current section is Forest at 600 with a 2px Forest edge, where the tab row
+   * (`VENDOR_NAV_ITEM_CLASS`, `VENDOR_NAV_ITEM_ACTIVE_CLASS`) draws a 2px underline.
+   * The edge sits over the rail's hairline. 44px targets.
+   */
+  protected readonly navLinkClass =
+    '-ms-px flex min-h-11 items-center border-s-2 border-transparent px-4 text-t-14 text-(--text-secondary) no-underline transition-colors duration-base ease-standard hover:text-(--text-primary) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary) aria-[current=location]:border-(--accent-primary) aria-[current=location]:font-semibold aria-[current=location]:text-(--accent-primary)';
+  protected readonly notFoundClass =
+    'mt-4 max-w-prose rounded-panel bg-(--surface-sunken) p-4 text-t-14 leading-relaxed text-(--text-primary)';
   protected readonly inTextLink = IN_TEXT_LINK;
-  protected readonly retryClass =
-    'id-btn-secondary rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
 
 /** The last section whose top has reached the bar, else the first. At the foot

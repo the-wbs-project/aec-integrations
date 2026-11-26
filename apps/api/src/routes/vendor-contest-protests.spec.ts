@@ -584,6 +584,53 @@ describe('POST /api/vendor/contests/:id/protest/withdraw', () => {
   });
 });
 
+// ─── The instance was pruned (AECI-1913) ─────────────────────────────────────
+
+describe('a protest whose workflow instance the retention prune deleted', () => {
+  /** File a protest, then delete its instance the way the prune does. The FK sets
+   *  `protest_workflow_id` to NULL. */
+  async function fileAndPrune() {
+    await seedContest();
+    expect((await file()).status).toBe(200);
+    const id = (await row()).protestWorkflowId!;
+    await t.db.delete(workflowInstances).where(eq(workflowInstances.id, id));
+    expect((await row()).protestWorkflowId).toBeNull();
+    return id;
+  }
+  const transitionsOf = (workflowId: string) =>
+    t.db.select().from(workflowTransitions).where(eq(workflowTransitions.workflowId, workflowId));
+
+  it('a reply re-creates the open instance, links it back and records the transition', async () => {
+    const pruned = await fileAndPrune();
+    expect((await reply(AUTH_B, { reply: 'Our brand.', evidence_urls: [] })).status).toBe(200);
+
+    const linked = (await row()).protestWorkflowId;
+    expect(linked).toBeTruthy();
+    expect(linked).not.toBe(pruned);
+    const [instance] = await t.db
+      .select()
+      .from(workflowInstances)
+      .where(eq(workflowInstances.id, linked!));
+    expect(instance).toMatchObject({ entityId: CONTEST, currentState: 'open', completedAt: null });
+    expect(await transitionsOf(linked!)).toMatchObject([{ toState: 'open' }]);
+  });
+
+  it('a withdraw re-creates the closed instance and records the decision', async () => {
+    await fileAndPrune();
+    expect((await withdraw()).status).toBe(200);
+
+    const linked = (await row()).protestWorkflowId!;
+    const [instance] = await t.db
+      .select()
+      .from(workflowInstances)
+      .where(eq(workflowInstances.id, linked));
+    expect(instance).toMatchObject({ currentState: 'withdrawn', finalOutcome: 'cancelled' });
+    expect(await transitionsOf(linked)).toMatchObject([
+      { fromState: 'open', toState: 'withdrawn' },
+    ]);
+  });
+});
+
 // ─── AECi decides ────────────────────────────────────────────────────────────
 
 describe('PATCH /api/admin/contests/:id/protest', () => {

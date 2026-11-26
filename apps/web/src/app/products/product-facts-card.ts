@@ -36,8 +36,8 @@ import { ProductBuiltWithin } from './product-extensions';
 /**
  * One column of the top row. From `xl` every column after the stat panel carries the
  * mock-up's inset hairline on its start edge (mock-up 6 line 116). It is a pseudo-element
- * fill, not a border, because the unlayered `* { border-color }` rule beats a border
- * colour utility. Forced colours drops it, which is fine: it only separates columns.
+ * fill, not a border. It was built while the `* { border-color }` rule was unlayered and
+ * beat every border-colour utility (fixed in AECI-2088). Forced colours drops it, which is fine: it only separates columns.
  */
 const COLUMN =
   'relative min-w-0 p-6 xl:before:absolute xl:before:inset-y-6 xl:before:start-0 xl:before:w-px xl:before:bg-(--border-default)';

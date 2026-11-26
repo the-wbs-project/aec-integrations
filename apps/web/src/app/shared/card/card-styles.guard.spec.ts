@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 /**
  * Guard (AECI-1765): the card edge and the grid cap live in the stylesheet, which
- * jsdom does not apply. The edge must come from an UNLAYERED rule, because the
- * unlayered `* { border-color }` rule beats every layered utility. This reads the
- * stylesheet and the recipe as text.
+ * jsdom does not apply. The edge comes from an UNLAYERED rule, so it beats any
+ * utility on the card. (Until AECI-2088 the `* { border-color }` rule was unlayered
+ * too and beat every layered utility.) This reads the stylesheet and the recipe as text.
  */
 const SRC = join(process.cwd(), 'src');
 const css = readFileSync(join(SRC, 'styles.css'), 'utf8');
@@ -30,14 +30,13 @@ function rule(selector: string): { body: string; at: number } {
 }
 
 describe('card styles (AECI-1765)', () => {
-  it('draws the transparent 1px edge from an unlayered rule that follows the * rule', () => {
+  it('draws the transparent 1px edge from an unlayered rule', () => {
     const { body, at } = rule('.aec-card');
     expect(depthAt(at)).toBe(0);
     expect(body).toMatch(/border-color:\s*transparent/);
-    expect(at).toBeGreaterThan(css.indexOf('* {'));
   });
 
-  it('never sets a border colour through a utility, which could not apply', () => {
+  it('never sets a border colour through a utility, which the unlayered rule would beat', () => {
     expect(recipe).not.toMatch(/['\s:]border-\(--/);
   });
 

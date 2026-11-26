@@ -199,25 +199,6 @@ describe('aec-hero-band (AECI-1766)', () => {
     )!;
     expect(pinned.classList).toContain('lg:self-start');
   });
-
-  it('holds both columns at their measured offsets, then releases them (item 82)', async () => {
-    const band = fixture.debugElement.query((d) => d.componentInstance instanceof HeroBand)
-      .componentInstance as HeroBand;
-    const grid = q('[data-testid="hero-band-grid"]')!;
-    const [text, panel] = Array.from(grid.children) as HTMLElement[];
-    grid.getBoundingClientRect = () => ({ top: 40 }) as DOMRect;
-    text.getBoundingClientRect = () => ({ top: 190 }) as DOMRect;
-    panel.getBoundingClientRect = () => ({ top: 40 }) as DOMRect;
-    band.holdColumns();
-    await fixture.whenStable();
-    expect(text.getAttribute('data-held')).toBe('');
-    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('150px');
-    expect(panel.style.getPropertyValue('--aec-hero-held')).toBe('0px');
-    band.releaseColumns();
-    await fixture.whenStable();
-    expect(grid.querySelectorAll('[data-held]')).toHaveLength(0);
-    expect(text.style.getPropertyValue('--aec-hero-held')).toBe('');
-  });
 });
 
 // AECI-1798: the pair page sets the Statement size and a bare panel for its own cards.

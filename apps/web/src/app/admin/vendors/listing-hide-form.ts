@@ -24,12 +24,24 @@ import {
 
 import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
 import { AdminVendorsApi } from './admin-vendors-api';
-import {
-  SUSPENSION_BUTTON,
-  SUSPENSION_CONFIRM_BUTTON,
-  SUSPENSION_INPUT,
-} from './vendor-suspension-model';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_LABEL_CLASS } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+  VENDOR_PAIRS_CLASS,
+} from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 export type ListingHideMode = 'hide' | 'restore';
 
@@ -62,7 +74,7 @@ const STALE_CODES = new Set([
  */
 @Component({
   selector: 'aec-listing-hide-form',
-  imports: [AecFormSubmit, DatePipe],
+  imports: [AecButton, AecFormSubmit, DatePipe],
   templateUrl: './listing-hide-form.html',
 })
 export class ListingHideForm {
@@ -88,9 +100,19 @@ export class ListingHideForm {
   protected readonly kindLabel = listingHideKindLabel;
   protected readonly reasonMax = ADMIN_REASON_MAX;
   protected readonly urlMax = HTTPS_URL_MAX_LENGTH;
-  protected readonly buttonClass = SUSPENSION_BUTTON;
-  protected readonly confirmClass = SUSPENSION_CONFIRM_BUTTON;
-  protected readonly inputClass = SUSPENSION_INPUT;
+  // AECI-2112: the console's form recipe (mock-up 14) and the shared field classes.
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  protected readonly pairsClass = VENDOR_PAIRS_CLASS;
+  protected readonly termClass = CONSOLE_LABEL_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
 
   protected readonly step = signal<Step>('edit');
   protected readonly kind = signal<ListingHideKind | null>(null);
@@ -148,6 +170,7 @@ export class ListingHideForm {
   });
 
   private readonly confirmHeading = viewChild<ElementRef<HTMLElement>>('confirmHeading');
+  private readonly failedEl = viewChild<ElementRef<HTMLElement>>('failedEl');
 
   constructor() {
     afterNextRender(() => this.focusFirstField());
@@ -198,6 +221,11 @@ export class ListingHideForm {
     this.cancelled.emit();
   }
 
+  /** Escape cancels, as Cancel does, except while the request is in flight. */
+  protected onEscape(): void {
+    if (!this.pending()) this.cancel();
+  }
+
   protected async confirm(): Promise<void> {
     if (this.pending()) return;
     this.pending.set(true);
@@ -208,7 +236,12 @@ export class ListingHideForm {
     } catch (err) {
       const message = listingHideErrorMessage(err);
       this.failedMessage.set(message);
-      if (STALE_CODES.has(errorCode(err) ?? '')) this.stale.emit(message);
+      if (STALE_CODES.has(errorCode(err) ?? '')) {
+        this.stale.emit(message);
+      } else {
+        // The disabled confirm drops focus: move it to the refusal (AECI-1994).
+        afterNextRender(() => this.failedEl()?.nativeElement.focus(), { injector: this.injector });
+      }
     } finally {
       this.pending.set(false);
     }

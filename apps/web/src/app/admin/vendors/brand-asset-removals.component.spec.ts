@@ -169,3 +169,91 @@ describe('BrandAssetRemovals', () => {
     ).toContain('no removal pending');
   });
 });
+
+describe('BrandAssetRemovals focus (AECI-2112)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  async function mountWith(api: Record<string, ReturnType<typeof vi.fn>>) {
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        { provide: AdminVendorsApi, useValue: api },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrandAssetRemovals);
+    fixture.detectChanges();
+    await settle();
+    await fixture.whenStable();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+
+  async function render(fixture: { detectChanges(): void; whenStable(): Promise<unknown> }) {
+    fixture.detectChanges();
+    await settle();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  function form(el: HTMLElement): HTMLFormElement | null {
+    return el.querySelector<HTMLFormElement>('[data-testid="brand-asset-hold-form"]');
+  }
+
+  function typeReason(el: HTMLElement, value: string): void {
+    const box = form(el)!.querySelector('textarea')!;
+    box.value = value;
+    box.dispatchEvent(new Event('input'));
+  }
+
+  it('Escape closes the hold form and returns focus to Hold', async () => {
+    const { fixture, el } = await mountWith({
+      listBrandAssetRemovals: vi.fn(async () => ({ data: [row()] })),
+      holdBrandAssets: vi.fn(),
+      liftBrandAssetHold: vi.fn(),
+    });
+    el.querySelector<HTMLButtonElement>(`#brand-asset-trigger-${VENDOR}`)!.click();
+    await render(fixture);
+    escape(form(el)!.querySelector('textarea')!);
+    await render(fixture);
+    expect(form(el)).toBeNull();
+    expect(document.activeElement?.id).toBe(`brand-asset-trigger-${VENDOR}`);
+  });
+
+  it('Escape does nothing while the hold is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    const { fixture, el } = await mountWith({
+      listBrandAssetRemovals: vi.fn(async () => ({ data: [row()] })),
+      holdBrandAssets: vi.fn(() => new Promise((r) => (resolve = r))),
+      liftBrandAssetHold: vi.fn(),
+    });
+    el.querySelector<HTMLButtonElement>(`#brand-asset-trigger-${VENDOR}`)!.click();
+    await render(fixture);
+    typeReason(el, 'Counsel asked us to wait.');
+    form(el)!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await render(fixture);
+    escape(form(el)!.querySelector('textarea')!);
+    await render(fixture);
+    expect(form(el)).not.toBeNull();
+    resolve({ vendor_id: VENDOR, hold_at: '2026-11-02T00:00:00Z' });
+    await render(fixture);
+  });
+
+  it('a refused hold moves focus to its message', async () => {
+    const { fixture, el } = await mountWith({
+      listBrandAssetRemovals: vi.fn(async () => ({ data: [row()] })),
+      holdBrandAssets: vi.fn(async () => {
+        throw new Error('boom');
+      }),
+      liftBrandAssetHold: vi.fn(),
+    });
+    el.querySelector<HTMLButtonElement>(`#brand-asset-trigger-${VENDOR}`)!.click();
+    await render(fixture);
+    typeReason(el, 'Counsel asked us to wait.');
+    form(el)!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await render(fixture);
+    expect(document.activeElement?.id).toBe(`brand-asset-failed-${VENDOR}`);
+  });
+});

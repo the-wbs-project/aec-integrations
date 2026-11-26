@@ -91,6 +91,47 @@ describe('Chip', () => {
   });
 });
 
+const CONSOLE_TONES = [
+  'count',
+  'neutral',
+  'waiting',
+  'positive',
+  'quiet',
+  'attention',
+  'critical',
+] as const;
+
+@Component({
+  imports: [Chip],
+  template: `
+    @for (tone of tones; track tone) {
+      <aec-chip [id]="tone" density="dense" [tone]="tone">{{ tone }}</aec-chip>
+    }
+  `,
+})
+class ToneHost {
+  readonly tones = CONSOLE_TONES;
+}
+
+describe('Chip: the console tones (AECI-1813)', () => {
+  it('renders each of the seven tones as a static span the recipe keys off', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
+    const fixture = TestBed.createComponent(ToneHost);
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    for (const tone of CONSOLE_TONES) {
+      const el = root.querySelector<HTMLElement>(`#${tone} .aec-chip`)!;
+      expect(el.tagName).toBe('SPAN');
+      expect(el.getAttribute('data-tone')).toBe(tone);
+      // Words carry the state: the label is the chip's text, never colour alone.
+      expect(el.textContent?.trim()).toBe(tone);
+    }
+    fixture.nativeElement.remove();
+  });
+});
+
 @Component({
   imports: [Chip],
   template: `

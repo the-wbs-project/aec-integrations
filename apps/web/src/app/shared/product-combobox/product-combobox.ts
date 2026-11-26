@@ -325,9 +325,8 @@ export class ProductCombobox {
   });
 
   protected readonly inputClass = computed(() => {
-    // The error tell is the border plus the caller's message. Border colour is an
-    // arbitrary property because border-colour utilities lose to the unlayered
-    // `*` rule in styles.css.
+    // The error tell is the border plus the caller's message. Until AECI-2088 this
+    // red edge never showed: the `*` border rule was unlayered and beat it.
     const border = this.invalid()
       ? 'border [border-color:var(--status-error)]'
       : 'border border-(--border-default)';

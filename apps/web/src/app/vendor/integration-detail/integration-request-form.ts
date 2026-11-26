@@ -38,15 +38,16 @@ import {
   pageFieldLabel,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  HELP,
-  ID_STYLES,
-  LABEL,
-} from './integration-detail-styles';
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_NESTED_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+} from '../shared/portal-form';
+import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /** The owner picker's value for "neither company". Never a UUID. `null` on the wire. */
 const NO_OWNER = 'none';
@@ -93,21 +94,28 @@ interface FieldOption {
  */
 @Component({
   selector: 'aec-integration-request-form',
+  imports: [KeepClearOfSaveBar, AecButton],
   styles: [ID_STYLES],
   template: `
     <form
+      aecKeepClearOfSaveBar
       method="dialog"
       id="change-requests-form"
       tabindex="-1"
-      class="id-well mt-4 scroll-mt-20 space-y-4 p-4 text-sm focus:outline-none"
+      [class]="panel"
+      class="mt-4 scroll-mt-20 space-y-6 text-sm focus:outline-none"
       aria-labelledby="change-requests-form-title"
       (submit)="send($event)"
       data-testid="request-form"
     >
-      <p id="change-requests-form-title" class="id-h4" i18n="@@vendor.im.request.formTitle">
+      <p
+        id="change-requests-form-title"
+        class="text-t-14 font-semibold text-(--text-primary)"
+        i18n="@@vendor.im.request.formTitle"
+      >
         Request a correction
       </p>
-      <div class="grid gap-4 sm:grid-cols-2">
+      <div [class]="grid">
         <div>
           <label for="request-field" [class]="label" i18n="@@vendor.im.request.whatWrong"
             >What is wrong?</label
@@ -115,7 +123,8 @@ interface FieldOption {
           <select
             #fieldSelect
             id="request-field"
-            class="id-input mt-1"
+            [class]="input"
+            class="mt-2"
             [attr.aria-invalid]="attempted() && field() === null ? 'true' : null"
             (change)="pickField(selectValue($event))"
           >
@@ -153,7 +162,8 @@ interface FieldOption {
               <textarea
                 id="request-value"
                 rows="3"
-                class="id-input mt-1"
+                [class]="input"
+                class="mt-2"
                 [attr.maxlength]="maxLength()"
                 [attr.aria-invalid]="showValueError() ? 'true' : null"
                 [attr.aria-describedby]="showValueError() ? 'request-value-error' : null"
@@ -164,7 +174,8 @@ interface FieldOption {
             @case ('mechanism') {
               <select
                 id="request-value"
-                class="id-input mt-1"
+                [class]="input"
+                class="mt-2"
                 (change)="proposed.set(selectValue($event))"
               >
                 @for (kind of kinds; track kind) {
@@ -177,7 +188,8 @@ interface FieldOption {
             @case ('owner') {
               <select
                 id="request-value"
-                class="id-input mt-1"
+                [class]="input"
+                class="mt-2"
                 (change)="proposed.set(selectValue($event))"
               >
                 @for (choice of ownerChoices(); track choice.value) {
@@ -191,7 +203,8 @@ interface FieldOption {
               <input
                 id="request-value"
                 [type]="control() === 'url' ? 'url' : 'text'"
-                class="id-input mt-1"
+                [class]="input"
+                class="mt-2"
                 [attr.inputmode]="control() === 'url' ? 'url' : null"
                 [attr.maxlength]="maxLength()"
                 [attr.aria-invalid]="showValueError() ? 'true' : null"
@@ -215,7 +228,8 @@ interface FieldOption {
             id="request-reason"
             rows="3"
             maxlength="2000"
-            class="id-input mt-1"
+            [class]="input"
+            class="mt-2"
             aria-describedby="request-route"
             [attr.aria-invalid]="showReasonError() ? 'true' : null"
             [value]="reason()"
@@ -244,13 +258,21 @@ interface FieldOption {
         <p role="alert" [class]="alert">{{ notice() }}</p>
       }
 
-      <div class="flex flex-wrap gap-3">
-        <button type="submit" [class]="primary" [disabled]="sending()" data-testid="request-send">
+      <div [class]="saveBar">
+        <button
+          aecButton
+          type="submit"
+          [class]="saveButton"
+          [disabled]="sending()"
+          data-testid="request-send"
+        >
           <span i18n="@@vendor.im.request.send">Send request</span>
         </button>
         <button
+          aecButton
+          variant="secondary"
           type="button"
-          [class]="secondary"
+          [class]="saveButton"
           [disabled]="sending()"
           (click)="cancelled.emit()"
           i18n="@@vendor.im.request.cancel"
@@ -504,11 +526,14 @@ export class IntegrationRequestForm {
     }
   }
 
-  protected readonly label = LABEL;
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
+  protected readonly input = INPUT;
+  protected readonly panel = FORM_PANEL;
+  protected readonly grid = PORTAL_FORM_GRID_CLASS;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
 }
 
 /** The refusals `POST …/contests` can answer, in this page's words (§6.17.8: a

@@ -368,6 +368,88 @@ describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
   });
 });
 
+describe('VendorContestForm: the portal recipe (AECI-2132)', () => {
+  it('opens from a compact secondary button, sends from a primary one, cancels from a secondary', async () => {
+    const fixture = await createForm();
+    expect(trigger(fixture).hasAttribute('aecbutton')).toBe(true);
+    expect(trigger(fixture).classList).toContain('aec-btn-secondary');
+    await open(fixture);
+
+    const buttons = [...el(fixture).querySelectorAll<HTMLButtonElement>('form button')];
+    const send = buttons.find((b) => b.type === 'submit')!;
+    const cancel = buttons.find((b) => b.textContent?.includes('Cancel'))!;
+    expect(send.classList).toContain('aec-btn');
+    expect(send.classList).not.toContain('aec-btn-secondary');
+    expect(send.classList).toContain('bg-(--accent-primary)');
+    expect(cancel.classList).toContain('aec-btn-secondary');
+    // Both sit in the nested sticky save bar.
+    const bar = el(fixture).querySelector('form .aec-portal-save-bar')!;
+    expect(bar.contains(send) && bar.contains(cancel)).toBe(true);
+  });
+
+  it('draws the select chevrons with aec-icon and labels on the Label role', async () => {
+    const fixture = await createForm();
+    await open(fixture);
+    await chooseField(fixture, 'direction');
+    const form = el(fixture).querySelector('form')!;
+    expect(form.querySelector('svg:not(aec-icon svg)')).toBeNull();
+    expect(form.querySelectorAll('aec-icon[name="chevron-down"]').length).toBe(2);
+    for (const label of form.querySelectorAll('label')) {
+      expect(label.className).toContain('text-t-13');
+      expect(label.className).not.toContain('uppercase');
+    }
+  });
+
+  it('keeps no local live region: the result goes to the announcer only', async () => {
+    api.submitContest.mockResolvedValue({
+      contest: { ...VENDOR_CONTESTS_FIXTURE.submitted[0]!, routed_to: 'owner' },
+    });
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await createForm();
+    await open(fixture);
+    expect(el(fixture).querySelector('[role="status"], [aria-live]')).toBeNull();
+    await chooseField(fixture, 'maturity');
+    await typeInto(fixture, valueControl(fixture), 'Beta');
+    await reason(fixture, 'It is still in beta.');
+    await submit(fixture);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce.mock.calls[0]![0]).toContain('was sent to the integration’s owner');
+  });
+});
+
+describe('VendorContestForm: focus (AECI-2132)', () => {
+  it('a refused send moves focus to its alert, and the form stays open', async () => {
+    api.submitContest.mockRejectedValue(apiError(409, 'CONTEST_DUPLICATE'));
+    const fixture = await createForm();
+    document.body.appendChild(el(fixture));
+    await open(fixture);
+    await chooseField(fixture, 'maturity');
+    await typeInto(fixture, valueControl(fixture), 'Beta');
+    await reason(fixture, 'It is still in beta.');
+    await submit(fixture);
+    await settle(fixture);
+
+    const active = document.activeElement as HTMLElement;
+    expect(active.getAttribute('role')).toBe('alert');
+    expect(active.getAttribute('tabindex')).toBe('-1');
+    expect(active.textContent).toContain('already have an open change request on this field');
+    expect(el(fixture).querySelector('form')).not.toBeNull();
+    el(fixture).remove();
+  });
+
+  it('a field error takes no focus', async () => {
+    const fixture = await createForm();
+    document.body.appendChild(el(fixture));
+    await open(fixture);
+    const send = el(fixture).querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    send.focus();
+    await submit(fixture);
+    expect(el(fixture).textContent).toContain('Choose the field you want to change');
+    expect(document.activeElement).toBe(send);
+    el(fixture).remove();
+  });
+});
+
 describe('VendorContestForm: the guide link (AECI-1253)', () => {
   it('links Requesting changes and appeals from the open form', async () => {
     const fixture = await createForm();

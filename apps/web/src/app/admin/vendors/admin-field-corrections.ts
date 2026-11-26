@@ -35,6 +35,51 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { fieldOverrideLabel } from '../../vendor/components/field-override-labels';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
+
+/**
+ * The class constants the two override sections share (AECI-2112): Field
+ * corrections and Values under review render the same table and form recipe.
+ */
+export const FIELD_OVERRIDE_CLASSES = {
+  t: CONSOLE_TABLE,
+  caption: CONSOLE_CAPTION_CLASS,
+  statusLine: CONSOLE_STATUS_LINE_CLASS,
+  loadFailed: CONSOLE_LOAD_FAILED_CLASS,
+  failedText: CONSOLE_FAILED_TEXT_CLASS,
+  form: VENDOR_FORM_CLASS,
+  field: VENDOR_FIELD_CLASS,
+  label: FIELD_LABEL_CLASS,
+  hint: FIELD_HINT_CLASS,
+  input: FIELD_INPUT_CLASS,
+  error: FIELD_ERROR_CLASS,
+  choice: CHOICE_INPUT_CLASS,
+  failed: QUEUE_FAILED_CLASS,
+  actions: VENDOR_ACTIONS_CLASS,
+  /** A source link in a cell: the cell's second-line type, underlined. */
+  sourceLink:
+    'inline-flex items-center gap-1 rounded-mark break-all text-t-13 font-semibold text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)',
+} as const;
 
 /** One record the form can correct: the company, a product, or a held integration. */
 export interface CorrectableRecord {
@@ -101,13 +146,15 @@ interface TermOption {
  */
 @Component({
   selector: 'aec-admin-field-corrections',
-  imports: [AecFormSubmit, DatePipe, NewTabIcon],
+  imports: [AecButton, AecFormSubmit, DatePipe, NewTabIcon],
   templateUrl: './admin-field-corrections.html',
 })
 export class AdminFieldCorrections {
   readonly vendorId = input.required<string>();
   readonly vendorName = input.required<string>();
   readonly announce = output<string>();
+
+  protected readonly c = FIELD_OVERRIDE_CLASSES;
 
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);
@@ -400,9 +447,25 @@ export class AdminFieldCorrections {
       });
     } catch (err) {
       this.formError.set(fieldCorrectionErrorMessage(err));
+      // The disabled submit drops focus: move it to the refusal (AECI-1994).
+      this.focusAfterRender(this.id('form-error'));
     } finally {
       this.pending.set(false);
     }
+  }
+
+  /** Escape closes the correction form, as Cancel does, except while it sends. */
+  protected onFormEscape(): void {
+    if (!this.pending()) this.closeForm();
+  }
+
+  /** Escape closes a lift form, as Cancel does, except while it sends. */
+  protected onLiftEscape(lock: AdminFieldOverride): void {
+    if (!this.pending()) this.closeLift(lock);
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
   protected openLift(lock: AdminFieldOverride): void {
@@ -442,17 +505,21 @@ export class AdminFieldCorrections {
     this.liftError.set(null);
     try {
       await this.api.liftFieldOverride(lock.id, this.liftReason().trim(), this.liftNote());
+      const index = this.locks().findIndex((l) => l.id === lock.id);
       this.locks.update((list) => list.filter((l) => l.id !== lock.id));
       this.liftFor.set(null);
       this.announce.emit(
         $localize`:@@admin.fieldCorrections.announce.lifted:Lock lifted. The vendor can edit the field again and was told why.`,
       );
-      afterNextRender(() => this.document.getElementById(this.id('heading'))?.focus(), {
-        injector: this.injector,
-      });
+      // The row is gone: the queues' focus rule picks the row that took its place,
+      // or the section's intro when none is left (AECI-2112).
+      const next = queueFocusAfterRemoval(index, 1, 1, this.locks());
+      if (next.kind === 'row') this.focusAfterRender(this.liftTriggerId(next.row));
+      else if (next.kind === 'heading') this.focusAfterRender(this.id('heading'));
     } catch (err) {
       this.liftError.set(fieldCorrectionErrorMessage(err));
       if (errorCode(err) === 'FIELD_OVERRIDE_LIFTED') void this.loadLocks();
+      else this.focusAfterRender(this.liftFormId(lock, 'error'));
     } finally {
       this.pending.set(false);
     }

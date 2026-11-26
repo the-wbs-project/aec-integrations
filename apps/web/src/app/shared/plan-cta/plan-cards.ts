@@ -34,8 +34,8 @@
  * Static: no fetch and no visitor state, so the SSR HTML and the hydrated HTML
  * match and the page stays edge-cacheable. Every string is `$localize`d or
  * `i18n`. Light only. The name, price and featured border are the unlayered
- * `.aec-plan-*` classes in `styles.css`, because a border-color utility loses to
- * the unlayered `*` rule.
+ * `.aec-plan-*` classes in `styles.css`, written while a border-color utility lost
+ * to the then-unlayered `*` rule (fixed in AECI-2088).
  */
 import { Component, LOCALE_ID, inject, input } from '@angular/core';
 import { RouterLink } from '@angular/router';

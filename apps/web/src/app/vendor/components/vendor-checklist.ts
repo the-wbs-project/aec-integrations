@@ -3,6 +3,11 @@ import { RouterLink } from '@angular/router';
 
 import type { ChecklistStepStatus } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+
 import { VendorDocsLink } from './vendor-docs-link';
 import { VendorLooksRight, type LooksRightTarget } from './vendor-looks-right';
 import { latchReviewDecisions, type ReviewLatchEntry } from './vendor-review-strip';
@@ -62,24 +67,27 @@ export interface ChecklistRow {
 @Component({
   selector: 'aec-vendor-checklist',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, VendorDocsLink, VendorLooksRight],
+  imports: [RouterLink, AecButton, AecCard, AecIcon, Chip, VendorDocsLink, VendorLooksRight],
   template: `
-    <section
-      [attr.aria-labelledby]="headingId()"
-      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5 md:p-6"
-    >
+    <section aecCard class="block p-6" [attr.aria-labelledby]="headingId()">
       <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         @if (headingLevel() === 2) {
-          <h2 [id]="headingId()" [class]="headingClass">{{ heading() }}</h2>
+          <!-- The card title size: the global h2 is 24px, so the 20px sits on a span. -->
+          <h2 [id]="headingId()">
+            <span class="text-t-20">{{ heading() }}</span>
+          </h2>
         } @else {
-          <h3 [id]="headingId()" [class]="headingClass">{{ heading() }}</h3>
+          <h3 [id]="headingId()">{{ heading() }}</h3>
         }
-        <p class="text-sm font-medium text-(--text-secondary)" data-testid="checklist-score">
+        <p
+          class="text-t-13 whitespace-nowrap text-(--text-secondary)"
+          data-testid="checklist-score"
+        >
           {{ scoreLine() }}
         </p>
       </div>
       @if (lede(); as l) {
-        <p class="mt-1.5 max-w-prose text-sm leading-relaxed text-(--text-secondary)">{{ l }}</p>
+        <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">{{ l }}</p>
       }
       <p class="mt-1"><aec-vendor-docs-link page="checklists" /></p>
 
@@ -87,72 +95,47 @@ export interface ChecklistRow {
         @for (seg of segments(); track $index) {
           <span
             [class]="
-              'h-1.5 flex-1 rounded-full ' +
-              (seg ? 'bg-(--accent-primary)' : 'bg-(--border-default)')
+              'h-2 flex-1 rounded-full ' + (seg ? 'bg-(--accent-primary)' : 'bg-(--border-default)')
             "
           ></span>
         }
       </div>
 
-      <ol class="m-0 mt-4 list-none divide-y divide-(--border-default) p-0">
+      <ol class="m-0 mt-2 list-none divide-y divide-(--border-default) p-0">
         @for (row of rows(); track row.key; let i = $index) {
-          <li
-            class="flex flex-col gap-3 py-4 sm:flex-row sm:items-start"
-            [attr.data-step]="row.key"
-          >
-            <div class="flex min-w-0 flex-1 items-start gap-3">
+          <li class="flex flex-col gap-2 py-4" [attr.data-step]="row.key">
+            <div class="flex min-w-0 items-start gap-3">
               <span [class]="markerClass(row)" aria-hidden="true">
                 @if (row.status === 'done') {
-                  <svg
-                    class="h-3.5 w-3.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
+                  <aec-icon name="check" decorative [size]="3.5" />
                 } @else if (row.locked) {
-                  <svg
-                    class="h-3.5 w-3.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect x="5" y="11" width="14" height="10" rx="2" />
-                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                  </svg>
+                  <aec-icon name="lock" decorative [size]="3.5" />
                 } @else {
                   {{ i + 1 }}
                 }
               </span>
               <div class="min-w-0">
                 <p
-                  class="flex flex-wrap items-center gap-2 text-sm font-semibold text-(--text-primary)"
+                  class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-(--text-primary)"
                 >
                   <span>{{ row.title }}</span>
                   @if (!row.counts) {
-                    &ngsp;<span
-                      class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
-                      i18n="@@vendor.checklist.optional"
-                      >Optional</span
+                    &ngsp;<aec-chip density="dense" i18n="@@vendor.checklist.optional"
+                      >Optional</aec-chip
                     >
                   }
                   <span class="sr-only">&ngsp;{{ statusText(row.status) }}</span>
                 </p>
-                <p class="mt-0.5 text-sm leading-relaxed text-(--text-secondary)">{{ row.body }}</p>
+                <p class="text-sm leading-relaxed text-(--text-secondary)">{{ row.body }}</p>
               </div>
             </div>
             @if (row.action; as a) {
-              <div class="flex shrink-0 flex-wrap items-center gap-3 ps-10 sm:ps-0">
+              <div class="flex flex-wrap items-center gap-3 ps-10">
                 @switch (a.kind) {
                   @case ('link') {
-                    <a [routerLink]="a.commands" [class]="linkButtonClass">{{ a.label }}</a>
+                    <a aecButton variant="secondary" compact [routerLink]="a.commands">{{
+                      a.label
+                    }}</a>
                   }
                   @case ('looksRight') {
                     @if (a.link; as l) {
@@ -168,10 +151,7 @@ export interface ChecklistRow {
                     }
                   }
                   @case ('note') {
-                    <span
-                      class="inline-flex items-center rounded-(--radius-sm) bg-(--surface-sunken) px-2 py-1 text-xs font-medium text-(--text-secondary)"
-                      >{{ a.label }}</span
-                    >
+                    <aec-chip density="dense">{{ a.label }}</aec-chip>
                   }
                 }
               </div>
@@ -224,15 +204,12 @@ export class VendorChecklist {
     Array.from({ length: this.total() }, (_, i) => i < this.done()),
   );
 
-  protected readonly headingClass = 'font-display text-xl font-semibold text-(--text-primary)';
-  protected readonly linkButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly textLinkClass =
-    'text-sm font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'rounded-mark text-sm font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
   protected markerClass(row: ChecklistRow): string {
     const base =
-      'mt-px inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold';
+      'inline-flex size-7 shrink-0 items-center justify-center rounded-full border text-t-13 font-semibold';
     if (row.status === 'done') {
       return `${base} border-(--accent-primary) bg-(--accent-primary) text-(--surface-base)`;
     }

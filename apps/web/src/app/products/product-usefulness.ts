@@ -41,8 +41,9 @@ import { AecIcon } from '../shared/icon/icon';
  *
  * **Layout (AECI-1780, mock-up 6 `.use-row`).** One row per facet: "By audience", then
  * "By phase". Each group is a white card (`aecCard`) holding its name and its points,
- * each point after a Forest tick. From `xl` the facet label is a 170px column beside its
- * cards. Below `xl` it sits above them. Cards run three across from `lg`, two from `md`
+ * each point after a Forest tick. The facet label is a small heading above its cards at
+ * every width, so the cards get the full row (2026-11-24: the 170px side column left a
+ * blank strip and squeezed the cards). Cards run three across from `lg`, two from `md`
  * and one below, never more columns than the facet has cards, so one or two groups fill
  * the row. A facet with no usable points is not rendered, and neither is a group
  * with no points. Group names and points are data (interpolation, no `innerHTML`). Only
@@ -109,9 +110,9 @@ import { AecIcon } from '../shared/icon/icon';
         @if (audienceGroups().length > 0) {
           <div [class]="rowClass" data-testid="usefulness-row">
             <h3 [class]="labelClass">
-              <aec-icon name="users" decorative [size]="6" class="text-(--accent-primary)" />
+              <aec-icon name="users" decorative [size]="5" class="text-(--accent-primary)" />
               <span
-                class="font-display text-t-24 font-semibold"
+                class="font-display text-t-20 font-semibold"
                 i18n="@@products.detail.usefulness.byAudience"
                 >By audience</span
               >
@@ -125,9 +126,9 @@ import { AecIcon } from '../shared/icon/icon';
         @if (phaseGroups().length > 0) {
           <div [class]="rowClass" data-testid="usefulness-row">
             <h3 [class]="labelClass">
-              <aec-icon name="gantt" decorative [size]="6" class="text-(--accent-primary)" />
+              <aec-icon name="gantt" decorative [size]="5" class="text-(--accent-primary)" />
               <span
-                class="font-display text-t-24 font-semibold"
+                class="font-display text-t-20 font-semibold"
                 i18n="@@products.detail.usefulness.byPhase"
                 >By phase</span
               >
@@ -147,16 +148,11 @@ export class ProductUsefulnessSection {
   /** The page product's name, for the heading "How teams use {product}" (AECI-1720). */
   readonly productName = input.required<string>();
 
-  /** One facet's row: the label above its cards, beside them from `xl`. */
-  protected readonly rowClass =
-    'grid items-start gap-4 xl:grid-cols-[170px_minmax(0,1fr)] xl:items-stretch xl:gap-6';
+  /** One facet's row: the label above its cards at every width, so the cards get the full row. */
+  protected readonly rowClass = 'grid gap-4';
 
-  /**
-   * The facet label: glyph and serif name in a row, stacked in the `xl` label column and
-   * centred against its cards there (mock-up 6 `.use-lab`, AECI-1720 restore).
-   */
-  protected readonly labelClass =
-    'm-0 flex items-center gap-3 text-(--text-primary) xl:flex-col xl:items-start xl:justify-center xl:gap-2';
+  /** The facet label: glyph and serif name in a row, above the cards. */
+  protected readonly labelClass = 'm-0 flex items-center gap-2 text-(--text-primary)';
 
   /**
    * The card grid for one facet. Never more columns than cards, so one or two groups

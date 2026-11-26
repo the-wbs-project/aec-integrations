@@ -148,9 +148,8 @@
   --focus-ring-on-brand: var(--accent-warm); /* #F5F2EA (Bone) */
   /* Border of every form control. 3.71:1 on white, 3.55 on raised, 3.37 on
      sunken, 3.31 on Bone. AECI-1764 moved every control onto it. Never on the
-     hero panel (2.77:1). A `border-border-field` utility will NOT apply: the
-     unlayered `* { border-color }` rule wins. Apply it from an unlayered
-     class, as `.aec-field-control` does. */
+     hero panel (2.77:1). Controls take it from `.aec-field-control`. Since
+     AECI-2088 a `border-(--border-field)` utility applies too. */
   --border-field: oklch(61.63% 0.0134 286); /* #84848D */
   /* The ONE hover fill for the Bone main button on Forest (mock-up --cta-hover).
      Forest text on it 9.46:1, text-primary 15.18:1. */
@@ -684,6 +683,15 @@ h3 {
   letter-spacing: normal;
 }
 
+/* The portal notice's heading (AECI-1809, `vendor/shared/portal-notice.ts`): a banner's
+   `h2` sits at the Card title size, `--t-20`. A size utility on the `h2` would be dead
+   (the Unlayered-Heading Rule), so the notice recipe carries it, unlayered, one class
+   above the element rule. */
+.aec-portal-notice h2 {
+  font-size: var(--t-20);
+  line-height: 1.25;
+}
+
 /* The overline role (DESIGN.md §3, AECI-230): eyebrows, kickers, and sidebar
    microheadings — the one sanctioned uppercase in the system. Components apply
    this class (plus a text color utility) on whatever element carries the right
@@ -833,25 +841,41 @@ h1.aec-docs-title,
   }
 }
 
-*,
-*::before,
-*::after {
-  border-color: var(--border-default);
+/* The default border colour (AECI-2088). In `@layer base`, so a border-colour
+   utility (`border-(--x)`, `divide-(--x)`, `border-transparent`) beats it. It was
+   unlayered until AECI-2088, and an unlayered rule beats every layered rule
+   whatever its specificity, so no border-colour utility applied anywhere.
+   `border-color-layer.guard.spec.ts` fails if it moves out of the layer again.
+
+   The selector list is Tailwind preflight's own (`border: 0 solid` resets the
+   colour to `currentcolor` on all five), so every box it resets gets the token.
+   Preflight also sets `table { border-color: inherit }`, which outranks `*`
+   inside the layer, so `table` is named here to keep a table's own edge on the
+   token. This block sits after `@import 'tailwindcss'`, so it wins over
+   preflight at equal specificity. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button,
+  table {
+    border-color: var(--border-default);
+  }
 }
 
-/* Tab-style nav items: the vendor portal's section row (`vendor-nav.ts`).
-   The rule directly above sets `border-color` on `*` OUTSIDE any cascade layer,
-   and an unlayered rule beats every layered rule regardless of specificity — so
-   Tailwind's `border-transparent` and `border-(--accent-primary)` silently never
-   reach a `border-b-2` tab and its underline comes out `--border-default` grey
-   in BOTH states. (Same trap the anchor-color note below records; it bites every
-   border-color utility in the app, not just here.) A class is unlayered too and
-   outranks `*`, so it can express what the utilities cannot.
+/* Tab-style nav items: the `/search` entity tabs, the docs guide toggle and the admin
+   row. The vendor portal's row left this class with AECI-1809 (a drawn `::after` bar).
+   Why this and the edge classes below are unlayered: until AECI-2088 the `*`
+   border rule above was unlayered too, and an unlayered rule beats every layered
+   rule whatever its specificity. So `border-transparent` and
+   `border-(--accent-primary)` never reached a `border-b-2` tab, and no other
+   border-colour utility applied either. The rule is in `@layer base` now, so a
+   utility works. These classes still win over a utility beside them, because a
+   class outside any layer beats every layer. New code may use either.
 
-   `aria-current` is the state, in both spellings the row uses: `page` on the
-   four routed links (from `routerLinkActive`) and `true` on the Products
-   disclosure button, which has no `routerLink` to hang the directive on.
-   The `/search` entity tabs (`search-page.ts`) reuse the class; there the state
+   `aria-current` is the state on a routed link (`page` from `routerLinkActive`,
+   or `true` for a section). The `/search` entity tabs (`search-page.ts`) reuse the class; there the state
    is `aria-selected="true"` on the `role="tab"` button. */
 .aec-nav-tab {
   border-bottom-color: transparent;
@@ -863,12 +887,10 @@ h1.aec-docs-title,
 }
 
 /* Status callouts whose border carries the state (the mailing-list signup band's
-   subscribed / already-subscribed / error notices). Same trap as `.aec-nav-tab`
-   above: `border-(--accent-primary)` and `border-(--status-error)` are layered
-   utilities, so the unlayered `*` rule wins and both edges come out
-   `--border-default` grey. Error is the case that matters — the red boundary is
-   what carries severity — and the success wash is only 1.14:1 against white, so
-   its border is the boundary. Declared here so they outrank `*` on specificity. */
+   subscribed / already-subscribed / error notices). Unlayered for the history the
+   `.aec-nav-tab` note records. Error is the case that matters — the red boundary
+   is what carries severity — and the success wash is only 1.14:1 against white,
+   so its border is the boundary. */
 .aec-notice-success {
   border-color: var(--accent-primary);
 }
@@ -881,61 +903,8 @@ h1.aec-docs-title,
   border-color: var(--status-error);
 }
 
-/* Subscription status chips on the vendor Billing tab (AECI-1866,
-   `vendor-billing-licenses.ts`). Same trap as `.aec-nav-tab`: a layered
-   `border-(--accent-primary)` never beats the unlayered `*` rule, which is why
-   every chip came out the same grey. Existing tokens only (DESIGN.md allows no new
-   status colour). Live is the Forest wash with its Forest boundary (the wash alone
-   is 1.14:1 on white, so the border carries the edge). Warning is Clay deep text,
-   the system's warning hue, text-only so the Clay-Restriction Rule holds. Ended is
-   neutral. The chip's words always name the state. */
-.aec-status-chip--live {
-  border-color: var(--accent-primary);
-  background-color: var(--accent-primary-soft);
-  color: var(--accent-primary);
-}
-
-.aec-status-chip--warning {
-  border-color: var(--border-strong);
-  background-color: var(--surface-raised);
-  color: var(--accent-secondary-deep);
-}
-
-.aec-status-chip--ended {
-  border-color: var(--border-strong);
-  background-color: var(--surface-raised);
-  color: var(--text-secondary);
-}
-
-/* The vendor overview's Views period toggle (AECI-983). The pressed state is an
-   attribute, and a utility toggled by state loses to the resting and hover
-   utilities, so the pressed colours live on an unlayered class. */
-.aec-period[aria-pressed='true'],
-.aec-period[aria-pressed='true']:hover {
-  background-color: var(--accent-primary);
-  color: var(--surface-base);
-}
-
-/* The focus ring would otherwise take the pressed segment's `surface-base` text
-   colour and vanish against the sunken track. */
-.aec-period[aria-pressed='true']:focus-visible {
-  outline-color: var(--accent-primary);
-}
-
-/* Coloured borders on the vendor overview's status pills (AECI-983). A
-   `border-(--status-error)` utility never reaches the element, for the reason
-   the `.aec-nav-tab` note records, so the tone lives on an unlayered class. */
-.aec-pill-conflict {
-  border-color: var(--status-error);
-}
-
-.aec-pill-attention {
-  border-color: var(--border-strong);
-}
-
-/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Same trap as
-   `.aec-nav-tab`: a `border-s-(--accent-primary)` utility never beats the `*` rule, so
-   the added row's Forest edge rendered grey. Start edge only, so RTL keeps it. */
+/* The pair page's version-diff row edge (AECI-303, products-pair.ts). Unlayered
+   for the history the `.aec-nav-tab` note records. Start edge only, so RTL keeps it. */
 .aec-diff-added {
   border-inline-start-color: var(--accent-primary);
 }
@@ -945,9 +914,8 @@ h1.aec-docs-title,
 }
 
 /* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
-   trigger), AECI-1764. Unlayered for the reason `.aec-nav-tab` records: a
-   border-colour utility loses to the `*` rule, and an unlayered rule here moves
-   every caller at once, including hand-written copies of the class.
+   trigger), AECI-1764. Unlayered, so it moves every caller at once, including
+   hand-written copies of the class, and wins over any utility beside it.
    Edge: `--border-field`, 3.71:1 on white. Shape: 12px radius, 44px floor, no
    shadow. Focus: the edge goes Forest and the 3px outline sits 3px out (an
    outline, so forced colours keeps it). Invalid: a 2px `--status-error` edge,
@@ -956,8 +924,8 @@ h1.aec-docs-title,
 
 /* The one chip (AECI-1763, DESIGN.md §5 Badges, clash 22). `aec-chip` sets the
    data attributes and nothing else, so this block is the whole recipe. It is
-   unlayered for the reason `.aec-nav-tab` records: a border-colour utility loses
-   to the `*` rule, and the chip's edge carries its tone.
+   unlayered for the history the `.aec-nav-tab` note records, and the chip's edge
+   carries its tone.
 
    Shape is the pill (clash 12). No shadow, no Clay. Default is 13px at weight
    400, about 31px tall (13px at 1.6 plus 8px padding and the 2px edge). Dense is
@@ -1131,8 +1099,8 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
-   trigger). Unlayered for the reason `.aec-nav-tab` records: a border-colour
-   utility loses to the `*` rule. Rest is the 3:1 `--border-input`. Invalid is
+   trigger). Unlayered for the history the `.aec-nav-tab` note records. Rest is
+   the 3:1 `--border-input`. Invalid is
    `--status-error`, keyed off `aria-invalid` so the attribute that tells a
    screen reader is the one that paints the edge. */
 .aec-field-control {
@@ -1189,8 +1157,8 @@ button.aec-chip:focus-visible {
 }
 
 /* The hairline on a Forest ground: the header and footer dividers (AECI-1845).
-   Unlayered for the reason `.aec-nav-tab` records: a `border-(--x)` utility
-   loses to the `*` rule. Pair it with a width utility such as `border-t`.
+   Unlayered for the history the `.aec-nav-tab` note records. Pair it with a
+   width utility such as `border-t`.
    `.aec-on-brand-edge` is the 3:1 control edge on Forest (4.01:1): the header
    search icon, menu toggle and account trigger. */
 .aec-on-brand-rule {
@@ -1203,7 +1171,7 @@ button.aec-chip:focus-visible {
 
 /* The stronger hairline on a light ground: the rule that closes the home hero's
    Bone band above the credibility row (AECI-1792). `--border-default` is about
-   1.1:1 on Bone and all but vanishes. Unlayered for the same reason as above.
+   1.1:1 on Bone and all but vanishes. Unlayered for the same history as above.
    Pair it with a width utility such as `border-t`. */
 .aec-rule-strong {
   border-color: var(--border-strong);
@@ -1216,8 +1184,7 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared button's edge (AECI-1758, `shared/button/button.ts`). Unlayered for
-   the reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*`
-   rule. Every variant carries a 1px edge so all of them are 44px. Filled and
+   the history the `.aec-nav-tab` note records. Every variant carries a 1px edge so all of them are 44px. Filled and
    ghost buttons keep it transparent, which forced-colours mode paints as a real
    edge. The secondary button's edge is `--border-strong`. */
 .aec-btn {
@@ -1235,7 +1202,7 @@ button.aec-chip:focus-visible {
 }
 
 /* The shared card surface (AECI-1765, `shared/card/card.ts`). Unlayered for the
-   reason `.aec-nav-tab` records: a `border-(--x)` utility loses to the `*` rule.
+   history the `.aec-nav-tab` note records.
    The 1px edge is transparent. A resting card has no hairline beside its shadow
    (DESIGN.md section 4, "Open values"). Forced-colours mode drops `box-shadow` and
    paints a transparent border in a system colour, so the card keeps an edge there.
@@ -1447,7 +1414,7 @@ button.aec-chip:focus-visible {
 }
 
 /* A scroll box whose last row may be clipped (the "About you" audience list).
-   A bottom hairline from the `*` rule plus an always-drawn thin scrollbar, so
+   A bottom hairline from the `*` border default plus an always-drawn thin scrollbar, so
    the overflow reads as scrollable where overlay scrollbars hide. */
 .aec-scroll-box {
   scrollbar-width: thin;
@@ -1541,8 +1508,8 @@ textarea:-webkit-autofill:focus {
    panel, info hint or tooltip body: 12px radius, white fill, `--shadow-menu`.
    Layout (width, padding, height, position) stays with the caller. Z-index stays
    with the CDK overlay container.
-   EDGE: a real 1px hairline. The colour is the unlayered `*` border rule above
-   (`--border-default`), which is why none is set here. A shadow is never the only
+   EDGE: a real 1px hairline. The colour is the `@layer base` border default
+   above (`--border-default`), which is why none is set here. A shadow is never the only
    edge, so forced-colours mode, which drops `box-shadow`, still draws one.
    RADIUS: DESIGN.md names no overlay radius. Card for the two modal surfaces and
    control for the popover, chosen by the orchestrator and flagged for Chris. A
@@ -1615,36 +1582,798 @@ textarea:-webkit-autofill:focus {
   animation: aeci-drawer-in var(--duration-slow) var(--ease-standard);
 }
 
-/* The product hero's category hub (AECI-1787, DESIGN.md §5 "The hero diagram").
-   Its one entrance: the list fades in and rises 4px over the slow step. Opacity
-   and transform only, so nothing moves in layout. It runs only when the visitor
-   has not asked for reduced motion, so under that setting the list is simply
-   there. Hydration reuses the server's nodes, so the entrance does not replay. */
-@keyframes aec-category-hub-in {
+/* The product hero's integrations wheel (AECI-2018, DESIGN.md §5 "The hero diagram",
+   mock-up 9w). `product-integration-wheel.ts` renders it and `integration-wheel.ts`
+   lays it out. Plain CSS here, because the layout is chosen by container query and the
+   server's markup carries one set of positions per stage width.
+
+   HOW THE SERVER HTML PICKS A LAYOUT. The server cannot know the width, so it lays the
+   first slide out at each of the eight stage widths in WHEEL_BANDS and writes them as custom properties: `--x{k}` / `--y{k}` on each tile,
+   `--t{k}` (tile size) and `--i{k}` (initial size) on the stage, and the slide's mode
+   per band as `data-m{k}` (`one`, `two`, `dots`) on the wheel, with `data-n{k}` when
+   names show under the tiles. One container query per band copies its values into
+   `--x`, `--y` and `--t`, and shows what that mode shows. Positions are percentages of
+   the stage, and each band applies from its own width up, so a tile is never smaller
+   than the size it was laid out at. The browser uses the same bands, so nothing changes
+   at hydration. Every mode rule only shows what its mode shows. */
+.aec-wheel {
+  container: aec-wheel / inline-size;
+  position: relative;
+}
+
+/* The head: an arrow either side of the title. Under 260px the title takes the first
+   row and the arrows sit under it, so a long name is not squeezed between them. */
+.aec-wheel-head {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+.aec-wheel-head-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container aec-wheel (width < 260px) {
+  .aec-wheel-head:not(.aec-wheel-head-single) .aec-wheel-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .aec-wheel-head:not(.aec-wheel-head-single) > .aec-wheel-step:first-child {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .aec-wheel-head:not(.aec-wheel-head-single) > .aec-wheel-step:nth-of-type(2) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+}
+.aec-wheel-step {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid var(--border-on-brand-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface-on-brand-wash);
+  color: var(--text-on-brand);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+.aec-wheel-step:hover {
+  background-color: var(--surface-on-brand-wash-hover);
+}
+.aec-wheel-step:active {
+  transform: translateY(1px) scale(0.98);
+}
+.aec-wheel-title {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-weight: 400;
+}
+.aec-wheel-jump,
+.aec-wheel-static {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.375rem 0.5rem;
+}
+.aec-wheel-jump {
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: pointer;
+}
+.aec-wheel-jump:hover {
+  background-color: var(--surface-on-brand-wash);
+}
+.aec-wheel-jump .aec-wheel-name svg {
+  display: inline-block;
+  margin-inline-start: 0.25rem;
+  vertical-align: -0.125rem;
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+.aec-wheel-jump[aria-expanded='true'] .aec-wheel-name svg {
+  transform: rotate(180deg);
+}
+/* The slide name is the serif at 20px, the floor (DESIGN.md §3 "The Serif-Floor Rule"). */
+.aec-wheel-name {
+  display: block;
+  max-width: 100%;
+  font: 600 var(--t-20) / 1.3 var(--font-display);
+  text-wrap: balance;
+  color: var(--text-on-brand);
+}
+.aec-wheel-count {
+  font-size: var(--t-13);
+  line-height: 1.4;
+  color: var(--text-on-brand-secondary);
+}
+/* The static title: a product with one slide, and every wheel with no script. */
+.aec-wheel-static {
+  display: none;
+}
+.aec-wheel-head-single .aec-wheel-static {
+  display: inline-flex;
+}
+@media (scripting: none) {
+  .aec-wheel-step {
+    visibility: hidden;
+  }
+  .aec-wheel-jump {
+    display: none;
+  }
+  .aec-wheel-static {
+    display: inline-flex;
+  }
+}
+
+/* The jump list: a popover surface under the title, over the wheel. */
+.aec-wheel-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  width: min(20rem, calc(100vw - 3rem));
+  max-height: 22.5rem;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0.375rem;
+  list-style: none;
+  text-align: start;
+  translate: -50% 0;
+}
+.aec-wheel-list[hidden] {
+  display: none;
+}
+.aec-wheel-option {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: var(--radius-mark);
+  background: none;
+  color: var(--text-primary);
+  font-size: var(--t-14);
+  text-align: start;
+  cursor: pointer;
+}
+.aec-wheel-option:hover {
+  background-color: var(--surface-sunken);
+}
+.aec-wheel .aec-wheel-option:focus-visible {
+  outline: 3px solid var(--accent-primary);
+  outline-offset: -3px;
+}
+.aec-wheel-option[aria-current='true'] {
+  background-color: var(--accent-primary-soft);
+  font-weight: 600;
+}
+.aec-wheel-option-count {
+  font-size: var(--t-13);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The stage: a square, at most 476px. */
+.aec-wheel-stage {
+  position: relative;
+  width: 100%;
+  max-width: 29.75rem;
+  aspect-ratio: 1;
+  margin: 1rem auto 0;
+}
+.aec-wheel-art {
+  position: absolute;
+  inset: 0;
+}
+.aec-wheel-guides,
+.aec-wheel-dots {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.aec-wheel-guides circle {
+  fill: none;
+  stroke: var(--border-on-brand-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.aec-wheel-guides .aec-wheel-frame {
+  stroke-dasharray: 2 6;
+}
+.aec-wheel-guides .aec-wheel-orbit {
+  stroke: var(--border-on-brand);
+}
+/* The inner orbit fades out on a one-ring slide and back on a two-ring one. */
+.aec-wheel-guides .aec-wheel-orbit-inner {
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+.aec-wheel-guides .aec-wheel-orbit-inner.is-off {
+  opacity: 0;
+}
+/* A to Z starts at 12 o'clock: one short Clay stroke marks it. */
+.aec-wheel-start {
+  stroke: var(--accent-secondary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.aec-wheel-dots circle {
+  fill: none;
+  stroke: var(--text-on-brand-secondary);
+}
+
+/* The ring: a real list of links. Hidden until a mode rule shows it. */
+.aec-wheel-ring {
+  position: absolute;
+  inset: 0;
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.aec-wheel-ring > li {
+  position: absolute;
+  left: calc(50% + var(--x) * 1%);
+  top: calc(50% + var(--y) * 1%);
+  width: calc(var(--t) * 1%);
+  height: calc(var(--t) * 1%);
+  translate: -50% -50%;
+}
+.aec-wheel-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-mark);
+  text-decoration: none;
+  -webkit-touch-callout: none;
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+/* Every logo sits inset on the same neutral tile as an initial: no ground, ring or
+   border from the vendor, claimed or not (ruling 34, kept by ruling 64). */
+.aec-wheel-tile aec-logo-or-initial > * {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16);
+}
+.aec-wheel-tile:hover {
+  transform: scale(1.08);
+  text-decoration: none;
+}
+.aec-wheel-tile:hover aec-logo-or-initial > *,
+.aec-wheel-tile.is-active aec-logo-or-initial > * {
+  box-shadow: 0 0 0 2px var(--text-on-brand);
+}
+.aec-wheel .aec-wheel-tile:focus-visible {
+  outline: 3px solid var(--focus-ring-on-brand);
+  outline-offset: 3px;
+}
+/* A tile's name under it, on a slide of eight or fewer (the `data-n` rules). Otherwise
+   it is not rendered at all: the link's name is its `aria-label`. A clipped visually
+   hidden label would still be found by find-in-page and by a `#:~:text=` link, which
+   would land on the hero instead of the product's card in the Integrations list. */
+.aec-wheel-label {
+  display: none;
+}
+
+/* The centre: the page's own product on a tile slide, the count on a dots slide. */
+.aec-wheel-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  translate: -50% -50%;
+  text-align: center;
+  pointer-events: none;
+}
+.aec-wheel-hub-mark {
+  display: none;
+  width: clamp(2.75rem, 13.5cqw, 4rem);
+  aspect-ratio: 1;
+  border-radius: var(--radius-mark);
+  box-shadow:
+    0 0 0 6px var(--border-on-brand-subtle),
+    var(--shadow-card);
+}
+.aec-wheel-hub-count {
+  display: none;
+  max-width: 11rem;
+  margin: 0;
+  color: var(--text-on-brand);
+}
+.aec-wheel-hub-figure {
+  display: block;
+  font: 600 var(--t-48) / 1 var(--font-display);
+  letter-spacing: -0.01em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.aec-wheel-hub-words {
+  display: block;
+  margin-top: 0.5rem;
+  font: 400 var(--t-20) / 1.3 var(--font-display);
+}
+/* The lines under the wheel: 13px, 400, the secondary on-brand ink on the panel. The
+   block widens into the panel's padding so the logo line takes fewer rows, and each
+   phrase keeps together. */
+.aec-wheel-lines {
+  display: none;
+  margin: 1rem -0.75rem 0;
+  font-size: var(--t-13);
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text-on-brand-secondary);
+}
+@media (width >= 48rem) {
+  .aec-wheel-lines {
+    margin-inline: -1rem;
+  }
+}
+.aec-wheel-line {
+  display: block;
+}
+.aec-wheel-line + .aec-wheel-line {
+  margin-top: 0.25rem;
+}
+.aec-wheel-phrase {
+  display: inline-block;
+}
+/* With no script a dots slide links to the list it stands for. */
+.aec-wheel-more {
+  display: none;
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-size: var(--t-14);
+  font-weight: 600;
+}
+.aec-wheel-more a {
+  text-decoration-line: underline;
+  text-decoration-color: var(--border-on-brand-strong);
+  text-underline-offset: 4px;
+}
+@media (scripting: enabled) {
+  .aec-wheel .aec-wheel-more {
+    display: none !important;
+  }
+}
+
+/* One container query per band of WHEEL_BANDS (`integration-wheel.ts`). The first
+   applies below 260px, each other from its own width to the next. */
+@container aec-wheel (width < 260px) {
+  .aec-wheel-stage {
+    --t: var(--t0);
+    --aec-wheel-initial: var(--i0);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x0);
+    --y: var(--y0);
+  }
+  .aec-wheel-guides[data-band='0'],
+  .aec-wheel-dots[data-band='0'] {
+    display: block;
+  }
+  .aec-wheel[data-m0='one'] .aec-wheel-ring,
+  .aec-wheel[data-m0='two'] .aec-wheel-ring,
+  .aec-wheel[data-m0='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m0='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m0='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m0='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m0='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m0='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m0='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n0] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n0] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (260px <= width < 279px) {
+  .aec-wheel-stage {
+    --t: var(--t1);
+    --aec-wheel-initial: var(--i1);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x1);
+    --y: var(--y1);
+  }
+  .aec-wheel-guides[data-band='1'],
+  .aec-wheel-dots[data-band='1'] {
+    display: block;
+  }
+  .aec-wheel[data-m1='one'] .aec-wheel-ring,
+  .aec-wheel[data-m1='two'] .aec-wheel-ring,
+  .aec-wheel[data-m1='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m1='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m1='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m1='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m1='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m1='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m1='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n1] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n1] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (279px <= width < 294px) {
+  .aec-wheel-stage {
+    --t: var(--t2);
+    --aec-wheel-initial: var(--i2);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x2);
+    --y: var(--y2);
+  }
+  .aec-wheel-guides[data-band='2'],
+  .aec-wheel-dots[data-band='2'] {
+    display: block;
+  }
+  .aec-wheel[data-m2='one'] .aec-wheel-ring,
+  .aec-wheel[data-m2='two'] .aec-wheel-ring,
+  .aec-wheel[data-m2='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m2='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m2='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m2='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m2='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m2='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m2='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n2] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n2] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (294px <= width < 320px) {
+  .aec-wheel-stage {
+    --t: var(--t3);
+    --aec-wheel-initial: var(--i3);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x3);
+    --y: var(--y3);
+  }
+  .aec-wheel-guides[data-band='3'],
+  .aec-wheel-dots[data-band='3'] {
+    display: block;
+  }
+  .aec-wheel[data-m3='one'] .aec-wheel-ring,
+  .aec-wheel[data-m3='two'] .aec-wheel-ring,
+  .aec-wheel[data-m3='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m3='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m3='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m3='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m3='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m3='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m3='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n3] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n3] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (320px <= width < 336px) {
+  .aec-wheel-stage {
+    --t: var(--t4);
+    --aec-wheel-initial: var(--i4);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x4);
+    --y: var(--y4);
+  }
+  .aec-wheel-guides[data-band='4'],
+  .aec-wheel-dots[data-band='4'] {
+    display: block;
+  }
+  .aec-wheel[data-m4='one'] .aec-wheel-ring,
+  .aec-wheel[data-m4='two'] .aec-wheel-ring,
+  .aec-wheel[data-m4='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m4='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m4='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m4='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m4='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m4='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m4='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n4] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n4] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (336px <= width < 400px) {
+  .aec-wheel-stage {
+    --t: var(--t5);
+    --aec-wheel-initial: var(--i5);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x5);
+    --y: var(--y5);
+  }
+  .aec-wheel-guides[data-band='5'],
+  .aec-wheel-dots[data-band='5'] {
+    display: block;
+  }
+  .aec-wheel[data-m5='one'] .aec-wheel-ring,
+  .aec-wheel[data-m5='two'] .aec-wheel-ring,
+  .aec-wheel[data-m5='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m5='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m5='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m5='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m5='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m5='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m5='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n5] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n5] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (400px <= width < 476px) {
+  .aec-wheel-stage {
+    --t: var(--t6);
+    --aec-wheel-initial: var(--i6);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x6);
+    --y: var(--y6);
+  }
+  .aec-wheel-guides[data-band='6'],
+  .aec-wheel-dots[data-band='6'] {
+    display: block;
+  }
+  .aec-wheel[data-m6='one'] .aec-wheel-ring,
+  .aec-wheel[data-m6='two'] .aec-wheel-ring,
+  .aec-wheel[data-m6='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m6='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m6='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m6='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m6='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m6='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m6='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n6] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n6] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+@container aec-wheel (width >= 476px) {
+  .aec-wheel-stage {
+    --t: var(--t7);
+    --aec-wheel-initial: var(--i7);
+  }
+  .aec-wheel-ring > li {
+    --x: var(--x7);
+    --y: var(--y7);
+  }
+  .aec-wheel-guides[data-band='7'],
+  .aec-wheel-dots[data-band='7'] {
+    display: block;
+  }
+  .aec-wheel[data-m7='one'] .aec-wheel-ring,
+  .aec-wheel[data-m7='two'] .aec-wheel-ring,
+  .aec-wheel[data-m7='one'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m7='two'] .aec-wheel-hub-mark,
+  .aec-wheel[data-m7='one'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m7='two'] .aec-wheel-lines-tiles,
+  .aec-wheel[data-m7='dots'] .aec-wheel-hub-count,
+  .aec-wheel[data-m7='dots'] .aec-wheel-lines-dots,
+  .aec-wheel[data-m7='dots'] .aec-wheel-more {
+    display: block;
+  }
+  .aec-wheel[data-n7] .aec-wheel-label {
+    display: block;
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 50%;
+    width: max-content;
+    max-width: 7.5rem;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    translate: -50% 0;
+    font-size: var(--t-13);
+    line-height: 1.3;
+    text-align: center;
+    color: var(--text-on-brand-secondary);
+    pointer-events: none;
+  }
+  .aec-wheel[data-n7] .aec-wheel-stage {
+    margin-bottom: 2.5rem;
+  }
+}
+
+/* The card a tile opens: a popover in the CDK overlay, so the hero never clips it. */
+.aec-wheel-card {
+  display: grid;
+  width: min(16.5rem, calc(100vw - 1rem));
+  grid-template-columns: 3rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+/* "Unclaimed" sits beside the name, and wraps under it with no indent when it does not fit. */
+.aec-wheel-card-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.5rem;
+  margin: 0;
+  font: 600 var(--t-20) / 1.25 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.aec-wheel-card-unclaimed {
+  font: 600 var(--t-13) / 1.4 var(--font-body);
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.aec-wheel-card-vendor {
+  margin: 0.125rem 0 0;
+  font-size: var(--t-14);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* The one entrance: the art fades in and settles, once, on first paint. Opacity and
+   transform only, so nothing moves in layout. Hydration reuses the server's nodes and
+   the animated wrapper is never replaced, so it does not replay. A step settles it for
+   good. Under reduced motion the wheel is simply there. */
+@keyframes aec-wheel-in {
   from {
     opacity: 0;
-    transform: translateY(0.25rem);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
-
+/* `backwards`, not `both`: once it ends the animation leaves nothing applied, so the
+   wheel is painted exactly as with no animation at all. A forwards fill kept the art on
+   its own compositor layer, which rasterised the half-pixel Clay mark at 12 o'clock
+   differently from the first paint (the AECI-1854 first-paint guard, CI run
+   45353741581). */
 @media (prefers-reduced-motion: no-preference) {
-  .aec-category-hub {
-    animation: aec-category-hub-in var(--duration-slow) var(--ease-standard) both;
-  }
-}
-
-/* The product hero's panel below lg (AECI-1787). There it stacks under the hero
-   text and holds the category hub alone: the pair finder shows from lg. A product
-   with no hub has nothing to show there, so the panel goes rather than leave an
-   empty box. Keyed on the caller's marker class, so the shared band
-   (`shared/hero-band/hero-band.ts`) is unchanged for every other page. */
-@media (width < 64rem) {
-  .aec-hero-panel:has(> .aec-hero-panel-lg-only) {
-    display: none;
+  .aec-wheel:not([data-settled]) .aec-wheel-art {
+    animation: aec-wheel-in calc(var(--duration-slow) * 2) var(--ease-standard) backwards;
   }
 }
 
@@ -1979,8 +2708,8 @@ html[data-consent-reserve]
    - The global `h1, h2, h3` rule is unlayered, so a `text-*` utility on a heading
      is dead (DESIGN.md "The Unlayered-Heading Rule"). A class beats the element
      selector, so the docs heading sizes live here.
-   - The rail's open panel needs a border colour, which a layered utility cannot
-     set past the unlayered `*` rule (the `.aec-nav-tab` note). */
+   - The rail's open panel's border colour is here for the history the
+     `.aec-nav-tab` note records. */
 
 /* Page h1 on the home, a section index and an article: DeepWiki's quiet title
    rather than a hero. Was 30px, off the ramp. AECI-1748 snaps it to --t-36 (28 to
@@ -2001,8 +2730,8 @@ html[data-consent-reserve]
 }
 
 /* The Plans page's cards and comparison table (`docs-plans-comparison.ts`;
-   anchor site Mintlify's billing page). Unlayered for the `.aec-nav-tab`
-   reason: a border-color utility loses to the unlayered `*` rule. The Free and
+   anchor site Mintlify's billing page). Unlayered for the history the
+   `.aec-nav-tab` note records. The Free and
    Managed cards are the shared card (`aecCard`, ruling A7). `.aec-plan-card` is
    left on the plans rail (`plan-cta.ts`). The Managed card keeps a 2px Forest
    border; this rule sits after `.aec-card`, so it wins over the transparent edge. */

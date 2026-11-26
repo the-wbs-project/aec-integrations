@@ -50,13 +50,117 @@ export interface AdminNavItem {
   badge?: AdminQueueKey;
 }
 
-/** A labelled group of entries. `id` wires the group label to its `<ul>` via
- *  `aria-labelledby`. */
+/** A labelled group of entries. `id` names the group's panel. */
 export interface AdminNavGroup {
+  id: string;
+  heading: string;
+  /** Every entry, in order. The breadcrumb and the badge sum read this. */
+  items: readonly AdminNavItem[];
+  /**
+   * The panel's labelled columns (AECI-1813, ruled 2026-11-24: Operations in two
+   * columns, "Queues" and "Accounts and site"). Absent means one unlabelled list.
+   * The columns hold exactly `items`, in the same order.
+   */
+  columns?: readonly AdminNavColumn[];
+}
+
+/** One labelled column of a group's panel. `id` wires the label to its `<ul>`. */
+export interface AdminNavColumn {
   id: string;
   heading: string;
   items: readonly AdminNavItem[];
 }
+
+/** Operations' two columns (AECI-1813). Queues first: they carry the badges. */
+const OPERATIONS_QUEUES: readonly AdminNavItem[] = [
+  {
+    path: '/admin/reviews',
+    label: $localize`:@@admin.shell.nav.reviews:Review queue`,
+    badge: 'reviews',
+  },
+  // AECI-1613 (`ADMIN_PANEL_SPEC.md` §5.20). Right after Review queue: an update
+  // is the reviewer's own addition to a published review. It counts pending rows
+  // of `review_updates`, a table no other queue reads, so the sum stays honest.
+  {
+    path: '/admin/review-updates',
+    label: $localize`:@@admin.shell.nav.reviewUpdates:Review updates`,
+    badge: 'reviewUpdates',
+  },
+  // AECI-1177 (`ADMIN_PANEL_SPEC.md` §5.13). The sixth badged queue, right after
+  // Review queue because both moderate user-facing review content. It counts
+  // pending rows of `review_responses`, a table no other queue reads, so the
+  // Operations sum stays honest by construction.
+  {
+    path: '/admin/review-responses',
+    label: $localize`:@@admin.shell.nav.reviewResponses:Review replies`,
+    badge: 'reviewResponses',
+  },
+  // AECI-922 badges all three Operations queues, and the Operations trigger
+  // shows their SUM. The sum is only honest because the queues are disjoint:
+  // `/admin/requests` counts open CORRECTIONS and `/admin/claims` counts open
+  // CLAIMS, which are two kinds of one `vendor_requests` table. That is also
+  // why the Requests screen no longer offers a claims filter — a screen whose
+  // rows outnumbered its own badge would read as a broken count.
+  {
+    path: '/admin/requests',
+    label: $localize`:@@admin.shell.nav.requests:Requests`,
+    badge: 'requests',
+  },
+  {
+    path: '/admin/claims',
+    label: $localize`:@@admin.shell.nav.claims:Vendor claims`,
+    badge: 'claims',
+  },
+  // AECI-1008. The fifth badged queue. It counts open AECi-routed rows of
+  // `integration_field_challenges`, a table no other queue reads, so the
+  // Operations sum stays honest by construction. It sits beside Vendor claims
+  // because both are a vendor asking AECi to decide.
+  {
+    path: '/admin/contests',
+    label: $localize`:@@admin.shell.nav.contests:Change requests`,
+    badge: 'contests',
+  },
+  // AECI-1539 (`ADMIN_PANEL_SPEC.md` §5.19). Beside Change requests because both
+  // are the two companies talking about one integration. Not a queue, so no
+  // badge and no part of the Operations sum: nothing in it waits on AECi.
+  { path: '/admin/threads', label: $localize`:@@admin.shell.nav.threads:Row threads` },
+  // AECI-946. The one badge that stays on its own entry: it is not in the
+  // Operations sum or the header badge (`ADMIN_TOTAL_QUEUE_KEYS`). It sits here
+  // rather than under Insights because it is a chore with a backlog, not a
+  // number to read: every row is a URL an operator has to paste into Search
+  // Console by hand.
+  {
+    path: '/admin/reindex',
+    label: $localize`:@@admin.shell.nav.reindex:Re-index queue`,
+    badge: 'reindex',
+  },
+];
+
+const OPERATIONS_ACCOUNTS: readonly AdminNavItem[] = [
+  { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
+  // AECI-692 takes the slot "Reviewer bans" held. `/admin/users?banned=true`
+  // is the same `banned_at IS NOT NULL` set with filters, search and paging,
+  // and the detail page is now where ban and reinstate happen — so one entry
+  // replaces the other rather than sitting beside it. The recorded ordering
+  // rationale survives intact: claims → vendors → people is the escalation
+  // order an operator actually walks.
+  { path: '/admin/users', label: $localize`:@@admin.shell.nav.users:Users` },
+  // AECI-1223. Not a queue, so no badge and no part of the Operations sum. It sits
+  // in Operations rather than Insights because the question it answers is a support
+  // case about one person ("did they get our email?"), not a trend.
+  { path: '/admin/email', label: $localize`:@@admin.shell.nav.email:Email` },
+  // AECI-1688 (`ADMIN_PANEL_SPEC.md` §5.22). Not a queue, so no badge. Beside Email
+  // because both are operator tools about what customers are told, not trends.
+  { path: '/admin/legal', label: $localize`:@@admin.shell.nav.legal:Legal versions` },
+  // AECI-1665 (`ADMIN_PANEL_SPEC.md` §5.23). Not a queue, so no badge. Beside Legal
+  // versions because both keep a legal promise the Terms make.
+  { path: '/admin/dmca', label: $localize`:@@admin.shell.nav.dmca:Copyright notices` },
+  { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
+  // AECI-653. The global, filterable read of `audit_log` (`ADMIN_PANEL_SPEC.md`
+  // §5.18). Last in Operations: it is where an operator goes after a queue or a
+  // detail page has raised "who changed this, and when", not a queue itself.
+  { path: '/admin/audit', label: $localize`:@@admin.shell.nav.audit:Audit log` },
+];
 
 /**
  * The §5 IA. **This list is complete**: every route in the spec's information
@@ -110,91 +214,18 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   {
     id: 'admin-nav-operations',
     heading: $localize`:@@admin.shell.nav.group.operations:Operations`,
-    items: [
+    items: [...OPERATIONS_QUEUES, ...OPERATIONS_ACCOUNTS],
+    columns: [
       {
-        path: '/admin/reviews',
-        label: $localize`:@@admin.shell.nav.reviews:Review queue`,
-        badge: 'reviews',
-      },
-      // AECI-1613 (`ADMIN_PANEL_SPEC.md` §5.20). Right after Review queue: an update
-      // is the reviewer's own addition to a published review. It counts pending rows
-      // of `review_updates`, a table no other queue reads, so the sum stays honest.
-      {
-        path: '/admin/review-updates',
-        label: $localize`:@@admin.shell.nav.reviewUpdates:Review updates`,
-        badge: 'reviewUpdates',
-      },
-      // AECI-1177 (`ADMIN_PANEL_SPEC.md` §5.13). The sixth badged queue, right after
-      // Review queue because both moderate user-facing review content. It counts
-      // pending rows of `review_responses`, a table no other queue reads, so the
-      // Operations sum stays honest by construction.
-      {
-        path: '/admin/review-responses',
-        label: $localize`:@@admin.shell.nav.reviewResponses:Review replies`,
-        badge: 'reviewResponses',
-      },
-      // AECI-922 badges all three Operations queues, and the Operations trigger
-      // shows their SUM. The sum is only honest because the queues are disjoint:
-      // `/admin/requests` counts open CORRECTIONS and `/admin/claims` counts open
-      // CLAIMS, which are two kinds of one `vendor_requests` table. That is also
-      // why the Requests screen no longer offers a claims filter — a screen whose
-      // rows outnumbered its own badge would read as a broken count.
-      {
-        path: '/admin/requests',
-        label: $localize`:@@admin.shell.nav.requests:Requests`,
-        badge: 'requests',
+        id: 'admin-nav-operations-queues',
+        heading: $localize`:@@admin.shell.nav.column.queues:Queues`,
+        items: OPERATIONS_QUEUES,
       },
       {
-        path: '/admin/claims',
-        label: $localize`:@@admin.shell.nav.claims:Vendor claims`,
-        badge: 'claims',
+        id: 'admin-nav-operations-accounts',
+        heading: $localize`:@@admin.shell.nav.column.accounts:Accounts and site`,
+        items: OPERATIONS_ACCOUNTS,
       },
-      // AECI-1008. The fifth badged queue. It counts open AECi-routed rows of
-      // `integration_field_challenges`, a table no other queue reads, so the
-      // Operations sum stays honest by construction. It sits beside Vendor claims
-      // because both are a vendor asking AECi to decide.
-      {
-        path: '/admin/contests',
-        label: $localize`:@@admin.shell.nav.contests:Change requests`,
-        badge: 'contests',
-      },
-      // AECI-1539 (`ADMIN_PANEL_SPEC.md` §5.19). Beside Change requests because both
-      // are the two companies talking about one integration. Not a queue, so no
-      // badge and no part of the Operations sum: nothing in it waits on AECi.
-      { path: '/admin/threads', label: $localize`:@@admin.shell.nav.threads:Row threads` },
-      // AECI-946. The one badge that stays on its own entry: it is not in the
-      // Operations sum or the header badge (`ADMIN_TOTAL_QUEUE_KEYS`). It sits here
-      // rather than under Insights because it is a chore with a backlog, not a
-      // number to read: every row is a URL an operator has to paste into Search
-      // Console by hand.
-      {
-        path: '/admin/reindex',
-        label: $localize`:@@admin.shell.nav.reindex:Re-index queue`,
-        badge: 'reindex',
-      },
-      { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
-      // AECI-692 takes the slot "Reviewer bans" held. `/admin/users?banned=true`
-      // is the same `banned_at IS NOT NULL` set with filters, search and paging,
-      // and the detail page is now where ban and reinstate happen — so one entry
-      // replaces the other rather than sitting beside it. The recorded ordering
-      // rationale survives intact: claims → vendors → people is the escalation
-      // order an operator actually walks.
-      { path: '/admin/users', label: $localize`:@@admin.shell.nav.users:Users` },
-      // AECI-1223. Not a queue, so no badge and no part of the Operations sum. It sits
-      // in Operations rather than Insights because the question it answers is a support
-      // case about one person ("did they get our email?"), not a trend.
-      { path: '/admin/email', label: $localize`:@@admin.shell.nav.email:Email` },
-      // AECI-1688 (`ADMIN_PANEL_SPEC.md` §5.22). Not a queue, so no badge. Beside Email
-      // because both are operator tools about what customers are told, not trends.
-      { path: '/admin/legal', label: $localize`:@@admin.shell.nav.legal:Legal versions` },
-      // AECI-1665 (`ADMIN_PANEL_SPEC.md` §5.23). Not a queue, so no badge. Beside Legal
-      // versions because both keep a legal promise the Terms make.
-      { path: '/admin/dmca', label: $localize`:@@admin.shell.nav.dmca:Copyright notices` },
-      { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
-      // AECI-653. The global, filterable read of `audit_log` (`ADMIN_PANEL_SPEC.md`
-      // §5.18). Last in Operations: it is where an operator goes after a queue or a
-      // detail page has raised "who changed this, and when", not a queue itself.
-      { path: '/admin/audit', label: $localize`:@@admin.shell.nav.audit:Audit log` },
     ],
   },
 ];
@@ -216,15 +247,15 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
  * `aria-current`, so the mechanism is identical for the links and the buttons.
  */
 export const ADMIN_NAV_ITEM_CLASS =
-  'aec-nav-tab -mb-px flex shrink-0 cursor-pointer items-center gap-1 border-b-2 px-1 py-3 ' +
-  'text-sm font-medium text-(--text-secondary) no-underline transition-colors ' +
-  'hover:text-(--text-primary) focus-visible:rounded-(--radius-sm) focus-visible:outline-2 ' +
-  'focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  'aec-nav-tab -mb-px flex min-h-11 shrink-0 cursor-pointer items-center gap-2 border-b-2 px-1 ' +
+  'text-t-16 font-normal text-(--text-secondary) no-underline transition-colors duration-fast ' +
+  'hover:text-(--text-primary) focus-visible:rounded-mark focus-visible:outline-3 ' +
+  'focus-visible:outline-offset-0';
 
 /** Active-state classes, applied by `routerLinkActive` on the collapsed links.
  *  Type only — the underline is `.aec-nav-tab[aria-current]`, which every item
  *  gets for free. */
-export const ADMIN_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';
+export const ADMIN_NAV_ITEM_ACTIVE_CLASS = 'font-semibold text-(--accent-primary)';
 
 /**
  * The disclosure button's classes: the shared item treatment plus the same two
@@ -234,7 +265,7 @@ export const ADMIN_NAV_ITEM_ACTIVE_CLASS = 'font-bold text-(--accent-primary)';
  * `aria-current="true"` itself from the router URL. Keep the two in lockstep:
  * the mechanism differs, the treatment must not.
  */
-export const ADMIN_NAV_TRIGGER_CLASS = `${ADMIN_NAV_ITEM_CLASS} aria-[current=true]:font-bold aria-[current=true]:text-(--accent-primary)`;
+export const ADMIN_NAV_TRIGGER_CLASS = `${ADMIN_NAV_ITEM_CLASS} aria-[current=true]:font-semibold aria-[current=true]:text-(--accent-primary)`;
 
 /**
  * ── THE BREADCRUMB READS THIS FILE TOO (AECI-777) ────────────────────────────

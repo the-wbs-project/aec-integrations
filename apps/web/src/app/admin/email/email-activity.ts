@@ -10,6 +10,7 @@ import {
   resendEmailDashboardUrl,
   type AdminEmailDeliveryEvent,
   type AdminEmailEntity,
+  type AdminEmailSendOutcome,
   type AdminEmailSendRow,
   type AdminEmailSummaryResponse,
   type AdminEmailSummaryRow,
@@ -17,10 +18,38 @@ import {
 } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { AdminEmailApi, type AdminEmailFilters } from './admin-email-api';
 import { EmailSwitches } from './email-switches';
 import { isReplayedEvent } from '../../core/event-replay';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
+
+/** A link in a cell that is not the row's identity: the text's ink, underlined. */
+const EMAIL_INLINE_LINK_CLASS =
+  'rounded-mark text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+/** A template id: the code face at 13px, the row head's weight. */
+const EMAIL_KEY_CLASS = 'block font-mono text-t-13 text-(--text-primary)';
+/** The summary's column-group header over the outcome and delivery columns. */
+const EMAIL_GROUP_HEAD_CLASS =
+  'px-3 pb-1 text-start align-bottom text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary)';
+/** The hairline that starts the summary's delivery column group. */
+const EMAIL_GROUP_START_CLASS = 'border-s border-s-(--border-default)';
 
 /** Rows per page. The spec's figure (§5.14); one page is a morning's sends on production. */
 const PER_PAGE = 25;
@@ -61,7 +90,16 @@ type SummaryWindow = 'd7' | 'd30';
  */
 @Component({
   selector: 'aec-email-activity',
-  imports: [AdminPaginator, AecSelect, DatePipe, EmailSwitches, RouterLink],
+  imports: [
+    AdminPaginator,
+    AecButton,
+    AecIcon,
+    AecSelect,
+    Chip,
+    DatePipe,
+    EmailSwitches,
+    RouterLink,
+  ],
   templateUrl: './email-activity.html',
 })
 export class EmailActivity {
@@ -71,6 +109,20 @@ export class EmailActivity {
   private readonly switches = viewChild(EmailSwitches);
 
   protected readonly perPage = PER_PAGE;
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly inlineLinkClass = EMAIL_INLINE_LINK_CLASS;
+  protected readonly keyClass = EMAIL_KEY_CLASS;
+  protected readonly groupHeadClass = EMAIL_GROUP_HEAD_CLASS;
+  protected readonly groupStartClass = EMAIL_GROUP_START_CLASS;
   protected readonly resendUrl = resendEmailDashboardUrl;
 
   // ── Summary ────────────────────────────────────────────────────────────────
@@ -344,26 +396,27 @@ export class EmailActivity {
   protected outcomeLabel = outcomeLabel;
   protected deliveryLabel = deliveryLabel;
 
-  /** True for the two outcomes that mean the mail did not go: worth a second look. */
-  protected isFailure(outcome: string): boolean {
-    return outcome === 'failed' || outcome === 'unknown';
+  /** A send outcome's chip tone (`ADMIN_STATUS_TONES`). */
+  protected outcomeTone(outcome: AdminEmailSendOutcome): ConsoleChipTone {
+    return adminStatusTone(outcomeStatusKey(outcome));
   }
 
-  /** True for the two delivery events an operator must act on. */
-  protected isProblem(event: AdminEmailDeliveryEvent): boolean {
-    return event === 'bounced' || event === 'complained';
+  /** A delivery report's chip tone (`ADMIN_STATUS_TONES`). */
+  protected deliveryTone(event: AdminEmailDeliveryEvent): ConsoleChipTone {
+    return adminStatusTone(deliveryStatusKey(event));
   }
 
-  /** A plain count. A zero is a fact, so it stays, but quietly: a table of zeros at full
-   *  weight hides the one number that matters. Tertiary is safe here (base surface). */
+  /** A plain count, a console number cell. A zero is a fact, so it stays, but quietly: a
+   *  table of zeros at full weight hides the one number that matters. Secondary, not
+   *  tertiary, because a row takes the muted fill on hover. */
   protected countClass(n: number): string {
-    return n > 0 ? 'text-(--text-primary)' : 'text-(--text-tertiary)';
+    return `${CONSOLE_TABLE.num} ${n > 0 ? 'text-(--text-primary)' : 'text-(--text-secondary)'}`;
   }
 
   /** A count an operator must act on (failed, bounced, spam). The number carries the
    *  meaning; the colour and weight only draw the eye. */
   protected problemClass(n: number): string {
-    return n > 0 ? 'font-bold text-(--status-error)' : 'text-(--text-tertiary)';
+    return `${CONSOLE_TABLE.num} ${n > 0 ? 'font-semibold text-(--status-error)' : 'text-(--text-secondary)'}`;
   }
 
   /** The summary's send-outcome columns, in order. `paused` (AECI-1224) is last. */
@@ -379,7 +432,7 @@ export class EmailActivity {
 
   /** `unknown`: the mail may or may not have gone. Warning hue, not error. */
   protected cautionClass(n: number): string {
-    return n > 0 ? 'font-bold text-(--accent-secondary-deep)' : 'text-(--text-tertiary)';
+    return `${CONSOLE_TABLE.num} ${n > 0 ? 'font-semibold text-(--accent-secondary-deep)' : 'text-(--text-secondary)'}`;
   }
 
   /** The related entity's kind, in words. The admin path already says whether a request is
@@ -414,6 +467,47 @@ export class EmailActivity {
   protected eventDate(value: string): Date | null {
     const ms = Date.parse(value);
     return Number.isNaN(ms) ? null : new Date(ms);
+  }
+}
+
+/**
+ * Each ledger outcome's console status (AECI-2128). Exhaustive, so a new outcome is a
+ * compile error. `unknown` is the email ledger's own key: a send nobody can confirm.
+ */
+function outcomeStatusKey(outcome: AdminEmailSendOutcome): AdminStatusKey {
+  switch (outcome) {
+    case 'sending':
+      return 'sending';
+    case 'sent':
+      return 'sent';
+    case 'failed':
+      return 'failed';
+    case 'unknown':
+      return 'emailUnconfirmed';
+    case 'skipped':
+      return 'skipped';
+    case 'suppressed':
+      return 'suppressed';
+    case 'duplicate':
+      return 'duplicate';
+    case 'paused':
+      return 'paused';
+  }
+}
+
+/** Each Resend delivery event's console status (AECI-2128). Exhaustive, as above. */
+function deliveryStatusKey(event: AdminEmailDeliveryEvent): AdminStatusKey {
+  switch (event) {
+    case 'sent':
+      return 'acceptedByProvider';
+    case 'delivered':
+      return 'delivered';
+    case 'delivery_delayed':
+      return 'delayed';
+    case 'bounced':
+      return 'bounced';
+    case 'complained':
+      return 'markedAsSpam';
   }
 }
 

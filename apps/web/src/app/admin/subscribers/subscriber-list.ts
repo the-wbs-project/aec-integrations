@@ -12,11 +12,22 @@ import {
 } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
-import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
+import { AecIcon } from '../../shared/icon/icon';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminSubscribersApi } from './admin-subscribers-api';
 import { isReplayedEvent } from '../../core/event-replay';
+import { CONSOLE_FOREST_LINK_CLASS } from '../console/console-detail';
 
 /**
  * Rows per page. The shared `PageQuerySchema` default, and unchanged from it on
@@ -66,7 +77,7 @@ const PER_PAGE = 24;
  */
 @Component({
   selector: 'aec-subscriber-list',
-  imports: [RouterLink, AdminPaginator, AecSelect, SortHeader, DatePipe],
+  imports: [RouterLink, AdminPaginator, AecButton, AecIcon, Chip, SortHeader, DatePipe],
   templateUrl: './subscriber-list.html',
 })
 export class SubscriberList {
@@ -104,7 +115,24 @@ export class SubscriberList {
   protected readonly sort = signal<AdminSubscribersSort>('created_at');
   protected readonly order = signal<SortOrder>(ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER['created_at']);
 
-  protected readonly statusOptions: readonly AecSelectOption[] = [
+  /** The console recipe (AECI-2125). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly inTextLinkClass = CONSOLE_FOREST_LINK_CLASS;
+  protected readonly tone = adminStatusTone;
+  /** The email identity cell: a long address breaks rather than widening the row. */
+  protected readonly rowHeadClass = `${CONSOLE_TABLE.rowHead} break-all`;
+  /** A second line holding a URL or free text, which may be one long word. */
+  protected readonly subBreakClass = `${CONSOLE_TABLE.sub} [overflow-wrap:anywhere]`;
+  /** The search box: the field recipe, capped so it never pushes the filter row wide. */
+  protected readonly searchInputClass = `${FIELD_INPUT_CLASS} min-w-0 max-w-64 flex-1`;
+
+  protected readonly statusOptions: ReadonlyArray<{
+    readonly value: AdminSubscriberStatusFilter;
+    readonly label: string;
+  }> = [
     { value: 'all', label: $localize`:@@admin.subscribers.filter.status.all:Everyone` },
     { value: 'active', label: $localize`:@@admin.subscribers.filter.status.active:Subscribed` },
     {

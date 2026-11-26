@@ -38,6 +38,7 @@ Scope: `.context/mockups/5-statement-first.html`, `6-product-detail.html`, `7-pr
 - **Rule**: Selected facets and active chips take the Forest-soft wash. DESIGN.md line 182: "fills for selected facets, active chips." The active route is Forest text with a 2px Forest underline (line 941).
 - **New design**: Pages 5 to 8. `.obj[aria-pressed="true"]`, `.seg button[aria-pressed]`, `.snl a[aria-current]`, `.rail a[aria-current]` and `a.tagchip:hover` fill `var(--brand)` with white text. `.viewtog button[aria-pressed="true"] { background: var(--ink) }` fills near-black.
 - **Stakes**: The rule keeps "selected" quiet so the one primary action stays the loudest thing on the page. A solid-Forest pressed segment already ships (`.aec-period[aria-pressed='true']`, line 656), so this is half precedent. The black toggle has no precedent. Not linted.
+- **Later**: AECI-1729 deleted the `.aec-period` rule from `styles.css`, because its Views toggle had left the page. The portal and console segmented pieces now carry the solid-Forest pressed segment.
 - **Size**: M
 - **Recommendation**: combine. Allow a solid Forest fill for pressed segmented controls and toggles, using the shipped period-toggle precedent. Keep the wash for selected filter chips, and make the view toggle Forest, never ink.
 

@@ -1,4 +1,8 @@
-<p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.intro">
+<!-- AECI-2124: the Billing tab on the console recipe (mock-up 14). Each section is a flat
+     console panel, its tables the console table, its statuses dense chips on the shared
+     tones. The projected controls sit in the account rows and the Subscriptions panel
+     without a box of their own. -->
+<p [class]="captionClass" class="max-w-prose" i18n="@@admin.vendors.billing.intro">
   Managed is sold as subscriptions on a billing account. A subscription puts one product on Managed
   once the vendor assigns it, and assignment is the vendor's. A grant becomes subscriptions only
   once an owner accepts it or you record a signed deal. Nothing on this tab changes ranking or
@@ -6,21 +10,20 @@
 </p>
 
 @if (loading()) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.loading">
+<p [class]="statusLineClass" i18n="@@admin.vendors.billing.loading">
   Loading this vendor's billing…
 </p>
 } @else if (failed()) {
-<div
-  role="alert"
-  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.billing.error">
+<div role="alert" [class]="loadFailedClass">
+  <p [class]="failedTextClass" i18n="@@admin.vendors.billing.error">
     We couldn't load this vendor's billing.
   </p>
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     (click)="retry.emit()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.vendors.billing.retry"
   >
     Try again
@@ -31,7 +34,7 @@
 <!-- The ban banner (E4.5): any live license flagged to end instead of renewing. -->
 @if (cancellingCount() > 0) {
 <p
-  class="mt-4 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+  [class]="noticeClass"
   role="note"
   data-testid="billing-cancel-banner"
   i18n="@@admin.vendors.billing.cancelBanner"
@@ -42,7 +45,7 @@
 </p>
 @if (cancellingOpenEndedCount() > 0) {
 <p
-  class="mt-2 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+  [class]="noticeClass"
   role="note"
   data-testid="billing-cancel-open-ended"
   i18n="@@admin.vendors.billing.cancelBannerOpenEnded"
@@ -54,101 +57,103 @@
 } }
 
 <!-- ── Billing account ─────────────────────────────────────────────────── -->
-<section class="mt-6" aria-labelledby="admin-vendor-billing-account">
-  <h3
-    id="admin-vendor-billing-account"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.account.heading"
-  >
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-account">
+  <h3 id="admin-vendor-billing-account" i18n="@@admin.vendors.billing.account.heading">
     Billing account
   </h3>
 
   @if (account(); as a) {
-  <dl class="mt-2 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.name">Name</dt>
-    <dd class="font-medium text-(--text-primary)">{{ a.name }}</dd>
+  <!-- One labelled row per fact, as the console's inline control draws it: the label,
+       then the value. The legal name and the billing email rows hold their projected
+       edit controls. -->
+  <dl class="mt-4">
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.name">Name</dt>
+      <dd [class]="accountValueClass" class="font-semibold">{{ a.name }}</dd>
+    </div>
 
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.legalName">
-      Legal name
-    </dt>
-    <dd class="text-(--text-primary)">
-      <!-- AECI-1625: the host projects the edit control here. The static value is the
-           fallback when nothing is projected. -->
-      <ng-content select="[legalName]">
-        <span class="font-medium">
-          @if (billing()?.legal_name; as legalName) { {{ legalName }} } @else {
-          <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
-          <span class="sr-only" i18n="@@admin.vendors.billing.account.legalNameNone"
-            >No legal name set</span
-          >
-          }
-        </span>
-      </ng-content>
-    </dd>
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.legalName">Legal name</dt>
+      <dd [class]="accountValueClass">
+        <!-- AECI-1625: the host projects the edit control here. The static value is the
+             fallback when nothing is projected. -->
+        <ng-content select="[legalName]">
+          <span class="font-semibold">
+            @if (billing()?.legal_name; as legalName) { {{ legalName }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.account.legalNameNone"
+              >No legal name set</span
+            >
+            }
+          </span>
+        </ng-content>
+      </dd>
+    </div>
 
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.email">
-      Billing email
-    </dt>
-    <dd class="text-(--text-primary)">
-      <!-- AECI-1381: the host projects the edit control here. The static value is the
-           fallback when nothing is projected. -->
-      <ng-content select="[billingEmail]">
-        <span class="font-medium">
-          @if (a.billing_email) { {{ a.billing_email }} } @else {
-          <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
-          <span class="sr-only" i18n="@@admin.vendors.billing.account.emailNone"
-            >No billing email set</span
-          >
-          }
-        </span>
-      </ng-content>
-    </dd>
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.email">Billing email</dt>
+      <dd [class]="accountValueClass">
+        <!-- AECI-1381: the host projects the edit control here. The static value is the
+             fallback when nothing is projected. -->
+        <ng-content select="[billingEmail]">
+          <span class="font-semibold">
+            @if (a.billing_email) { {{ a.billing_email }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.account.emailNone"
+              >No billing email set</span
+            >
+            }
+          </span>
+        </ng-content>
+      </dd>
+    </div>
 
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.stripe">
-      Stripe customer
-    </dt>
-    <dd class="font-mono text-xs text-(--text-primary)">
-      @if (a.stripe_customer_id) { {{ a.stripe_customer_id }} } @else {
-      <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
-      <span class="sr-only" i18n="@@admin.vendors.billing.account.stripeNone"
-        >No Stripe customer</span
-      >
-      }
-    </dd>
-
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.owners">
-      Owner seats
-    </dt>
-    <dd class="text-(--text-primary)">
-      @if (a.owner_seats.length === 0) {
-      <span class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.ownersNone"
-        >No owner seat. Only an owner seat can buy.</span
-      >
-      } @else {
-      <ul class="m-0 list-none space-y-1 p-0">
-        @for (seat of a.owner_seats; track seat.user_id) {
-        <li>
-          <span class="font-medium">{{ seatName(seat) }}</span>
-          @if (seat.banned) {
-          <span
-            class="ms-2 rounded-(--radius-sm) bg-(--surface-muted) px-1.5 py-0.5 text-xs font-bold text-(--text-primary)"
-            i18n="@@admin.vendors.billing.account.ownerBanned"
-            >Banned</span
-          >
-          }
-        </li>
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.stripe">Stripe customer</dt>
+      <dd [class]="accountValueClass" class="font-mono text-t-13">
+        @if (a.stripe_customer_id) { {{ a.stripe_customer_id }} } @else {
+        <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+        <span class="sr-only" i18n="@@admin.vendors.billing.account.stripeNone"
+          >No Stripe customer</span
+        >
         }
-      </ul>
-      }
-    </dd>
+      </dd>
+    </div>
 
-    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.created">Created</dt>
-    <dd class="text-(--text-primary)">{{ date(a.created_at) }}</dd>
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.owners">Owner seats</dt>
+      <dd [class]="accountValueClass">
+        @if (a.owner_seats.length === 0) {
+        <span class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.ownersNone"
+          >No owner seat. Only an owner seat can buy.</span
+        >
+        } @else {
+        <ul class="m-0 grid list-none gap-1 p-0">
+          @for (seat of a.owner_seats; track seat.user_id) {
+          <li class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold">{{ seatName(seat) }}</span>
+            @if (seat.banned) {
+            <aec-chip density="dense" [tone]="tone('banned')"
+              ><span i18n="@@admin.vendors.billing.account.ownerBanned">Banned</span></aec-chip
+            >
+            }
+          </li>
+          }
+        </ul>
+        }
+      </dd>
+    </div>
+
+    <div [class]="accountRowClass">
+      <dt [class]="labelClass" i18n="@@admin.vendors.billing.account.created">Created</dt>
+      <dd [class]="accountValueClass">{{ date(a.created_at) }}</dd>
+    </div>
   </dl>
   } @else {
   <!-- Every vendor with a seat or an entitlement was back-filled an account (E1). -->
   <p
-    class="mt-2 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    [class]="noticeClass"
+    class="mt-4"
     role="note"
     data-testid="billing-no-account"
     i18n="@@admin.vendors.billing.account.none"
@@ -161,64 +166,78 @@
 
 <!-- ── Licenses ────────────────────────────────────────────────────────── -->
 @if (account()) {
-<section class="mt-6" aria-labelledby="admin-vendor-billing-licenses">
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-licenses">
   <!-- tabindex="-1": a ban-term grant that hides its control returns focus here (AECI-1989). -->
   <h3
     id="admin-vendor-billing-licenses"
     tabindex="-1"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    class="focus-visible:outline-3 focus-visible:outline-offset-3"
     i18n="@@admin.vendors.billing.licenses.heading"
   >
     Subscriptions
   </h3>
 
-  <div class="mt-2">
+  <div class="mt-4 grid gap-6">
     <ng-content select="[billingGrant]" />
   </div>
 
   @if (rows().length === 0) {
-  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.empty">
+  <p [class]="t.empty" class="mt-6 max-w-prose" i18n="@@admin.vendors.billing.licenses.empty">
     No subscriptions on this account. The vendor is on Free until one is granted or bought and
     assigned.
   </p>
   } @else {
-  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.count">
-    {liveCount(), plural, =1 {1 live subscription} other {{{liveCount()}} live subscriptions}} of {{
-    rows().length }} on record. Live first, then ended.
-  </p>
-  @if (b.licenses_truncated) {
-  <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.truncated">
-    Showing the first {{ rows().length }}. The oldest ended subscriptions are not listed.
-  </p>
-  } @if (bulkActions(); as bulk) { @if (selectedRows().length > 0 || bulkPending()) {
+  <div class="mt-6 grid gap-1">
+    <p [class]="captionClass" i18n="@@admin.vendors.billing.licenses.count">
+      {liveCount(), plural, =1 {1 live subscription} other {{{liveCount()}} live subscriptions}} of
+      {{ rows().length }} on record. Live first, then ended.
+    </p>
+    @if (b.licenses_truncated) {
+    <p [class]="captionClass" i18n="@@admin.vendors.billing.licenses.truncated">
+      Showing the first {{ rows().length }}. The oldest ended subscriptions are not listed.
+    </p>
+    }
+  </div>
+  @if (bulkActions(); as bulk) { @if (selectedRows().length > 0 || bulkPending()) {
   <div
-    class="mt-3 flex flex-wrap items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3"
+    class="mt-4 flex flex-wrap items-start gap-x-6 gap-y-3 border-t border-(--border-default) pt-4"
     data-testid="billing-bulk-bar"
   >
     <p
-      class="py-1.5 text-sm font-bold text-(--text-primary)"
+      class="flex min-h-11 items-center text-t-14 font-semibold text-(--text-primary)"
       i18n="@@admin.vendors.billing.licenses.selectedCount"
     >
       {selectedRows().length, plural, =1 {1 subscription selected} other {{{selectedRows().length}}
       subscriptions selected}}
     </p>
-    <div class="min-w-0 flex-1">
+    <div class="w-full min-w-0 md:w-auto md:flex-1">
       <ng-container [ngTemplateOutlet]="bulk" [ngTemplateOutletContext]="bulkContext()" />
     </div>
   </div>
   } }
-  <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[56rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.billing.licenses.caption">
+  <div
+    [class]="t.region"
+    class="mt-4"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-vendor-billing-licenses-caption"
+  >
+    <table [class]="t.table" class="min-w-[56rem]">
+      <caption
+        id="admin-vendor-billing-licenses-caption"
+        [class]="t.caption"
+        i18n="@@admin.vendors.billing.licenses.caption"
+      >
         Subscriptions on this billing account, live first
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
+        <tr>
           @if (bulkActions()) {
-          <th scope="col" class="w-10 py-2 pe-3 text-start">
+          <th scope="col" [class]="t.head" class="w-11">
             <input
               type="checkbox"
-              class="size-4 accent-(--text-primary) align-middle"
+              [class]="choiceClass"
+              class="align-middle"
               [checked]="allSelected()"
               [indeterminate]="someSelected()"
               [disabled]="liveCount() === 0 || bulkPending()"
@@ -229,61 +248,29 @@
             />
           </th>
           }
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.product"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.product">
             Product
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.source"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.source">
             Source
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.starts"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.starts">
             Starts
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.ends"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.ends">
             Ends
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.status"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.status">
             Status
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.stripe"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.stripe">
             Stripe plan
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.terms"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.licenses.col.terms">
             Terms version
           </th>
           @if (rowActions()) {
-          <th
-            scope="col"
-            class="py-2 text-end font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.licenses.col.actions"
-          >
+          <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.billing.licenses.col.actions">
             Actions
           </th>
           }
@@ -291,20 +278,21 @@
       </thead>
       <tbody>
         @for (row of rows(); track row.license.id) {
-        <!-- AECI-1866: an ended row is dimmed so the live rows stand out. The admin table keeps
-             one list (no chips, no ended group): bulk select spans it and operators read
-             the whole history at once. -->
+        <!-- AECI-1866: an ended row is dimmed so the live rows stand out. The admin table
+             keeps one list (no ended group): bulk select spans it and operators read the
+             whole history at once. -->
         <tr
-          class="border-b border-(--border-default) align-top"
+          [class]="isSelected(row) ? t.rowSelected : t.row"
           data-testid="billing-license-row"
           [attr.data-ended]="row.license.live ? null : ''"
         >
           @if (bulkActions()) {
-          <td class="w-10 py-2.5 pe-3 text-start">
+          <td [class]="t.cell" class="w-11">
             @if (row.license.live) {
             <input
               type="checkbox"
-              class="mt-1.5 size-4 accent-(--text-primary)"
+              [class]="choiceClass"
+              class="align-middle"
               [checked]="isSelected(row)"
               [disabled]="bulkPending()"
               (change)="toggle(row, checked($event))"
@@ -314,13 +302,9 @@
             }
           </td>
           }
-          <th
-            scope="row"
-            class="py-2.5 pe-4 text-start font-bold"
-            [class]="row.license.live ? 'text-(--text-primary)' : 'text-(--text-secondary)'"
-          >
+          <th scope="row" [class]="row.license.live ? t.rowHead : endedRowHeadClass">
             @if (row.license.assigned_product; as p) { {{ p.name }}
-            <span class="block text-xs font-normal text-(--text-tertiary)">{{ p.slug }}</span>
+            <span [class]="t.sub">{{ p.slug }}</span>
             } @else {
             <span
               class="font-normal text-(--text-secondary)"
@@ -330,36 +314,41 @@
             }
           </th>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">
             {{ row.sourceLabel }} @if (row.license.reference) {
-            <span class="block text-xs text-(--text-tertiary)">{{ row.license.reference }}</span>
+            <span [class]="t.sub">{{ row.license.reference }}</span>
             }
           </td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.startsLabel }}</td>
+          <td [class]="t.nowrap" class="text-(--text-secondary)">{{ row.startsLabel }}</td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
+          <td [class]="t.nowrap" class="text-(--text-secondary)">{{ row.endsLabel }}</td>
 
-          <td
-            class="py-2.5 pe-4"
-            [class]="row.license.live ? 'text-(--text-primary)' : 'text-(--text-secondary)'"
-          >
-            {{ row.statusLabel }} @if (row.cancelLabel) {
-            <span
-              class="mt-1 block text-xs font-bold text-(--text-primary)"
-              data-testid="billing-license-cancel"
-              >{{ row.cancelLabel }}</span
-            >
-            } @if (row.license.live && row.license.release_at_renewal) {
-            <span
-              class="mt-1 block text-xs text-(--text-secondary)"
-              i18n="@@admin.vendors.billing.licenses.releaseAtRenewal"
+          <td [class]="t.cell">
+            <div class="flex flex-wrap items-center gap-1">
+              <aec-chip
+                density="dense"
+                [tone]="tone(row.license.live ? 'live' : 'ended')"
+                data-testid="billing-license-status"
+                >{{ row.statusLabel }}</aec-chip
+              >
+              @if (row.cancelLabel) {
+              <aec-chip
+                density="dense"
+                [tone]="tone('cancelsAtTermEnd')"
+                data-testid="billing-license-cancel"
+                >{{ row.cancelLabel }}</aec-chip
+              >
+              }
+            </div>
+            @if (row.license.live && row.license.release_at_renewal) {
+            <span [class]="t.sub" i18n="@@admin.vendors.billing.licenses.releaseAtRenewal"
               >Released from its product at renewal</span
             >
             }
           </td>
 
-          <td class="py-2.5 pe-4 font-mono text-xs text-(--text-secondary)">
+          <td [class]="t.cell" class="font-mono text-t-13 text-(--text-secondary)">
             @if (row.license.stripe_subscription_id) {
             <span class="break-all">{{ row.license.stripe_subscription_id }}</span>
             } @else {
@@ -370,7 +359,7 @@
             }
           </td>
 
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">
             @if (row.license.terms_version) { {{ row.license.terms_version }} } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.licenses.termsNone"
@@ -380,11 +369,13 @@
           </td>
 
           @if (rowActions(); as actions) {
-          <td class="py-2.5 text-end">
-            <ng-container
-              [ngTemplateOutlet]="actions"
-              [ngTemplateOutletContext]="rowContext(row)"
-            />
+          <td [class]="t.act">
+            <div class="py-1">
+              <ng-container
+                [ngTemplateOutlet]="actions"
+                [ngTemplateOutletContext]="rowContext(row)"
+              />
+            </div>
           </td>
           }
         </tr>
@@ -400,101 +391,65 @@
      A grant waits for an owner's accept in the portal, or a recorded signed deal,
      before any subscription exists. Grants live before AECI-1615 have no row here. -->
 @if (account()) {
-<section class="mt-6" aria-labelledby="admin-vendor-billing-grants">
-  <h3
-    id="admin-vendor-billing-grants"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.grants.heading"
-  >
-    Grants
-  </h3>
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-grants">
+  <h3 id="admin-vendor-billing-grants" i18n="@@admin.vendors.billing.grants.heading">Grants</h3>
 
   @if (grantRows().length === 0) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.grants.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.grants.empty">
     No grants on record. A grant made before grants waited for acceptance went live at once and is
     not listed here.
   </p>
   } @else { @if (b.grants_truncated) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.grants.truncated">
+  <p
+    [class]="captionClass"
+    class="mt-4 max-w-prose"
+    i18n="@@admin.vendors.billing.grants.truncated"
+  >
     Showing the first {{ grantRows().length }}.
   </p>
   }
-  <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[64rem] border-collapse text-sm" data-testid="billing-grants">
-      <caption class="sr-only" i18n="@@admin.vendors.billing.grants.caption">
+  <div
+    [class]="t.region"
+    class="mt-4"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-vendor-billing-grants-caption"
+  >
+    <table [class]="t.table" class="min-w-[64rem]" data-testid="billing-grants">
+      <caption
+        id="admin-vendor-billing-grants-caption"
+        [class]="t.caption"
+        i18n="@@admin.vendors.billing.grants.caption"
+      >
         License grants, waiting first, then newest first
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.status"
-          >
+        <tr>
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.status">
             Status
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.kind"
-          >
-            Kind
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.quantity"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.kind">Kind</th>
+          <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.billing.grants.col.quantity">
             Quantity
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.source"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.source">
             Source
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.created"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.created">
             Created
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.ends"
-          >
-            Ends
-          </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.version"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.ends">Ends</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.version">
             Pinned version
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.method"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.method">
             Acceptance method
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.decided"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.grants.col.decided">
             Decided
           </th>
           @if (grantActions()) {
-          <th
-            scope="col"
-            class="py-2 text-end font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.grants.col.actions"
-          >
+          <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.billing.grants.col.actions">
             Actions
           </th>
           }
@@ -502,21 +457,23 @@
       </thead>
       <tbody>
         @for (row of grantRows(); track row.grant.id) {
-        <tr class="border-b border-(--border-default) align-top" data-testid="billing-grant-row">
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
-            {{ row.statusLabel }}
+        <tr [class]="t.row" data-testid="billing-grant-row">
+          <th scope="row" [class]="t.rowHead">
+            <aec-chip density="dense" [tone]="tone(grantStatusKey(row.grant.status))"
+              >{{ row.statusLabel }}</aec-chip
+            >
           </th>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.kindLabel }}</td>
-          <td class="py-2.5 pe-4 tabular-nums text-(--text-secondary)">{{ row.grant.quantity }}</td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">{{ row.kindLabel }}</td>
+          <td [class]="t.num" class="text-(--text-secondary)">{{ row.grant.quantity }}</td>
+          <td [class]="t.cell" class="text-(--text-secondary)">
             {{ row.sourceLabel }} @if (row.grant.reference) {
-            <span class="block text-xs text-(--text-tertiary)">{{ row.grant.reference }}</span>
+            <span [class]="t.sub">{{ row.grant.reference }}</span>
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.createdLabel }}</td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.grant.terms_version }}</td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.nowrap" class="text-(--text-secondary)">{{ row.createdLabel }}</td>
+          <td [class]="t.nowrap" class="text-(--text-secondary)">{{ row.endsLabel }}</td>
+          <td [class]="t.cell" class="text-(--text-secondary)">{{ row.grant.terms_version }}</td>
+          <td [class]="t.cell" class="text-(--text-secondary)">
             @if (row.methodLabel; as method) { {{ method }} } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.grants.methodNone"
@@ -524,22 +481,22 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">
             @if (row.decidedLabel; as decided) { {{ decided }} @if (row.grant.withdraw_reason) {
-            <span class="block text-xs text-(--text-tertiary)"
-              >{{ row.grant.withdraw_reason }}</span
-            >
+            <span [class]="t.sub">{{ row.grant.withdraw_reason }}</span>
             } } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.grants.undecided">Not decided</span>
             }
           </td>
           @if (grantActions(); as actions) {
-          <td class="py-2.5 text-end">
-            <ng-container
-              [ngTemplateOutlet]="actions"
-              [ngTemplateOutletContext]="grantContext(row)"
-            />
+          <td [class]="t.act">
+            <div class="py-1">
+              <ng-container
+                [ngTemplateOutlet]="actions"
+                [ngTemplateOutletContext]="grantContext(row)"
+              />
+            </div>
           </td>
           }
         </tr>
@@ -552,144 +509,106 @@
 }
 
 <!-- ── Agreement acceptances (E2.4) ────────────────────────────────────── -->
-<section class="mt-6" aria-labelledby="admin-vendor-billing-acceptances">
-  <h3
-    id="admin-vendor-billing-acceptances"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.acceptances.heading"
-  >
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-acceptances">
+  <h3 id="admin-vendor-billing-acceptances" i18n="@@admin.vendors.billing.acceptances.heading">
     Agreement acceptances
   </h3>
 
   @if (acceptances().length === 0) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.acceptances.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.acceptances.empty">
     No acceptances on record. A claim records the vendor terms. A Stripe checkout, an owner's accept
     of a grant, or a recorded signed deal records the Managed plan agreement.
   </p>
   } @else { @if (b.acceptances_truncated) {
   <p
-    class="mt-2 text-sm text-(--text-secondary)"
+    [class]="captionClass"
+    class="mt-4 max-w-prose"
     i18n="@@admin.vendors.billing.acceptances.truncated"
   >
     Showing the newest {{ acceptances().length }}.
   </p>
   }
   <!-- AECI-1615: the Method and Grant columns widen this table, and AECI-1619's
-       Checkbox label column more. A narrow screen scrolls it, so the wrapper takes
+       Checkbox label column more. A narrow screen scrolls it, so the region takes
        focus to scroll by keyboard (WCAG 2.1.1). -->
   <div
-    class="mt-2 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    [class]="t.region"
+    class="mt-4"
     tabindex="0"
     role="region"
-    aria-labelledby="admin-vendor-billing-acceptances"
+    aria-labelledby="admin-vendor-billing-acceptances-caption"
   >
-    <table class="w-full min-w-[80rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.billing.acceptances.caption">
+    <table [class]="t.table" class="min-w-[80rem]">
+      <caption
+        id="admin-vendor-billing-acceptances-caption"
+        [class]="t.caption"
+        i18n="@@admin.vendors.billing.acceptances.caption"
+      >
         Agreement acceptances, newest first
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.document"
-          >
+        <tr>
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.document">
             Agreement
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.by"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.by">
             Accepted by
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.label"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.label">
             Checkbox label
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.signer"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.signer">
             Signer
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.source"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.source">
             Where
           </th>
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            [class]="t.head"
             i18n="@@admin.vendors.billing.grants.acceptances.col.method"
           >
             Method
           </th>
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            [class]="t.head"
             i18n="@@admin.vendors.billing.grants.acceptances.col.grant"
           >
             Grant
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.when"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.when">
             Accepted
           </th>
-          <th
-            scope="col"
-            class="py-2 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.acceptances.col.ip"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.acceptances.col.ip">
             IP address
           </th>
         </tr>
       </thead>
       <tbody>
         @for (a of acceptances(); track a.id) {
-        <tr class="border-b border-(--border-default) align-top">
-          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+        <tr [class]="t.row">
+          <th scope="row" [class]="t.rowHead">
             {{ documentLabel(a.document) }}
-            <span
-              class="block text-xs font-normal text-(--text-tertiary)"
-              i18n="@@admin.vendors.billing.acceptances.version"
+            <span [class]="t.sub" i18n="@@admin.vendors.billing.acceptances.version"
               >Version {{ a.version }}</span
             >
             <!-- AECI-1619: the evidence each acceptance carries beside its version. -->
             @if (policiesLabel(a); as policies) {
-            <span
-              class="block text-xs font-normal text-(--text-secondary)"
-              data-testid="acceptance-policies"
-              >{{ policies }}</span
-            >
+            <span [class]="t.sub" data-testid="acceptance-policies">{{ policies }}</span>
             } @if (plansPage(a); as plans) { @if (plans.href; as plansHref) {
-            <a
-              [routerLink]="plansHref"
-              class="block w-fit text-xs font-normal text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              data-testid="acceptance-plans-page"
+            <a [routerLink]="plansHref" [class]="plansLinkClass" data-testid="acceptance-plans-page"
               >{{ plans.label }}</a
             >
             } @else {
-            <span
-              class="block text-xs font-normal text-(--text-secondary)"
-              data-testid="acceptance-plans-page"
-              >{{ plans.label }}</span
-            >
+            <span [class]="t.sub" data-testid="acceptance-plans-page">{{ plans.label }}</span>
             } }
           </th>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ a.email }}</td>
+          <td [class]="t.cell" class="text-(--text-secondary)">{{ a.email }}</td>
           <!-- AECI-1619 (ruling 16): the exact words beside the box, as stored. -->
           <td
-            class="min-w-[16rem] py-2.5 pe-4 text-xs text-(--text-secondary)"
+            [class]="t.cell"
+            class="min-w-[16rem] text-t-13 text-(--text-secondary)"
             data-testid="acceptance-label"
           >
             @if (a.checkbox_label) { {{ a.checkbox_label }} } @else {
@@ -699,7 +618,7 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-signer">
+          <td [class]="t.cell" class="text-(--text-secondary)" data-testid="acceptance-signer">
             @if (a.signer_name || a.signer_title || a.company_legal_name) { @if (a.signer_name) {
             <span class="block">{{ a.signer_name }}</span>
             } @if (a.signer_title) {
@@ -713,14 +632,14 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ acceptanceSourceLabel(a.source) }}</td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-method">
+          <td [class]="t.cell" class="text-(--text-secondary)">
+            {{ acceptanceSourceLabel(a.source) }}
+          </td>
+          <td [class]="t.cell" class="text-(--text-secondary)" data-testid="acceptance-method">
             @if (methodLabel(a.method); as method) { {{ method }} @if (a.deal_reference) {
-            <span class="block text-xs text-(--text-tertiary)">{{ a.deal_reference }}</span>
+            <span [class]="t.sub">{{ a.deal_reference }}</span>
             } @if (a.deal_signed_at) {
-            <span
-              class="block text-xs text-(--text-tertiary)"
-              i18n="@@admin.vendors.billing.grants.acceptances.signedOn"
+            <span [class]="t.sub" i18n="@@admin.vendors.billing.grants.acceptances.signedOn"
               >Signed {{ date(a.deal_signed_at) }}</span
             >
             } } @else {
@@ -730,13 +649,11 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-grant">
+          <td [class]="t.cell" class="text-(--text-secondary)" data-testid="acceptance-grant">
             @if (a.license_grant_id) {
-            <span class="block break-all font-mono text-xs">{{ a.license_grant_id }}</span>
+            <span class="block break-all font-mono text-t-13">{{ a.license_grant_id }}</span>
             @if (a.grant_ends_at) {
-            <span
-              class="block text-xs text-(--text-tertiary)"
-              i18n="@@admin.vendors.billing.grants.acceptances.ends"
+            <span [class]="t.sub" i18n="@@admin.vendors.billing.grants.acceptances.ends"
               >Ends {{ date(a.grant_ends_at) }}</span
             >
             } } @else {
@@ -746,8 +663,8 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
-          <td class="py-2.5 font-mono text-xs text-(--text-secondary)">
+          <td [class]="t.nowrap" class="text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
+          <td [class]="t.cell" class="font-mono text-t-13 text-(--text-secondary)">
             @if (a.ip) { {{ a.ip }} } @else if (a.evidence_removed_at) {
             <span
               class="font-sans text-(--text-secondary)"
@@ -772,25 +689,21 @@
 
 <!-- ── Policy versions (AECI-1969, counsel Q68, ruling 54) ────────────────── -->
 @if (policyVersions().length > 0) {
-<section class="mt-6" aria-labelledby="admin-vendor-billing-policies">
-  <h3
-    id="admin-vendor-billing-policies"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.policies.heading"
-  >
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-policies">
+  <h3 id="admin-vendor-billing-policies" i18n="@@admin.vendors.billing.policies.heading">
     Policy versions this company is on
   </h3>
-  <p
-    class="mt-2 max-w-[72ch] text-sm text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.policies.intro"
-  >
+  <p [class]="captionClass" class="mt-2 max-w-[72ch]" i18n="@@admin.vendors.billing.policies.intro">
     The version its latest Vendor Terms acceptance recorded, or a later one whose change email
     reached the company and whose effective date has passed.
   </p>
-  <ul class="mt-2 space-y-2 text-sm">
+  <ul class="mt-4 grid">
     @for (p of policyVersions(); track p.policy) {
-    <li data-testid="billing-policy-version">
-      <span class="font-bold text-(--text-primary)">{{ policyTitle(p.policy) }}</span>
+    <li
+      class="grid gap-1 border-b border-(--border-default) py-3 text-t-14 first:border-t"
+      data-testid="billing-policy-version"
+    >
+      <span class="font-semibold text-(--text-primary)">{{ policyTitle(p.policy) }}</span>
       <span class="block text-(--text-secondary)">{{ policyLine(p) }}</span>
       @if (p.missed_versions.length > 0) {
       <span class="block text-(--text-secondary)" data-testid="billing-policy-missed"
@@ -808,83 +721,69 @@
 }
 
 <!-- ── Early-unassign requests (decision 11; AECI-1373) ───────────────────── -->
-<section class="mt-6" aria-labelledby="admin-vendor-billing-releases">
-  <h3
-    id="admin-vendor-billing-releases"
-    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.releases.heading"
-  >
+<section [class]="panelClass" aria-labelledby="admin-vendor-billing-releases">
+  <h3 id="admin-vendor-billing-releases" i18n="@@admin.vendors.billing.releases.heading">
     Early-unassign requests
   </h3>
 
   @if (releaseRequests().length === 0) {
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.releases.empty">
+  <p [class]="t.empty" class="mt-4 max-w-prose" i18n="@@admin.vendors.billing.releases.empty">
     No early-unassign requests. A subscription stays on its product until renewal unless the vendor
     asks AEC Integrations to take it off sooner.
   </p>
   } @else { @if (hasOpenRelease()) {
-  <p class="mt-2 text-sm text-(--text-secondary)" data-testid="billing-release-open-note">
+  <p [class]="captionClass" class="mt-4 max-w-prose" data-testid="billing-release-open-note">
     <span i18n="@@admin.vendors.billing.releases.openNote"
       >Approve or decline an open request on the requests screen.</span
     >{{ ' ' }}<a
       href="/admin/requests"
-      class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="inlineLinkClass"
       i18n="@@admin.vendors.billing.releases.openLink"
       >Open requests</a
     >
   </p>
   }
-  <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[40rem] border-collapse text-sm">
-      <caption class="sr-only" i18n="@@admin.vendors.billing.releases.caption2">
+  <div
+    [class]="t.region"
+    class="mt-4"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-vendor-billing-releases-caption"
+  >
+    <table [class]="t.table" class="min-w-[40rem]">
+      <caption
+        id="admin-vendor-billing-releases-caption"
+        [class]="t.caption"
+        i18n="@@admin.vendors.billing.releases.caption2"
+      >
         Early-unassign requests, open first, then newest first
       </caption>
       <thead>
-        <tr class="border-b border-(--border-strong)">
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.releases.col.requested"
-          >
+        <tr>
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.releases.col.requested">
             Requested
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.releases.col.product"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.releases.col.product">
             Product
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.releases.col.reason"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.releases.col.reason">
             Reason
           </th>
-          <th
-            scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.releases.col.status"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.releases.col.status">
             Status
           </th>
-          <th
-            scope="col"
-            class="py-2 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.vendors.billing.releases.col.decided"
-          >
+          <th scope="col" [class]="t.head" i18n="@@admin.vendors.billing.releases.col.decided">
             Decided
           </th>
         </tr>
       </thead>
       <tbody>
         @for (r of releaseRequests(); track r.id) {
-        <tr class="border-b border-(--border-default) align-top">
-          <th scope="row" class="py-2.5 pe-4 text-start font-medium text-(--text-primary)">
+        <tr [class]="t.row">
+          <th scope="row" [class]="t.rowHead" class="whitespace-nowrap">
             {{ date(r.created_at) }}
           </th>
-          <td class="py-2.5 pe-4 text-(--text-primary)">
+          <td [class]="t.cell">
             @if (r.product; as product) { {{ product.name }} } @else {
             <span
               class="text-(--text-secondary)"
@@ -893,11 +792,15 @@
             >
             }
           </td>
-          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ r.reason }}</td>
-          <td class="py-2.5 pe-4 text-(--text-primary)">{{ releaseStatusLabel(r.status) }}</td>
-          <td class="py-2.5 text-(--text-secondary)">
+          <td [class]="t.cell" class="text-(--text-secondary)">{{ r.reason }}</td>
+          <td [class]="t.cell">
+            <aec-chip density="dense" [tone]="tone(releaseStatusKey(r.status))"
+              >{{ releaseStatusLabel(r.status) }}</aec-chip
+            >
+          </td>
+          <td [class]="t.cell" class="text-(--text-secondary)">
             @if (r.decided_at) { {{ date(r.decided_at) }} @if (r.decision_note) {
-            <span class="block text-xs text-(--text-tertiary)">{{ r.decision_note }}</span>
+            <span [class]="t.sub">{{ r.decision_note }}</span>
             } } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.releases.undecided"

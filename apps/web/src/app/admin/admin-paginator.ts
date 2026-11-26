@@ -1,13 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
+import { AecButton } from '../shared/button/button';
+
 /**
  * Prev/next pagination for the admin panel (AECI-577).
  *
- * The existing admin queues do not paginate — they load `perPage=100` once and
- * show a truncation note, which works because a launch-scale moderation backlog
- * fits in one page. `page_views` does not: production holds ~26k rows and grows
- * ~1k/day, so the Activity feed is the first admin surface that has to page for
- * real, and §5.3/§5.5 will want the same control.
+ * `page_views` was the first admin list that had to page for real: production
+ * holds ~26k rows and grows ~1k/day, so the Activity feed pages on the server.
+ * The review queue pages the set it has loaded in the browser (AECI-2102),
+ * because its sorts run over that set. The other moderation queues still load
+ * `perPage=100` once and show a truncation note.
  *
  * Deliberately prev/next rather than numbered pages: the feed is scanned
  * chronologically, so "page 7" is not a destination anyone reasons about, and a
@@ -16,7 +18,13 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  * they are walking.
  *
  * Presentational: the parent owns `page` and refetches on `(pageChange)`.
- * `busy` disables both buttons while that refetch is in flight.
+ *
+ * FOCUS (AECI-2102). No button is ever natively disabled: a press that reached
+ * the first or last page, or started a refetch, would disable the focused button,
+ * and Chromium drops focus to `<body>`. An edge button is `aria-disabled` and its
+ * press does nothing. While `busy` the nav is `aria-busy` and both presses do
+ * nothing, without the dimmed look (DESIGN.md: a busy state does not set
+ * `aria-disabled`).
  *
  * Its sibling, `AdminCursorPaginator` (`admin-cursor-paginator.ts`), pages by
  * keyset cursor instead. Only `/admin/audit` uses it, because an append-only
@@ -25,39 +33,37 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  */
 @Component({
   selector: 'aec-admin-paginator',
+  imports: [AecButton],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (pageCount() > 1) {
+      <!-- AECI-1813, mock-up 14: the position on the start edge, Previous and Next
+           as compact secondary buttons on the end, 16px under the table. -->
       <nav
-        class="flex flex-wrap items-center justify-between gap-3 border-t border-(--border-default) pt-4"
+        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 pt-4"
         i18n-aria-label="@@admin.paginator.aria"
         aria-label="Pagination"
+        [attr.aria-busy]="busy() ? 'true' : null"
       >
-        <p class="text-xs text-(--text-secondary)">{{ positionLabel() }}</p>
+        <p class="text-t-14 tabular-nums text-(--text-secondary)">{{ positionLabel() }}</p>
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-3">
           <button
-            type="button"
-            [disabled]="busy() || page() <= 1"
+            aecButton
+            variant="secondary"
+            compact
+            [attr.aria-disabled]="page() <= 1 ? 'true' : null"
             (click)="go(page() - 1)"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-              bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-              transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.paginator.previous"
           >
             Previous
           </button>
           <button
-            type="button"
-            [disabled]="busy() || page() >= pageCount()"
+            aecButton
+            variant="secondary"
+            compact
+            [attr.aria-disabled]="page() >= pageCount() ? 'true' : null"
             (click)="go(page() + 1)"
-            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong)
-              bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary)
-              transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2
-              focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
-              disabled:cursor-not-allowed disabled:opacity-50"
             i18n="@@admin.paginator.next"
           >
             Next
@@ -74,7 +80,7 @@ export class AdminPaginator {
   readonly perPage = input.required<number>();
   /** Rows matching the current filters, not rows on this page. */
   readonly total = input.required<number>();
-  /** A refetch is in flight: both buttons disable. */
+  /** A refetch is in flight: both buttons ignore presses. */
   readonly busy = input(false);
   readonly pageChange = output<number>();
 
@@ -90,6 +96,7 @@ export class AdminPaginator {
   );
 
   protected go(page: number): void {
+    if (this.busy()) return;
     if (page < 1 || page > this.pageCount() || page === this.page()) return;
     this.pageChange.emit(page);
   }

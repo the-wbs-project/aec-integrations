@@ -1,40 +1,15 @@
+<!-- AECI-2102: one console table row per reply (mock-up 14). The review, the reply and
+     the decision sit in the row's expanded detail. -->
 <section aria-labelledby="admin-replies-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-replies-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.replies.heading"
-    >
-      Review replies
-    </h2>
-
-    <div class="flex flex-wrap items-center gap-2">
-      <span
-        id="admin-replies-status-label"
-        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@admin.replies.filter.label"
-        >Status</span
-      >
-      <div
-        role="group"
-        aria-labelledby="admin-replies-status-label"
-        class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-      >
-        @for (opt of statusOptions; track opt.key) {
-        <button
-          type="button"
-          (click)="setStatus(opt.key)"
-          [attr.aria-pressed]="statusFilter() === opt.key"
-          class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
-        >
-          {{ opt.label }}
-        </button>
-        }
-      </div>
-    </div>
-  </div>
-
-  <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.replies.intro">
+  <h2
+    id="admin-replies-heading"
+    tabindex="-1"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.replies.heading"
+  >
+    Review replies
+  </h2>
+  <p class="mt-2 max-w-[56ch] text-t-14 text-(--text-secondary)" i18n="@@admin.replies.intro">
     A vendor that owns a product has answered one of its reviews. Nothing shows on the product page
     until you approve it. A reply may say a problem is fixed and invite the reviewer to add an
     update. Reject a reply that names or guesses at the reviewer, asks for a rating or favorable
@@ -42,401 +17,328 @@
     because it disagrees with the review.
   </p>
 
+  <div [class]="f.toolbar">
+    <div [class]="f.group">
+      <span id="admin-replies-status-label" [class]="f.label" i18n="@@admin.replies.filter.label"
+        >Status</span
+      >
+      <div role="group" aria-labelledby="admin-replies-status-label" [class]="f.seg">
+        @for (opt of statusOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setStatus(opt.key)"
+          [attr.aria-pressed]="statusFilter() === opt.key"
+          [class]="f.option"
+        >
+          @if (statusFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+  </div>
+
   <!-- The one polite live region. Visible, so the reload after a lost race is not a silent jump. -->
   <p
     role="status"
     aria-live="polite"
     [class.mt-4]="liveMessage()"
-    class="text-sm font-medium text-(--text-primary)"
+    class="text-t-14 font-semibold text-(--text-primary)"
   >
     {{ liveMessage() }}
   </p>
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.replies.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.replies.loading">
     Loading review replies…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div class="mt-6 space-y-4">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.replies.loadFailed"
     >
       We couldn't load review replies. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.replies.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.replies.retry">
       Try again
     </button>
   </div>
   } @else if (visibleReplies().length === 0) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.replies.empty">
-    No replies have this status.
-  </p>
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.replies.empty">No replies have this status.</p>
   } @else { @if (truncated()) {
-  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.replies.cappedNote">
+  <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@admin.replies.cappedNote">
     Showing the first {{ loadedCount() }} of {{ total() }} replies. Decide these to see the rest.
   </p>
   }
 
-  <ul role="list" class="mt-6 space-y-5">
-    @for (r of visibleReplies(); track r.id) {
-    <li>
-      <article
-        [attr.aria-labelledby]="'reply-' + r.id + '-heading'"
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <!-- Header: reply status, the product (linked to its public page), the vendor -->
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <span
-              class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-              >{{ statusLabel(r.status) }}</span
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-replies-caption"
+  >
+    <table [class]="t.table" class="min-w-[56rem]">
+      <caption id="admin-replies-caption" [class]="t.caption" i18n="@@admin.replies.heading">
+        Review replies
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" [class]="t.head">
+            <span class="sr-only" i18n="@@admin.replies.col.details">Details</span>
+          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.replies.col.product">Product</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.replies.meta.vendor">Vendor</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.replies.meta.author">Written by</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.replies.meta.updated">Last changed</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.replies.filter.label">Status</th>
+        </tr>
+      </thead>
+      @for (r of visibleReplies(); track r.id) {
+      <tbody data-testid="reply-record">
+        <tr [class]="isOpen(r.id) ? t.rowOpen : t.row" data-testid="reply-row">
+          <td [class]="t.disclosure">
+            <aec-admin-disclosure-button
+              [expanded]="isOpen(r.id)"
+              [controls]="'reply-' + r.id + '-detail'"
+              [label]="rowLabel(r)"
+              (toggled)="toggleRow(r.id)"
+            />
+          </td>
+          <th scope="row" [class]="t.rowHead">
+            <a [routerLink]="['/products', r.product.slug]" [class]="t.link"
+              >{{ r.product.name }}</a
             >
-            <h3
-              [id]="'reply-' + r.id + '-heading'"
-              class="mt-2 text-base font-bold text-(--text-primary)"
-            >
-              <span i18n="@@admin.replies.card.heading"
-                >{{ r.vendor.name }} replying on
-                <a
-                  [routerLink]="['/products', r.product.slug]"
-                  class="text-(--text-primary) underline underline-offset-2 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  >{{ r.product.name }}</a
-                ></span
-              >
-            </h3>
-          </div>
-        </div>
-
-        <!-- Warnings: the reply will not render even if approved (spec 11c.11) -->
-        @if (wontRender(r)) {
-        <div
-          [id]="'reply-' + r.id + '-warning'"
-          class="mt-4 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) px-4 py-3 text-sm text-(--text-primary)"
-          data-testid="reply-warning"
-        >
-          @if (r.review.status !== 'approved') {
-          <p i18n="@@admin.replies.warning.review">
-            The review is no longer approved, so this reply will not show even if you approve it.
-          </p>
-          } @if (!r.vendor_owns_product) {
-          <p i18n="@@admin.replies.warning.owner">
-            {{ r.vendor.name }} no longer owns {{ r.product.name }}, so this reply will not show
-            even if you approve it.
-          </p>
-          }
-        </div>
-        }
-
-        <!-- The review, in full -->
-        <div class="mt-4 border-t border-(--border-default) pt-4">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.replies.review.heading"
-          >
-            The review
-          </h4>
-          <p class="mt-1 text-sm font-bold text-(--text-primary)">{{ r.review.title }}</p>
-          <dl class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-            <div class="flex gap-1.5">
-              <dt class="font-bold" i18n="@@admin.replies.review.overall">Overall</dt>
-              <dd i18n="@@admin.replies.review.ratingValue">{{ r.review.rating_overall }} of 5</dd>
-            </div>
-            <div class="flex gap-1.5">
-              <dt class="font-bold" i18n="@@admin.replies.review.onboarding">Onboarding</dt>
-              <dd i18n="@@admin.replies.review.ratingValue2">
-                {{ r.review.rating_onboarding }} of 5
-              </dd>
-            </div>
-            <div class="flex gap-1.5">
-              <dt class="font-bold" i18n="@@admin.replies.review.status">Review status</dt>
-              <dd>{{ reviewStatusLabel(r.review.status) }}</dd>
-            </div>
-            <div class="flex gap-1.5">
-              <dt class="font-bold" i18n="@@admin.replies.review.posted">Posted</dt>
-              <dd>{{ r.review.created_at | date: 'mediumDate' }}</dd>
-            </div>
-          </dl>
-          <p
-            class="mt-2 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ r.review.body }}
-          </p>
-        </div>
-
-        <!-- The reply -->
-        <div class="mt-4 border-t border-(--border-default) pt-4">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.replies.reply.heading"
-          >
-            The reply
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-            data-testid="reply-body"
-          >
-            {{ r.body }}
-          </p>
-        </div>
-
-        <!-- Who and when -->
-        <dl class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.replies.meta.vendor">Vendor</dt>
-            <dd>{{ r.vendor.name }}</dd>
-          </div>
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.replies.meta.author">Written by</dt>
-            <dd>
-              @if (r.author_email) { {{ r.author_email }} } @else {
-              <span i18n="@@admin.replies.meta.authorUnknown">Not available</span>
-              }
-            </dd>
-          </div>
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.replies.meta.updated">Last changed</dt>
-            <dd>{{ r.updated_at | date: 'medium' }}</dd>
-          </div>
-          @if (r.published_at) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.replies.meta.published">Published</dt>
-            <dd>{{ r.published_at | date: 'medium' }}</dd>
-          </div>
-          } @if (r.moderated_at) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.replies.meta.decided">Decided</dt>
-            <dd>{{ r.moderated_at | date: 'medium' }}</dd>
-          </div>
-          }
-        </dl>
-
-        @if (r.rejection_reason) {
-        <div class="mt-4 border-t border-(--border-default) pt-4">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.replies.reason.heading"
-          >
-            Reason given to the vendor
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ r.rejection_reason }}
-          </p>
-        </div>
-        }
-
-        <!-- Decisions, from the shared state machine -->
-        @if (decisionsFor(r).length > 0) {
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          @if (canApprove(r)) {
-          <button
-            type="button"
-            (click)="approve(r.id)"
-            [disabled]="pendingActionId() === r.id"
-            [attr.aria-describedby]="'reply-' + r.id + '-help' + (wontRender(r) ? ' reply-' + r.id + '-warning' : '')"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            @if (pendingActionId() === r.id && formOpenId() !== r.id) {
-            <span i18n="@@admin.replies.approving">Approving…</span>
-            } @else {
-            <span i18n="@@admin.replies.approve">Approve</span>
-            }
-          </button>
-          } @if (canReject(r)) {
-          <button
-            type="button"
-            (click)="openForm(r.id, 'reject')"
-            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.replies.reject"
-          >
-            Reject
-          </button>
-          } @if (canRemove(r)) {
-          <button
-            type="button"
-            (click)="openForm(r.id, 'remove')"
-            [disabled]="pendingActionId() === r.id || formOpenId() === r.id"
-            [attr.aria-describedby]="'reply-' + r.id + '-help'"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.replies.remove"
-          >
-            Remove from the page
-          </button>
-          }
-        </div>
-        <p
-          [id]="'reply-' + r.id + '-help'"
-          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
-        >
-          @if (canApprove(r)) {
-          <span i18n="@@admin.replies.approve.help"
-            >Approving puts the reply under the review on the product page now. The review itself
-            never changes.</span
-          >
-          } @else {
-          <span i18n="@@admin.replies.remove.help"
-            >Removing takes the reply off the product page. It is final: the vendor cannot reply to
-            this review again.</span
-          >
-          }
-        </p>
-
-        @if (formOpenId() === r.id && formMode(); as mode) {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirmReasoned(r.id, mode)"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-        >
-          <label
-            [attr.for]="'reply-reason-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          >
-            @if (mode === 'reject') {
-            <span i18n="@@admin.replies.reason.label.reject"
-              >Why you are rejecting it (required)</span
-            >
-            } @else {
-            <span i18n="@@admin.replies.reason.label.remove"
-              >Why you are removing it (required)</span
+          </th>
+          <td [class]="t.cell">{{ r.vendor.name }}</td>
+          <td [class]="t.nowrap">
+            @if (r.author_email) { {{ r.author_email }} } @else {
+            <span class="text-(--text-secondary)" i18n="@@admin.replies.meta.authorUnknown"
+              >Not available</span
             >
             }
-          </label>
-          <p
-            [id]="'reply-reason-' + r.id + '-help'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.replies.reason.help"
-          >
-            Shown to the vendor in its portal. Name the guideline the reply breaks, so the vendor
-            knows what to change.
-          </p>
-          <textarea
-            [id]="'reply-reason-' + r.id"
-            rows="3"
-            [attr.maxlength]="reasonMax"
-            required
-            [attr.aria-invalid]="reasonMissing() ? 'true' : null"
-            [attr.aria-describedby]="'reply-reason-' + r.id + '-help' + (reasonMissing() ? ' reply-reason-' + r.id + '-error' : '')"
-            [value]="formText()"
-            [readOnly]="removeConfirming()"
-            (input)="onFormInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) read-only:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          @if (reasonMissing()) {
-          <p
-            [id]="'reply-reason-' + r.id + '-error'"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.replies.reason.missing"
-          >
-            Write a reason before you confirm.
-          </p>
-          } @if (mode === 'remove' && removeConfirming()) {
-          <!--
-            Ruling 2026-10-02: removal stays final, so it takes a second, deliberate
-            step. Focus lands on this group, which is named and described by its own
-            text, so the warning is heard before any button.
-          -->
-          <div
-            [id]="'reply-remove-confirm-' + r.id"
-            role="group"
-            tabindex="-1"
-            [attr.aria-labelledby]="'reply-remove-confirm-' + r.id + '-title'"
-            [attr.aria-describedby]="'reply-remove-confirm-' + r.id + '-body'"
-            class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            data-testid="remove-confirm"
-          >
-            <p
-              [id]="'reply-remove-confirm-' + r.id + '-title'"
-              class="text-sm font-bold text-(--text-primary)"
-              i18n="@@admin.replies.removeConfirm.title"
+          </td>
+          <td [class]="t.nowrap">{{ r.updated_at | date: 'medium' }}</td>
+          <td [class]="t.cell">
+            <aec-chip density="dense" [tone]="statusTone(r.status)"
+              >{{ statusLabel(r.status) }}</aec-chip
             >
-              Remove this reply permanently?
-            </p>
-            <p
-              [id]="'reply-remove-confirm-' + r.id + '-body'"
-              class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-primary)"
-              i18n="@@admin.replies.removeConfirm.body"
-            >
-              Removal is final. The reply comes off the product page, and {{ r.vendor.name }} can
-              never reply to this review again. Nobody can undo it from this screen.
-            </p>
-            <div class="mt-3 flex flex-wrap gap-3">
-              <button
-                type="submit"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          </td>
+        </tr>
+        <tr
+          [id]="'reply-' + r.id + '-detail'"
+          [class]="t.detailRow"
+          [hidden]="!isOpen(r.id)"
+          data-testid="reply-detail"
+        >
+          <td [attr.colspan]="columnCount" [class]="t.detailCell">
+            <div [class]="t.detailInner">
+              <h3 [id]="'reply-' + r.id + '-heading'" class="pt-2 text-(--text-primary)">
+                <span i18n="@@admin.replies.card.heading"
+                  >{{ r.vendor.name }} replying on
+                  <a
+                    [routerLink]="['/products', r.product.slug]"
+                    class="text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary)"
+                    >{{ r.product.name }}</a
+                  ></span
+                >
+              </h3>
+
+              <!-- Warnings: the reply will not render even if approved (spec 11c.11) -->
+              @if (wontRender(r)) {
+              <div
+                [id]="'reply-' + r.id + '-warning'"
+                [class]="noticeClass"
+                class="mt-4 max-w-[42rem] space-y-2"
+                data-testid="reply-warning"
               >
-                @if (pendingActionId() === r.id) {
-                <span i18n="@@admin.replies.removing">Removing…</span>
-                } @else {
-                <span i18n="@@admin.replies.removeConfirm.confirm">Remove permanently</span>
+                @if (r.review.status !== 'approved') {
+                <p i18n="@@admin.replies.warning.review">
+                  The review is no longer approved, so this reply will not show even if you approve
+                  it.
+                </p>
+                } @if (!r.vendor_owns_product) {
+                <p i18n="@@admin.replies.warning.owner">
+                  {{ r.vendor.name }} no longer owns {{ r.product.name }}, so this reply will not
+                  show even if you approve it.
+                </p>
                 }
-              </button>
-              <button
-                type="button"
-                (click)="editRemoveReason(r.id)"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.replies.removeConfirm.edit"
-              >
-                Edit the reason
-              </button>
-              <button
-                type="button"
-                (click)="closeForm()"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.replies.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-          } @else {
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === r.id) {
-              <span i18n="@@admin.replies.saving">Saving…</span>
-              } @else if (mode === 'reject') {
-              <span i18n="@@admin.replies.reject.confirm">Confirm rejection</span>
-              } @else {
-              <span i18n="@@admin.replies.remove.continue">Continue to removal</span>
+              </div>
               }
-            </button>
-            <button
-              type="button"
-              (click)="closeForm()"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.replies.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-          }
-        </form>
-        } } @if (failedActionId() === r.id) {
-        <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-          {{ failedActionMessage() }}
-        </p>
-        }
-      </article>
-    </li>
-    }
-  </ul>
+
+              <div [class]="detailGridClass" class="mt-4">
+                <div class="min-w-0">
+                  <!-- The review, in full -->
+                  <div>
+                    <p [class]="labelClass" i18n="@@admin.replies.review.heading">The review</p>
+                    <p class="mt-2 text-t-16 font-semibold text-(--text-primary)">
+                      {{ r.review.title }}
+                    </p>
+                    <dl [class]="factsClass" class="mt-2">
+                      <div class="flex flex-wrap gap-x-2">
+                        <dt [class]="labelClass" i18n="@@admin.replies.review.overall">Overall</dt>
+                        <dd i18n="@@admin.replies.review.ratingValue">
+                          {{ r.review.rating_overall }} of 5
+                        </dd>
+                      </div>
+                      <div class="flex flex-wrap gap-x-2">
+                        <dt [class]="labelClass" i18n="@@admin.replies.review.onboarding">
+                          Onboarding
+                        </dt>
+                        <dd i18n="@@admin.replies.review.ratingValue2">
+                          {{ r.review.rating_onboarding }} of 5
+                        </dd>
+                      </div>
+                      <div class="flex flex-wrap gap-x-2">
+                        <dt [class]="labelClass" i18n="@@admin.replies.review.status">
+                          Review status
+                        </dt>
+                        <dd>{{ reviewStatusLabel(r.review.status) }}</dd>
+                      </div>
+                      <div class="flex flex-wrap gap-x-2">
+                        <dt [class]="labelClass" i18n="@@admin.replies.review.posted">Posted</dt>
+                        <dd>{{ r.review.created_at | date: 'mediumDate' }}</dd>
+                      </div>
+                    </dl>
+                    <p [class]="bodyClass" class="mt-2">{{ r.review.body }}</p>
+                  </div>
+
+                  <!-- The reply -->
+                  <div class="mt-6 border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.replies.reply.heading">The reply</p>
+                    <p [class]="bodyClass" class="mt-2" data-testid="reply-body">{{ r.body }}</p>
+                  </div>
+
+                  <!-- When it was published and decided -->
+                  @if (r.published_at || r.moderated_at) {
+                  <dl [class]="factsClass" class="mt-4">
+                    @if (r.published_at) {
+                    <div class="flex flex-wrap gap-x-2">
+                      <dt [class]="labelClass" i18n="@@admin.replies.meta.published">Published</dt>
+                      <dd>{{ r.published_at | date: 'medium' }}</dd>
+                    </div>
+                    } @if (r.moderated_at) {
+                    <div class="flex flex-wrap gap-x-2">
+                      <dt [class]="labelClass" i18n="@@admin.replies.meta.decided">Decided</dt>
+                      <dd>{{ r.moderated_at | date: 'medium' }}</dd>
+                    </div>
+                    }
+                  </dl>
+                  } @if (r.rejection_reason) {
+                  <div class="mt-4 border-t border-(--border-default) pt-4">
+                    <p [class]="labelClass" i18n="@@admin.replies.reason.heading">
+                      Reason given to the vendor
+                    </p>
+                    <p [class]="bodyClass" class="mt-2">{{ r.rejection_reason }}</p>
+                  </div>
+                  }
+                </div>
+
+                <!-- Decisions, from the shared state machine -->
+                <div class="grid min-w-0 content-start gap-4">
+                  @if (decisionsFor(r).length > 0) {
+                  <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
+                       under its opener. The help line describes Approve or Remove. -->
+                  <p [id]="'reply-' + r.id + '-help'" [class]="helpClass">
+                    @if (canApprove(r)) {
+                    <span i18n="@@admin.replies.approve.help"
+                      >Approving puts the reply under the review on the product page now. The review
+                      itself never changes.</span
+                    >
+                    } @else {
+                    <span i18n="@@admin.replies.remove.help"
+                      >Removing takes the reply off the product page. It is final: the vendor cannot
+                      reply to this review again.</span
+                    >
+                    }
+                  </p>
+                  <div class="flex flex-wrap items-start gap-3">
+                    @if (canApprove(r)) {
+                    <button
+                      aecButton
+                      (click)="approve(r.id)"
+                      [disabled]="pendingActionId() === r.id"
+                      [attr.aria-describedby]="'reply-' + r.id + '-help' + (wontRender(r) ? ' reply-' + r.id + '-warning' : '')"
+                    >
+                      @if (pendingActionId() === r.id && formOpenId() !== r.id) {
+                      <span i18n="@@admin.replies.approving">Approving…</span>
+                      } @else {
+                      <span i18n="@@admin.replies.approve">Approve</span>
+                      }
+                    </button>
+                    } @if (canReject(r)) {
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.reject"
+                      [confirmLabel]="copy.rejectConfirm"
+                      [busyLabel]="copy.saving"
+                      [reasonLabel]="copy.rejectLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [cancelLabel]="copy.cancel"
+                      [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
+                      [busy]="busyWith(r.id, 'reject')"
+                      [open]="formOpenId() === r.id && formMode() === 'reject'"
+                      (openChange)="onFormOpen(r.id, 'reject', $event)"
+                      (confirmed)="decide(r.id, 'reject', $event)"
+                    />
+                    } @if (canRemove(r)) {
+                    <!-- Ruling 2026-10-02: removal stays final, so it takes a second,
+                         deliberate step. The body names the vendor, so it is a template. -->
+                    <ng-template #removeBody>
+                      <p i18n="@@admin.replies.removeConfirm.body">
+                        Removal is final. The reply comes off the product page, and {{ r.vendor.name
+                        }} can never reply to this review again. Nobody can undo it from this
+                        screen.
+                      </p>
+                    </ng-template>
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="copy.remove"
+                      [confirmLabel]="copy.removeConfirm"
+                      [busyLabel]="copy.removing"
+                      [reasonLabel]="copy.removeLabel"
+                      [reasonHelp]="copy.reasonHelp"
+                      [reasonRequired]="copy.missing"
+                      [maxLength]="reasonMax"
+                      [confirmStep]="{
+                        continueLabel: copy.removeContinue,
+                        title: copy.removeTitle,
+                        body: removeBody,
+                        editLabel: copy.removeEdit
+                      }"
+                      [cancelLabel]="copy.cancel"
+                      [openerDescribedBy]="'reply-' + r.id + '-help'"
+                      [openerDisabled]="pendingActionId() === r.id && formOpenId() !== r.id"
+                      [busy]="busyWith(r.id, 'remove')"
+                      [open]="formOpenId() === r.id && formMode() === 'remove'"
+                      (openChange)="onFormOpen(r.id, 'remove', $event)"
+                      (confirmed)="decide(r.id, 'remove', $event)"
+                    />
+                    }
+                  </div>
+                  } @if (failedActionId() === r.id) {
+                  <p
+                    [id]="'reply-' + r.id + '-failed'"
+                    tabindex="-1"
+                    [class]="failedClass"
+                    role="alert"
+                  >
+                    {{ failedActionMessage() }}
+                  </p>
+                  }
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+      }
+    </table>
+  </div>
   }
 </section>

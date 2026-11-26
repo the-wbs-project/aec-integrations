@@ -946,6 +946,14 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
 - **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
   suggest-a-correction link (`@@products.detail.body.powers.empty`). The **populated** branch
   carries the catalog-scope note of §12.7.
+- **The endpoint section says nothing false beside a populated powered list (AECI-2050,
+  2026-11-24).** A connector that powers pairs and is an endpoint of none has an empty
+  `#integrations` section next to a populated "Integrations it powers". That section does not
+  print "No integrations recorded yet" or its correction link, because the page lists
+  integrations. It keeps its heading, the §13.3b "runs inside {host}" sentence when the product has
+  a host, and the §13.7 reach line. The test is the page's powered view having at least one pair
+  (the post-§13.4(2) pair count), passed to the section as `poweredPairCount`. A product with no
+  rows of either kind keeps its empty state.
 - **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
   phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
   connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
@@ -1216,7 +1224,8 @@ overstatement.
   suggest-a-correction link the empty states use, so the caveat is a contribution loop rather than
   a dead disclaimer. The heading count is deliberately **not** reworded, tooltipped, or asterisked.
 - **Not repeated on the empty branch** — "No integrations recorded yet. Vendor data is curated…"
-  already says it.
+  already says it. (Since AECI-2050 that sentence is absent when the page powers pairs, §12.3. The
+  note is still not repeated there: the populated powered section carries its own.)
 - **`ProductPoweredHub` gains `host: { class: 'block' }`.** A custom element is `display: inline`
   by default, so the section's `space-y-4` margin was landing on an inline box and being dropped.
   Invisible while the hub was the section's last child; the note directly below it made the missing
@@ -1712,7 +1721,8 @@ edge between an extension and its host. The relationship is stored as a row in `
   without this the body shows a bare "Integrations (0)" while the one fact that explains it sits
   in the sidebar. The sentence names the host but never links it or counts it; the sidebar card
   stays the only link. It renders only on the empty branch: a section with rows needs no pointer.
-  The existing "No integrations recorded yet" copy and its correction link follow it unchanged.
+  The existing "No integrations recorded yet" copy and its correction link follow it unchanged,
+  except on a page that powers pairs, where the host sentence stands alone (AECI-2050, §12.3).
 - **On the host's page: an "Extensions built within {product}" body section**, `id="extensions"`,
   placed after `#integrations` and before `#reviews`, with its own section-nav entry
   ("Extensions"). It renders a grid of linked tiles (logo, name, vendor), one per extension, sorted

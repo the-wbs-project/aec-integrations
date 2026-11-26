@@ -22,7 +22,17 @@ import {
   protestErrorReloads,
   protestStatusLabel,
 } from './vendor-contest-labels';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ChipTone } from '../../shared/chip/chip';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { FORM_PANEL, IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
+import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 type Side = 'submitted' | 'received';
 type Busy = 'file' | 'reply' | 'withdraw' | null;
@@ -53,26 +63,30 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
  */
 @Component({
   selector: 'aec-vendor-contest-protest',
-  imports: [AecFormSubmit, DatePipe, NgTemplateOutlet, RouterLink],
+  imports: [
+    KeepClearOfSaveBar,
+    AecButton,
+    AecFormSubmit,
+    Chip,
+    DatePipe,
+    NgTemplateOutlet,
+    RouterLink,
+  ],
   styles: [':host { display: block; }'],
   template: `
     @let c = contest();
     @let p = c.protest;
     @if (p) {
-      <div
-        class="mt-2 max-w-prose space-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-3"
-        [attr.data-protest]="c.id"
-      >
+      <div [class]="recordClass" [attr.data-protest]="c.id">
         <div class="flex flex-wrap items-start justify-between gap-2">
-          <p
-            class="font-label text-sm font-semibold text-(--text-primary)"
-            i18n="@@vendor.protest.heading"
-          >
+          <p class="text-t-14 font-semibold text-(--text-primary)" i18n="@@vendor.protest.heading">
             Review by AEC Integrations
           </p>
-          <span [class]="pillClass(p.status)">{{ statusLabel(p.status) }}</span>
+          <aec-chip class="shrink-0" density="dense" [tone]="chipTone(p.status)">{{
+            statusLabel(p.status)
+          }}</aec-chip>
         </div>
-        <dl class="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+        <dl class="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
           <dt class="text-(--text-secondary)" i18n="@@vendor.protest.basis">Asked because</dt>
           <dd class="text-(--text-primary)">
             @if (p.basis === 'silence') {
@@ -92,7 +106,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           @if (p.evidence_urls.length > 0) {
             <dt class="text-(--text-secondary)" i18n="@@vendor.protest.evidence">Links</dt>
             <dd class="text-(--text-primary)">
-              <ul class="space-y-0.5">
+              <ul class="space-y-1">
                 @for (url of p.evidence_urls; track url) {
                   <li class="break-all">
                     <a [href]="url" rel="noopener nofollow" target="_blank" [class]="linkClass">{{
@@ -108,7 +122,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             @if (p.reply; as reply) {
               {{ reply }}
               @if (p.reply_evidence_urls.length > 0) {
-                <ul class="mt-1 space-y-0.5">
+                <ul class="mt-1 space-y-1">
                   @for (url of p.reply_evidence_urls; track url) {
                     <li class="break-all">
                       <a [href]="url" rel="noopener nofollow" target="_blank" [class]="linkClass">{{
@@ -152,9 +166,11 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
                 Withdraw this review request? You cannot ask again for this change request.
               </p>
               <button
+                aecButton
+                variant="danger"
+                compact
                 type="button"
                 [id]="ids.withdrawConfirm"
-                [class]="secondaryClass"
                 [disabled]="busy() !== null"
                 (click)="withdraw()"
               >
@@ -165,8 +181,10 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
                 }
               </button>
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="busy() !== null"
                 (click)="cancelWithdraw()"
                 i18n="@@vendor.protest.withdraw.keep"
@@ -176,9 +194,11 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
             </div>
           } @else {
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
               [id]="ids.withdrawStart"
-              [class]="secondaryClass"
               [disabled]="busy() !== null"
               (click)="startWithdraw()"
               i18n="@@vendor.protest.withdraw"
@@ -189,7 +209,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         }
 
         @if (side() === 'received' && canReply()) {
-          <form method="dialog" class="space-y-2 pt-1" (aecSubmit)="reply()" novalidate>
+          <form method="dialog" class="space-y-2 pt-2" (aecSubmit)="reply()" novalidate>
             <label [for]="ids.replyText" [class]="labelClass" i18n="@@vendor.protest.reply.label"
               >Your reply</label
             >
@@ -212,7 +232,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               >
             </p>
             <ng-container [ngTemplateOutlet]="evidenceFields" />
-            <button type="submit" [class]="primaryClass" [disabled]="busy() !== null">
+            <button aecButton compact type="submit" [disabled]="busy() !== null">
               @if (busy() === 'reply') {
                 <span i18n="@@vendor.protest.reply.sending">Sending…</span>
               } @else {
@@ -233,9 +253,11 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
       } @else if (windowPhase() === 'open') {
         @if (!formOpen()) {
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
             [id]="ids.start"
-            [class]="secondaryClass"
             [attr.aria-expanded]="false"
             [attr.aria-controls]="ids.form"
             (click)="openForm()"
@@ -245,16 +267,18 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           </button>
         } @else {
           <form
+            aecKeepClearOfSaveBar
             method="dialog"
             [id]="ids.form"
-            class="mt-2 max-w-prose space-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-3"
+            class="mt-2 max-w-prose space-y-2"
+            [class]="formPanelClass"
             (aecSubmit)="file()"
             novalidate
             [attr.aria-labelledby]="ids.formHeading"
           >
             <p
               [id]="ids.formHeading"
-              class="font-label text-sm font-semibold text-(--text-primary)"
+              class="text-t-14 font-semibold text-(--text-primary)"
               i18n="@@vendor.protest.form.heading"
             >
               Ask AEC Integrations to review this request
@@ -298,8 +322,13 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               [class]="inputClass"
             ></textarea>
             <ng-container [ngTemplateOutlet]="evidenceFields" />
-            <div class="flex flex-wrap items-center gap-2">
-              <button type="submit" [class]="primaryClass" [disabled]="busy() !== null">
+            <div [class]="saveBarClass">
+              <button
+                aecButton
+                type="submit"
+                [class]="saveButtonClass"
+                [disabled]="busy() !== null"
+              >
                 @if (busy() === 'file') {
                   <span i18n="@@vendor.protest.form.sending">Sending…</span>
                 } @else {
@@ -307,8 +336,10 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
                 }
               </button>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
+                [class]="saveButtonClass"
                 [disabled]="busy() !== null"
                 (click)="closeForm()"
                 i18n="@@vendor.protest.form.cancel"
@@ -331,7 +362,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
     }
 
     @if (error(); as message) {
-      <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">{{ message }}</p>
+      <p role="alert" class="mt-2" [class]="errorClass">{{ message }}</p>
     }
 
     <ng-template #evidenceFields>
@@ -353,11 +384,14 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               (input)="setLink($index, $event)"
               placeholder="https://"
               [attr.aria-invalid]="linkInvalid(url) ? 'true' : null"
-              [class]="inputClass + ' flex-1'"
+              [class]="inputClass"
+              class="flex-1"
             />
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryClass"
               (click)="removeLink($index)"
               i18n="@@vendor.protest.links.remove"
             >
@@ -367,8 +401,10 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         }
         @if (links().length < maxLinks) {
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryClass"
             (click)="addLink()"
             i18n="@@vendor.protest.links.add"
           >
@@ -621,22 +657,19 @@ export class VendorContestProtest {
     });
   }
 
-  protected pillClass(status: string): string {
-    const base =
-      'inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
-    return status === 'open' || status === 'upheld'
-      ? `${base} border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)`
-      : `${base} border-(--border-strong) bg-(--surface-raised) text-(--text-primary)`;
+  /** The review's status: Forest while it is open or AECi agreed, a strong edge otherwise. */
+  protected chipTone(status: string): ChipTone {
+    return status === 'open' || status === 'upheld' ? 'forest' : 'strong';
   }
 
-  protected readonly linkClass =
-    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  /** The review record: the sunken panel a note takes inside a row. */
+  protected readonly recordClass =
+    'mt-2 max-w-prose space-y-2 rounded-panel bg-(--surface-sunken) p-4';
+  protected readonly formPanelClass = FORM_PANEL;
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly linkClass = IN_TEXT_LINK;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
 }

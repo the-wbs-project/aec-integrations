@@ -20,7 +20,17 @@ import {
 import type { AdminEmailSwitch, AdminEmailSwitchesResponse } from '@aeci/shared';
 
 import { AdminEmailApi } from './admin-email-api';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FAILED_TEXT_CLASS, CONSOLE_STATUS_LINE_CLASS } from '../console/console-detail';
 
 /** The change the open dialog would make. */
 interface PendingChange {
@@ -52,11 +62,13 @@ interface PendingChange {
 @Component({
   selector: 'aec-email-switches',
   imports: [
+    AecButton,
     AecFormSubmit,
     BrnDialog,
     BrnDialogContent,
     BrnDialogDescription,
     BrnDialogTitle,
+    Chip,
     DatePipe,
     RouterLink,
   ],
@@ -67,6 +79,19 @@ export class EmailSwitches {
 
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  /** A status line: loading. 16px secondary, as on the rest of the page. */
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  /** The sentence of a load failure or a refused change. */
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  /** A switch's chip tone: `active` while it sends or copies, `paused` when paused. */
+  protected readonly tone = (key: Extract<AdminStatusKey, 'active' | 'paused'>): ConsoleChipTone =>
+    adminStatusTone(key);
 
   protected readonly data = signal<AdminEmailSwitchesResponse | null>(null);
   protected readonly loading = signal(true);

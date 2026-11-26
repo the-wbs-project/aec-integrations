@@ -1,32 +1,27 @@
-<div
-  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
-  [attr.aria-labelledby]="labelledBy()"
->
-  <p class="max-w-prose text-sm text-(--text-primary)" i18n="@@admin.vendors.licenses.intro">
-    Grant complimentary or invoiced Managed subscriptions to this vendor's billing account. Each
-    subscription puts one product on Managed once it is assigned.
-  </p>
+<!-- AECI-2124: inside the Subscriptions panel, so no box of its own. The opener is
+     secondary and the confirm primary: a grant waits for an owner and can be withdrawn. -->
+<div class="grid gap-4" [attr.aria-labelledby]="labelledBy()" data-testid="grant-licenses">
+  <div class="grid max-w-prose gap-2">
+    <p class="text-t-14 text-(--text-primary)" i18n="@@admin.vendors.licenses.intro">
+      Grant complimentary or invoiced Managed subscriptions to this vendor's billing account. Each
+      subscription puts one product on Managed once it is assigned.
+    </p>
 
-  <!-- The one assumption to correct before the operator presses Grant: nothing
+    <!-- The one assumption to correct before the operator presses Grant: nothing
        changes on any product page when the grant is recorded. AECI-1615: nothing starts
        until an owner accepts, or until a signed deal is recorded. -->
-  <p
-    class="mt-2 max-w-prose text-sm text-(--text-secondary)"
-    i18n="@@admin.vendors.billing.grants.waits"
-  >
-    A grant starts nothing on its own. It waits until an owner seat accepts the Managed plan
-    agreement on the vendor's Billing tab, and owner seats get an email asking them to. If the
-    vendor signed a deal that accepts the agreement, record it below and the grant is active at
-    once. Then the subscriptions wait unassigned on the billing account, and the vendor chooses
-    which products they go on.
-  </p>
+    <p [class]="captionClass" i18n="@@admin.vendors.billing.grants.waits">
+      A grant starts nothing on its own. It waits until an owner seat accepts the Managed plan
+      agreement on the vendor's Billing tab, and owner seats get an email asking them to. If the
+      vendor signed a deal that accepts the agreement, record it below and the grant is active at
+      once. Then the subscriptions wait unassigned on the billing account, and the vendor chooses
+      which products they go on.
+    </p>
+  </div>
 
   <!-- AECI-1615: what the last grant did, from the response status. -->
   @if (lastStatus(); as status) {
-  <p
-    class="mt-3 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) p-3 text-sm font-medium text-(--text-primary)"
-    data-testid="grant-licenses-status"
-  >
+  <p [class]="noticeClass" class="font-semibold" data-testid="grant-licenses-status">
     @if (status === 'accepted') {
     <span i18n="@@admin.vendors.billing.grants.status.active">Active: recorded signed deal.</span>
     } @else {
@@ -40,7 +35,7 @@
   <!-- The API's warnings[] after a grant, by code, so the text stays localized. -->
   @if (warnedConnector()) {
   <p
-    class="mt-3 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    [class]="noticeClass"
     role="note"
     data-testid="grant-licenses-warning"
     i18n="@@admin.vendors.licenses.warned.connector"
@@ -49,44 +44,46 @@
     not settled yet, so check this grant with the team.
   </p>
   } @if (!formOpen()) {
-  <button
-    #openButton
-    type="button"
-    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-    (click)="openForm()"
-    i18n="@@admin.vendors.licenses.action.open"
-  >
-    Grant subscriptions
-  </button>
+  <div>
+    <button
+      #openButton
+      aecButton
+      variant="secondary"
+      compact
+      type="button"
+      (click)="openForm()"
+      i18n="@@admin.vendors.licenses.action.open"
+    >
+      Grant subscriptions
+    </button>
+  </div>
   } @else {
   <form
     method="dialog"
     novalidate
-    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    [class]="formClass"
+    [attr.aria-busy]="pending() ? 'true' : null"
     (aecSubmit)="submit()"
+    (keydown.escape)="onEscape($event)"
   >
     <!-- AECI-738: warns, never disables. product_role is curated upstream. -->
     @if (isPureConnectorVendor()) {
-    <p
-      class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
-      role="note"
-      i18n="@@admin.vendors.licenses.warn.connector"
-    >
+    <p [class]="noticeClass" role="note" i18n="@@admin.vendors.licenses.warn.connector">
       Every product this vendor owns is a connector. Connector vendors and subscriptions are not
       settled yet. You can still grant.
     </p>
     }
 
-    <div>
+    <div [class]="fieldClass">
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-licenses-quantity'"
         i18n="@@admin.vendors.licenses.field.quantity"
       >
         Number of subscriptions
       </label>
       <p
-        class="mt-1 text-xs text-(--text-secondary)"
+        [class]="hintClass"
         [attr.id]="idPrefix() + '-licenses-quantity-hint'"
         i18n="@@admin.vendors.licenses.field.quantityHint"
       >
@@ -99,7 +96,8 @@
         min="1"
         [attr.max]="quantityMax"
         step="1"
-        class="mt-2 w-32 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [class]="inputClass"
+        class="max-w-32"
         [attr.id]="idPrefix() + '-licenses-quantity'"
         [attr.aria-describedby]="idPrefix() + '-licenses-quantity-hint'"
         [attr.aria-invalid]="quantityInvalid() ? 'true' : null"
@@ -108,17 +106,13 @@
       />
     </div>
 
-    <fieldset>
-      <legend
-        class="block text-sm font-medium text-(--text-primary)"
-        i18n="@@admin.vendors.licenses.field.source"
-      >
-        Source
-      </legend>
-      <div class="mt-2 flex flex-wrap gap-4">
-        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+    <fieldset class="m-0 border-0 p-0">
+      <legend [class]="labelClass" i18n="@@admin.vendors.licenses.field.source">Source</legend>
+      <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+        <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
           <input
             type="radio"
+            [class]="choiceClass"
             [attr.name]="idPrefix() + '-licenses-source'"
             value="complimentary"
             [checked]="source() === 'complimentary'"
@@ -128,9 +122,10 @@
             >Complimentary (no charge)</span
           >
         </label>
-        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+        <label class="flex min-h-11 items-center gap-2 text-t-14 text-(--text-primary)">
           <input
             type="radio"
+            [class]="choiceClass"
             [attr.name]="idPrefix() + '-licenses-source'"
             value="invoice"
             [checked]="source() === 'invoice'"
@@ -141,10 +136,10 @@
       </div>
     </fieldset>
 
-    <div class="grid gap-3 sm:grid-cols-2">
-      <div>
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="labelClass"
           [attr.for]="idPrefix() + '-licenses-start'"
           i18n="@@admin.vendors.licenses.field.start"
         >
@@ -152,15 +147,15 @@
         </label>
         <input
           type="date"
-          class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+          [class]="inputClass"
           [attr.id]="idPrefix() + '-licenses-start'"
           [value]="startsAt()"
           (input)="onStartInput($event)"
         />
       </div>
-      <div>
+      <div [class]="fieldClass">
         <label
-          class="block text-sm font-medium text-(--text-primary)"
+          [class]="labelClass"
           [attr.for]="idPrefix() + '-licenses-end'"
           i18n="@@admin.vendors.licenses.field.end"
         >
@@ -168,7 +163,7 @@
         </label>
         <input
           type="date"
-          class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+          [class]="inputClass"
           [attr.id]="idPrefix() + '-licenses-end'"
           [attr.aria-describedby]="endNotAfterStart() ? idPrefix() + '-licenses-end-error' : null"
           [attr.aria-invalid]="endNotAfterStart() ? 'true' : null"
@@ -177,7 +172,7 @@
         />
         @if (endNotAfterStart()) {
         <p
-          [class]="'mt-1 ' + errorClass"
+          [class]="errorClass"
           [attr.id]="idPrefix() + '-licenses-end-error'"
           i18n="@@admin.vendors.licenses.field.endError"
         >
@@ -187,11 +182,8 @@
       </div>
     </div>
 
-    <div>
-      <label
-        class="block text-sm font-medium text-(--text-primary)"
-        [attr.for]="idPrefix() + '-licenses-reference'"
-      >
+    <div [class]="fieldClass">
+      <label [class]="labelClass" [attr.for]="idPrefix() + '-licenses-reference'">
         @if (source() === 'invoice') {
         <span i18n="@@admin.vendors.licenses.field.referenceRequired">Invoice or PO reference</span>
         } @else {
@@ -199,7 +191,7 @@
         }
       </label>
       <p
-        class="mt-1 text-xs text-(--text-secondary)"
+        [class]="hintClass"
         [attr.id]="idPrefix() + '-licenses-reference-hint'"
         i18n="@@admin.vendors.licenses.field.referenceHint"
       >
@@ -208,7 +200,7 @@
       <input
         type="text"
         autocomplete="off"
-        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [class]="inputClass"
         [attr.id]="idPrefix() + '-licenses-reference'"
         [attr.maxlength]="referenceMax"
         [attr.aria-describedby]="idPrefix() + '-licenses-reference-hint'"
@@ -218,16 +210,16 @@
       />
     </div>
 
-    <div>
+    <div [class]="fieldClass">
       <label
-        class="block text-sm font-medium text-(--text-primary)"
+        [class]="labelClass"
         [attr.for]="idPrefix() + '-licenses-notes'"
         i18n="@@admin.vendors.licenses.field.notes"
       >
         Notes (optional)
       </label>
       <p
-        class="mt-1 text-xs text-(--text-secondary)"
+        [class]="hintClass"
         [attr.id]="idPrefix() + '-licenses-notes-hint'"
         i18n="@@admin.vendors.licenses.field.notesHint"
       >
@@ -235,7 +227,7 @@
       </p>
       <textarea
         rows="2"
-        class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+        [class]="inputClass"
         [attr.id]="idPrefix() + '-licenses-notes'"
         [attr.maxlength]="notesMax"
         [attr.aria-describedby]="idPrefix() + '-licenses-notes-hint'"
@@ -245,55 +237,43 @@
     </div>
 
     <!-- AECI-1615 (ruling R5): a recorded signed deal activates the grant at once. -->
-    <div class="border-t border-(--border-default) pt-3">
-      <button
-        type="button"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [attr.aria-expanded]="dealOpen()"
-        [attr.aria-controls]="idPrefix() + '-licenses-deal'"
-        data-testid="grant-deal-toggle"
-        (click)="toggleDeal()"
-      >
-        <span class="inline-flex items-center gap-2">
-          <svg
-            class="size-4 transition-transform"
+    <div class="grid gap-2 border-t border-(--border-default) pt-4">
+      <div>
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          [attr.aria-expanded]="dealOpen()"
+          [attr.aria-controls]="idPrefix() + '-licenses-deal'"
+          data-testid="grant-deal-toggle"
+          (click)="toggleDeal()"
+        >
+          <span
+            class="inline-flex transition-transform duration-fast ease-standard motion-reduce:transition-none"
             [class.rotate-90]="dealOpen()"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m9 18 6-6-6-6" />
-          </svg>
+            ><aec-icon name="chevron-right" [size]="4" decorative [mirrorRtl]="true"
+          /></span>
           <span i18n="@@admin.vendors.billing.grants.deal.open">Recorded signed deal</span>
-        </span>
-      </button>
-      <p
-        class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-        i18n="@@admin.vendors.billing.grants.deal.hint"
-      >
+        </button>
+      </div>
+      <p [class]="hintClass" class="max-w-prose" i18n="@@admin.vendors.billing.grants.deal.hint">
         Only for a deal signed by a person with authority for the vendor. It must name the Managed
         plan agreement by version and date, and say that signing accepts it.
       </p>
       @if (dealOpen()) {
       <fieldset
         [attr.id]="idPrefix() + '-licenses-deal'"
-        class="mt-3 space-y-3"
+        class="m-0 mt-2 grid gap-4 border-0 p-0"
         data-testid="grant-deal"
       >
-        <legend
-          class="text-sm font-medium text-(--text-primary)"
-          i18n="@@admin.vendors.billing.grants.deal.legend"
-        >
+        <legend [class]="labelClass" i18n="@@admin.vendors.billing.grants.deal.legend">
           Recorded signed deal. Every field is required.
         </legend>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-name'"
               i18n="@@admin.vendors.billing.grants.deal.name"
               >Signer name</label
@@ -302,16 +282,16 @@
               type="text"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-name'"
               [attr.maxlength]="dealTextMax"
               [value]="dealSignerName()"
               (input)="onDealInput('name', $event)"
             />
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-role'"
               i18n="@@admin.vendors.billing.grants.deal.role"
               >Signer role</label
@@ -320,16 +300,16 @@
               type="text"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-role'"
               [attr.maxlength]="dealRoleMax"
               [value]="dealSignerRole()"
               (input)="onDealInput('role', $event)"
             />
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-company'"
               i18n="@@admin.vendors.billing.grants.deal.company"
               >Company legal name</label
@@ -338,16 +318,16 @@
               type="text"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-company'"
               [attr.maxlength]="dealTextMax"
               [value]="dealCompany()"
               (input)="onDealInput('company', $event)"
             />
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-email'"
               i18n="@@admin.vendors.billing.grants.deal.email"
               >Signer email</label
@@ -356,7 +336,7 @@
               type="email"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-email'"
               maxlength="254"
               [attr.aria-invalid]="dealEmailInvalid() ? 'true' : null"
@@ -366,7 +346,7 @@
             />
             @if (dealEmailInvalid()) {
             <p
-              [class]="'mt-1 ' + errorClass"
+              [class]="errorClass"
               [attr.id]="idPrefix() + '-deal-email-error'"
               i18n="@@admin.vendors.billing.grants.deal.emailError"
             >
@@ -374,15 +354,15 @@
             </p>
             }
           </div>
-          <div class="sm:col-span-2">
+          <div [class]="fieldClass" class="sm:col-span-2">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-reference'"
               i18n="@@admin.vendors.billing.grants.deal.reference"
               >Deal reference</label
             >
             <p
-              class="mt-1 text-xs text-(--text-secondary)"
+              [class]="hintClass"
               [attr.id]="idPrefix() + '-deal-reference-hint'"
               i18n="@@admin.vendors.billing.grants.deal.referenceHint"
             >
@@ -392,7 +372,7 @@
               type="text"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-reference'"
               [attr.maxlength]="dealTextMax"
               [attr.aria-describedby]="idPrefix() + '-deal-reference-hint'"
@@ -400,9 +380,9 @@
               (input)="onDealInput('reference', $event)"
             />
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-version'"
               i18n="@@admin.vendors.billing.grants.deal.version"
               >Version named</label
@@ -411,7 +391,7 @@
               type="text"
               autocomplete="off"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-version'"
               maxlength="20"
               [attr.aria-invalid]="dealVersionMismatch() ? 'true' : null"
@@ -423,7 +403,7 @@
             />
             @if (dealVersionMismatch()) {
             <p
-              [class]="'mt-1 ' + errorClass"
+              [class]="errorClass"
               [attr.id]="idPrefix() + '-deal-version-error'"
               i18n="@@admin.vendors.billing.grants.deal.versionError"
             >
@@ -432,9 +412,9 @@
             </p>
             }
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-version-date'"
               i18n="@@admin.vendors.billing.grants.deal.versionDate"
               >Version date named</label
@@ -442,15 +422,15 @@
             <input
               type="date"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-version-date'"
               [value]="dealVersionDate()"
               (input)="onDealInput('versionDate', $event)"
             />
           </div>
-          <div>
+          <div [class]="fieldClass">
             <label
-              class="block text-sm font-medium text-(--text-primary)"
+              [class]="labelClass"
               [attr.for]="idPrefix() + '-deal-signed-at'"
               i18n="@@admin.vendors.billing.grants.deal.signedAt"
               >Signed on</label
@@ -458,7 +438,7 @@
             <input
               type="date"
               required
-              class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary)"
+              [class]="inputClass"
               [attr.id]="idPrefix() + '-deal-signed-at'"
               [attr.aria-invalid]="dealSignedInFuture() ? 'true' : null"
               [attr.aria-describedby]="
@@ -469,7 +449,7 @@
             />
             @if (dealSignedInFuture()) {
             <p
-              [class]="'mt-1 ' + errorClass"
+              [class]="errorClass"
               [attr.id]="idPrefix() + '-deal-signed-at-error'"
               i18n="@@admin.vendors.billing.grants.deal.signedAtError"
             >
@@ -478,12 +458,13 @@
             }
           </div>
         </div>
-        <label class="flex items-start gap-2 text-sm text-(--text-primary)">
+        <label class="flex min-h-11 items-start gap-2 py-3 text-t-14 text-(--text-primary)">
           <input
             type="checkbox"
             aecConsent
             required
-            class="mt-0.5"
+            [class]="choiceClass"
+            class="mt-1"
             [checked]="dealSigningAccepts()"
             (change)="onDealAcceptsChange($event)"
             data-testid="grant-deal-accepts"
@@ -497,17 +478,11 @@
     </div>
 
     @if (failedMessage()) {
-    <p #failedAlert tabindex="-1" class="text-sm font-medium text-(--text-primary)" role="alert">
-      {{ failedMessage() }}
-    </p>
+    <p #failedAlert tabindex="-1" [class]="failedClass" role="alert">{{ failedMessage() }}</p>
     }
 
-    <div class="flex gap-2">
-      <button
-        type="submit"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        [disabled]="pending() || !canSubmit()"
-      >
+    <div [class]="actionsClass">
+      <button aecButton compact type="submit" [disabled]="pending() || !canSubmit()">
         @if (pending()) {
         <span i18n="@@admin.vendors.licenses.action.pending">Granting…</span>
         } @else {
@@ -515,8 +490,9 @@
         }
       </button>
       <button
+        aecButton
+        variant="ghost"
         type="button"
-        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         (click)="closeForm()"
         [disabled]="pending()"
         i18n="@@admin.vendors.licenses.action.cancel"

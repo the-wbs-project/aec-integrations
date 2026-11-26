@@ -26,6 +26,7 @@ import {
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { fieldOverrideLabel } from '../../vendor/components/field-override-labels';
 import {
+  FIELD_OVERRIDE_CLASSES,
   errorBody,
   loadCorrectableRecords,
   type CorrectableRecord,
@@ -33,6 +34,11 @@ import {
 import { AdminVendorsApi } from './admin-vendors-api';
 import { todayLocal } from './listing-hide-form';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { adminStatusTone } from '../console/status-tones';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** Which inline action is open on one hide. */
 type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
@@ -61,13 +67,19 @@ type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
  */
 @Component({
   selector: 'aec-admin-field-hides',
-  imports: [AecFormSubmit, DatePipe, NewTabIcon],
+  imports: [AecButton, AecFormSubmit, Chip, DatePipe, NewTabIcon],
   templateUrl: './admin-field-hides.html',
 })
 export class AdminFieldHides {
   readonly vendorId = input.required<string>();
   readonly vendorName = input.required<string>();
   readonly announce = output<string>();
+
+  // AECI-2112: the same table and form recipe as Field corrections (mock-up 14).
+  protected readonly c = FIELD_OVERRIDE_CLASSES;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  /** "Decision overdue, no status reply" is a missed policy clock: critical. */
+  protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
 
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);
@@ -280,9 +292,25 @@ export class AdminFieldHides {
     } catch (err) {
       this.confirming.set(false);
       this.formError.set(fieldHideErrorMessage(err));
+      // The confirm step closed under the operator: move focus to the refusal (AECI-1994).
+      this.focusAfterRender(this.id('form-error'));
     } finally {
       this.pending.set(false);
     }
+  }
+
+  /** Escape closes the hide form, as Cancel does, except while it sends. */
+  protected onFormEscape(): void {
+    if (!this.pending()) this.closeForm();
+  }
+
+  /** Escape closes a restore or status reply form, as Cancel does, except while it sends. */
+  protected onActionEscape(hide: AdminFieldHide): void {
+    if (!this.pending()) this.closeAction(hide);
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
   protected openAction(hide: AdminFieldHide, kind: HideAction['kind']): void {
@@ -319,6 +347,7 @@ export class AdminFieldHides {
     }
     this.pending.set(true);
     this.actionError.set(null);
+    const index = this.hides().findIndex((h) => h.id === hide.id);
     try {
       const text = this.actionText().trim();
       if (action.kind === 'restore') {
@@ -335,12 +364,20 @@ export class AdminFieldHides {
         );
       }
       this.action.set(null);
-      afterNextRender(() => this.document.getElementById(this.id('heading'))?.focus(), {
-        injector: this.injector,
-      });
+      if (action.kind === 'reply') {
+        // The row stays: focus goes back to the button that opened the form.
+        this.focusAfterRender(this.triggerId(hide, 'reply'));
+      } else {
+        // The row is gone: the queues' focus rule picks the row that took its place,
+        // or the section's intro when none is left (AECI-2112).
+        const next = queueFocusAfterRemoval(index, 1, 1, this.hides());
+        if (next.kind === 'row') this.focusAfterRender(this.triggerId(next.row, 'reply'));
+        else if (next.kind === 'heading') this.focusAfterRender(this.id('heading'));
+      }
     } catch (err) {
       this.actionError.set(fieldHideErrorMessage(err));
       if (errorBody(err).code === 'FIELD_HIDE_CLEARED') void this.loadHides();
+      else this.focusAfterRender(this.actionFormId(hide, 'error'));
     } finally {
       this.pending.set(false);
     }

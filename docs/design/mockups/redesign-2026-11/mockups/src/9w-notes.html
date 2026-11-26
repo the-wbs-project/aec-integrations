@@ -1,0 +1,122 @@
+<!--
+  Mock-up 9w: the product page hero with the integration wheel (AECI-2018).
+  Built by src/9w-build.mjs from src/9w.css, src/9w-harness.css, src/9w.js,
+  src/9w-data.json and this note. Edit the sources, then run the build:
+    node docs/design/mockups/redesign-2026-11/mockups/src/9w-build.mjs
+
+  Open the file on its own and it becomes a control strip with the page in a frame
+  at 1440, 390 or 320 wide. Add ?frame=1 (plus any control as a query key, e.g.
+  ?frame=1&product=small&claim=unclaimed) to see the page alone at the window's
+  own width. With script off the file shows the server HTML of the default state.
+
+  Data: the connected products, their vendors and categories are the review app's records on
+  2026-11-23, read tools only. "Live" products list only connected products promoted to the
+  site. "Large" (first 140 A to Z) and "Largest" (all 387) list every connected product record
+  of Procore Project Management, most not promoted yet, to show the catalog's upper
+  shape: no live product has more than 57 promoted connected products today.
+  Not real: logos (stand-in marks, no vendor logo is used), which connected products
+  are claimed (a stand-in rule, about 3 in 10), and the facts card under the hero.
+
+  Geometry, measured (gap 8px between tiles, 12px between rings, 6px edge for the
+  focus ring). Stage = the panel's inner width. One ring sits on the outer circle.
+  Capacity at a tile size (one ring / two rings):
+    1440 / 1280, stage 476: 48px 23 / 39; 40px 27 / 47; 28px 38 / 69.
+    1024, stage 336:        48px 15 / 23; 40px 18 / 29; 28px 25 / 43.
+    390, stage 294:         one ring 25 at 24px. No second ring on a phone.
+    375, stage 279:         one ring 23 at 24px.
+    320, stage 224:         one ring 18 at 24px.
+
+  Rulings of 2026-11-23. Chris ruled the wording. He left the other five to the
+  orchestrator ("your call"), so items 2 to 6 are the orchestrator's decisions:
+  1. Chris: the wheel's text says products and integrations, never partners. The
+     first slide is "All integrations" over "54 products"; "1 product" in the singular.
+  2. Cut-offs fit the rendered width: one ring while every tile fits at the smallest
+     size (28px beside the text, 24px on a phone), then a second ring (not on phones)
+     while that fits, then dots. "Fixed numbers" stays in the control strip only to compare.
+  3. One tile size per product. It is set once, from the "All" slide, or from the
+     largest tiled slide when "All" is dots, at the largest size that slide fits in its
+     mode. Every tiled slide uses it, and takes the first mode that fits at that size.
+  4. A dots slide keeps both counts: products under the title, integrations in the centre.
+  5. Names under tiles are on for slides of 8 or fewer. They are off when the stage is
+     under 260px (320 wide), where they run into the tiles and the hub.
+  6. The Clay mark at 12 o'clock, the arrows beside the title and the guide circles stay.
+  7. Legal agent's approved wording for the line under the wheel: on a tile slide
+     "Shown A to Z. Position is not a ranking."; on a dots slide "Too many to show as
+     tiles. Each dot is one integration." There is one dot per integration, so the dots
+     always equal the integrations count in the centre (388 for Procore's 387 products).
+  8. (Replaced by ruling 64.) Until 2026-11-24 a tile showed a logo only for a claimed
+     listing.
+
+  Ruling 64, Chris, 2026-11-24 (LEGAL_COUNSEL_RECORD.md ruling 64; wording corrected the
+  same day). It widens the AECI-1769 logo rule for the wheel only:
+  - A tile shows the product's logo whenever we hold one, claimed or not, and its initial
+    only when we hold none. Every tile is the same size and nothing marks, badges, dims or
+    outlines an unclaimed tile. The data keeps "claimed" and "has a logo" apart. Both are
+    stand-ins here: about 3 in 10 claimed, about 1 in 6 with no logo.
+  - Every logo sits inset on the same neutral tile as an initial. No vendor colour reaches
+    the ground, ring, border or card of an unclaimed product (ruling 34 stands).
+  - On every tile slide, whatever the mix, two lines under the wheel, same size, weight
+    and colour (13px, 400, #C5D3CA on the #26473A panel, 6.62:1):
+      "Shown A to Z. Position is not a ranking."
+      "Logos identify products only and imply no endorsement or affiliation. Listings may
+       be unclaimed."
+    They are in the server HTML and in the ring's description for screen readers. Each
+    phrase is kept together where it fits, so no line breaks mid-phrase.
+  - The card shows logo (or initial), name and vendor. An unclaimed listing adds the text
+    label "Unclaimed" beside the name, read with it ("Name, Unclaimed"). A claimed one
+    has no label.
+  - A dots slide shows no logos, so it keeps only "Too many to show as tiles. Each dot
+    is one integration."
+  - The centre of a tile slide still shows the page's own product by the old rule.
+  The "Listings" control (mixed, all claimed, all unclaimed) changes only the card label.
+
+  Final pass, 2026-11-24. Chris said "build it". Item 1 is his; 2 to 5 are the
+  orchestrator's decisions:
+  1. Chris: the card opens toward the centre of the wheel. It stays inside the stage from
+     top to bottom, so it never covers the title or the lines under the wheel, and inside
+     the screen from side to side.
+  2. The lines under the wheel take the panel's padding as well (16px each side from 768,
+     12px below), so the logo line wraps less. Rows, line 1 + line 2: 1440 1+2, 1024 1+2,
+     390 1+2, 375 1+3, 320 1+3. The logo line needs 552px at 13px and the panel is 540px
+     at its widest, so two rows in total does not fit at any width.
+  3. On desktop a slide with more than 20 products takes two rings ("Second ring from"
+     compares 18, 20 and 24 in the control strip; 20 is the recommendation by eye). Tiles
+     stay large: 48px on one ring, 40px when the second ring opens, shrinking to 28px.
+  4. Ring count is decided per slide at the product's one tile size. The inner guide
+     circle fades out on a one-ring slide and back on a two-ring slide (280ms, off under
+     reduced motion).
+  5. A one-ring slide sits on the outer circle, so the wheel is the same size on every
+     slide. Items 4 and 5 replace "one-ring slides sit on the inner orbit".
+
+  Final cut-offs, for the "All" slide (second ring from 21):
+    width   stage   one ring   two rings   dots from
+    1440    476     1 to 20    21 to 69    70
+    1280    476     1 to 20    21 to 69    70
+    1024    336     1 to 18    19 to 43    44   (built: one ring up to 18, AECI-2018)
+    390     294     1 to 25    none        26
+    375     279     1 to 23    none        24
+    320     224     1 to 18    none        19
+  Tile size at 1440: 48px up to 20 on one ring; 40px from 21 to 40 on two rings, then down
+  to 28px at 69. The build (2026-11-24) makes the ring count depend only on the count and
+  the width: one ring up to 18 at 1024, the number of 40px tiles one ring holds, so a
+  one-ring tile there is 40px or more and two rings start at 19.
+  Phones never take a second ring: the build treats every stage under 336px as a phone,
+  so a stacked hero at 416 to 431px (a 320px stage) holds 27 on one ring, then dots. The
+  build's entrance fades and scales only; the mock-up's -6deg turn is dropped.
+
+  FINDINGS for the build:
+  1. The cut-offs depend on the width, not only the count. At 1024 the panel is 400px,
+     so a fixed "30 on one ring" overlaps there. The server HTML has to carry the phone
+     and the desktop layout of the first slide and switch by container query, or the
+     wheel shifts at hydration. Picture 19 shows the desktop layout scaled to a phone.
+  2. Fixed 2026-11-24: one-ring slides sit on the outer circle and the second ring opens
+     at 21, so the tile size only shrinks as a product grows (48px, then 40px, then down to
+     28px). At 1024 the one-ring tile reaches 37px at 20 and two rings start at 40px.
+  5. Under 260px the title takes the first row and the arrows sit in a row below it, so
+     a long category name ("BIM Coordination") is not squeezed between the arrows.
+  3. A dots slide's server HTML has no product list. It links to the Integrations
+     section instead ("See all N in Integrations").
+  4. The product page 500s above roughly 155 to 160 integrations in today's code: the
+     Cache-Tag header passes 16,384 bytes (apps/web/src/server/cache-tags.ts). Seen
+     locally with 390 Procore Project Management integrations: 39,981 bytes.
+-->

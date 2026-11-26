@@ -107,7 +107,8 @@ describe('StatTile', () => {
     // but the series it draws must still be reachable.
     expect(svg.getAttribute('aria-hidden')).toBe('true');
     const table = el.querySelector('table')!;
-    expect(table.classList.contains('sr-only')).toBe(true);
+    // AECI-2125: the sr-only box is the wrapper; a table never shrinks to 1px.
+    expect(table.parentElement!.classList.contains('sr-only')).toBe(true);
     expect([...table.querySelectorAll('tbody th')].map((th) => th.textContent?.trim())).toEqual([
       '1 Aug',
       '2 Aug',

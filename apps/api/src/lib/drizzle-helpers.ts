@@ -85,6 +85,7 @@ import type {
   VendorListItem,
   VendorOwnedIntegrations,
   VendorProductRoles,
+  WheelMark,
 } from '@aeci/shared';
 import {
   claimVersionStatus,
@@ -213,6 +214,9 @@ const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: tru
  */
 const partnerProductLinkConfig = {
   ...publicProductLinkConfig,
+  // AECI-2018: which logo the integrations wheel may show (`wheelLogoOf`). Internal:
+  // `toProductLink` never emits either column.
+  columns: { ...productLinkColumns, logoSource: true, sourcedLogoUrl: true },
   with: {
     // AECI-1720: the partner's vendor, for the card's "by {vendor}" byline. The same
     // join and primary pick as the product list card's vendor.
@@ -1258,6 +1262,9 @@ export const productDetailConfig = {
     usefulnessEditedAt: true,
     managedEditedAt: true,
     managedEndedAt: true,
+    // AECI-2018: the logo the wheel's centre may show (`wheelLogoOf`).
+    logoSource: true,
+    sourcedLogoUrl: true,
   },
   with: {
     productVendors: {
@@ -1608,7 +1615,13 @@ export interface RawOwnedProductLink {
   slug: string;
   logoUrl: string | null;
 }
-interface RawProductLink extends RawOwnedProductLink {
+/** AECI-2018: the two columns `wheelLogoOf` reads. Absent on a read that did not select
+ *  them, which the wheel treats as "no logo we may show" for an unclaimed product. */
+interface RawWheelLogoColumns {
+  logoSource?: string | null;
+  sourcedLogoUrl?: string | null;
+}
+interface RawProductLink extends RawOwnedProductLink, RawWheelLogoColumns {
   /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). Absent
    *  reads as unclaimed, so `toProductLink` hides the logo (AECI-1851). */
   claimed?: number | boolean;
@@ -1921,7 +1934,8 @@ export interface RawProductPairSubjectRow extends RawProductListRow {
   productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
   productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
 }
-export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
+export interface RawProductDetailRow
+  extends RawProductListRow, RawMaintenanceColumns, RawWheelLogoColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   description: string | null;
   website: string | null;
@@ -3375,6 +3389,64 @@ function evidencedPairsForEndpoint(
 }
 
 /**
+ * The logo the integrations wheel may show for one product (AECI-2018, ruling 64).
+ *
+ * Ruling 64 lets a wheel tile show a product's logo whenever we hold one, claimed or
+ * not. "Hold" means a logo we may lawfully show (Vendor Terms 1.3, ADR 0051):
+ *
+ *  - claimed: the stored `logo_url`, the vendor's own upload included;
+ *  - unclaimed, and the stored logo is the vendor's upload (`logo_source = 'vendor'`):
+ *    the logo we sourced ourselves (`sourced_logo_url`), or none. Permission to show an
+ *    upload ends with the claim, and the daily removal job may not have run yet, or a
+ *    hold may delay it, so the stored column can still hold the upload;
+ *  - unclaimed otherwise (`null` is promote's own logo, `'admin'` an AECi correction):
+ *    the stored `logo_url`, which is a logo we sourced.
+ *
+ * It fails closed: an unclaimed row read without `logo_source` shows no logo.
+ */
+export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, claimed: boolean) {
+  if (claimed) return row.logoUrl;
+  if (row.logoSource === undefined) return null;
+  if (row.logoSource === 'vendor') return row.sourcedLogoUrl ?? null;
+  return row.logoUrl;
+}
+
+/**
+ * The integrations wheel's marks (AECI-2018, ruling 64, 2026-11-24): one per partner of
+ * the page product's endpoint rows, both tables and both orientations, and one for the
+ * page product itself, which the wheel's centre shows. Each carries the logo the wheel
+ * may show (`wheelLogoOf`) and the product's claim state.
+ *
+ * Ruling 64 widens the AECI-1769 rule for the wheel only, so this is the one public field
+ * that carries an unclaimed product's logo off its own page. The rows themselves still go
+ * through `toProductLink`, which withholds it, so every list, card, row and search record
+ * is unchanged. A removal on objection clears `logo_url` and `sourced_logo_url`, and the
+ * `product:{partner}` purge it sends reaches this page, which carries that tag for every
+ * partner.
+ *
+ * Unordered: the wheel orders its tiles itself, A to Z by name (ruling R1).
+ */
+function wheelMarksOf(raw: RawProductDetailRow): WheelMark[] {
+  const marks = new Map<string, WheelMark>();
+  const add = (product: RawOwnedProductLink & RawWheelLogoColumns, claimed: boolean) => {
+    if (marks.has(product.id)) return;
+    marks.set(product.id, {
+      product_id: product.id,
+      logo_url: wheelLogoOf(product, claimed),
+      claim_status: claimStatusOf(claimed),
+    });
+  };
+  add(raw, isProductClaimed(raw));
+  const partner = (row: RawProductLink) => add(row, Boolean(row.claimed));
+  for (const row of raw.sourceIntegrations) partner(row.targetProduct);
+  for (const row of raw.targetIntegrations) partner(row.sourceProduct);
+  for (const row of [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]) {
+    partner(partnerOf(row.productA, row.productB, raw.id));
+  }
+  return [...marks.values()];
+}
+
+/**
  * Every partner a product is already DELIVERED to, across both delivered tables
  * and both orientations, read off the two endpoint buckets `toProductDetail`
  * builds (the reasoning is at its call site there). Exported so the vendor
@@ -3485,6 +3557,8 @@ export function toProductDetail(
     // §13.3's split is a sourcing question, never a rendering one.
     integrations_as_source: asSource,
     integrations_as_target: asTarget,
+    // AECI-2018, ruling 64: the wheel's own marks. The rows above keep the logo rule.
+    wheel_marks: wheelMarksOf(raw),
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
     //
@@ -3493,20 +3567,21 @@ export function toProductDetail(
     // connector lane's delivered tier. The union is what makes the migration
     // invisible here — the rendered set is the same before and after.
     //
-    // SELF-EXCLUSION (§13.4(2)): `poweredIntegrations` is a bare `many(...)` with
-    // no `where`, so it selects on `powered_by_product_id` alone. Review-side
-    // Convention A stores "product X ships a connector on platform C" as ONE edge
-    // whose `powered_by` IS one of its own endpoints — 60 production rows
-    // (Aquifer 31, Kroo 29). On C's own page such an edge lands in
-    // `sourceIntegrations`/`targetIntegrations` AND here, rendering twice.
-    // AECI-706's backfill switched that on; the filter below is what turns it off.
-    // The evidenced-pair arm needs no equivalent — its
-    // `connector_evidenced_pairs_distinct_connector` CHECK makes the case
-    // unrepresentable.
+    // NO SELF-EXCLUSION HERE (§13.4(2), AECI-2051): the list is every powered
+    // edge. `poweredIntegrations` selects on `powered_by_product_id` alone, and
+    // review-side Convention A stores "product X ships a connector on platform C"
+    // as ONE edge whose `powered_by` IS one of its own endpoints (Aquifer, Kroo).
+    // On C's own page such an edge is therefore in `integrations_as_target` or
+    // `integrations_as_source` AND in this list, by design. The web layer keeps
+    // it from rendering twice: `groupPoweredIntegrations(edges, selfSlug)` drops
+    // it from the powered section. The hero line, the connector meta description
+    // and the powered section's hide rule (§12.3 branch 2) all read the raw
+    // list, so filtering here blanks all three on a Convention-A connector. A
+    // new reader that renders or counts PAIRS must drop these rows itself.
+    // The evidenced-pair arm cannot hold one: its
+    // `connector_evidenced_pairs_distinct_connector` CHECK forbids it.
     integrations_as_connector: [
-      ...raw.poweredIntegrations
-        .filter((r) => r.sourceProduct.id !== raw.id && r.targetProduct.id !== raw.id)
-        .map(toPoweredIntegrationItem),
+      ...raw.poweredIntegrations.map(toPoweredIntegrationItem),
       ...raw.evidencedPairsAsConnector.map(toPoweredIntegrationItemFromEvidencedPair),
     ],
     related_products: relatedProducts.map(toProductListItem),

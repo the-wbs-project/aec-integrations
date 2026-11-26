@@ -1,8 +1,11 @@
-<div class="flex flex-wrap items-center justify-between gap-3">
+<!-- AECI-2112: the panel and its heading are the vendor page's ("Values under review",
+     mock-up 14). The intro, the opener and the form sit inside it. -->
+<div class="flex flex-wrap items-start justify-between gap-4">
   <p
     [id]="id('heading')"
     tabindex="-1"
-    class="max-w-prose text-sm text-(--text-secondary)"
+    [class]="c.caption"
+    class="max-w-prose focus-visible:outline-3 focus-visible:outline-offset-3"
     i18n="@@admin.fieldHides.intro"
   >
     Hide one value on a record this vendor holds while you check a request about it. The public page
@@ -11,12 +14,14 @@
   </p>
   @if (!formOpen()) {
   <button
+    aecButton
+    variant="secondary"
+    compact
     type="button"
     [id]="id('open')"
     [attr.aria-expanded]="formOpen()"
     [attr.aria-controls]="id('form')"
     (click)="openForm()"
-    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.fieldHides.open"
   >
     Hide a value
@@ -28,25 +33,23 @@
 <form
   method="dialog"
   [id]="id('form')"
-  class="mt-4 max-w-xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  [class]="c.form"
+  class="mt-4"
   novalidate
   [attr.aria-labelledby]="id('form-title')"
   (aecSubmit)="confirming() ? submit() : review()"
+  (keydown.escape)="onFormEscape()"
 >
   <p
     [id]="id('form-title')"
-    class="text-sm font-semibold text-(--text-primary)"
+    class="text-t-16 font-semibold text-(--text-primary)"
     i18n="@@admin.fieldHides.form.title"
   >
     Hide a value while you check it
   </p>
   @if (!confirming()) {
-  <div>
-    <label
-      [attr.for]="id('record')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.form.record"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('record')" [class]="c.label" i18n="@@admin.fieldHides.form.record">
       Record
     </label>
     <select
@@ -54,7 +57,7 @@
       [id]="id('record')"
       [disabled]="pending()"
       (change)="onRecord($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" [selected]="recordKey() === ''" i18n="@@admin.fieldHides.form.recordPick">
         Choose a record
@@ -64,19 +67,15 @@
       }
     </select>
   </div>
-  <div>
-    <label
-      [attr.for]="id('field')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.form.field"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('field')" [class]="c.label" i18n="@@admin.fieldHides.form.field">
       Field
     </label>
     <select
       [id]="id('field')"
       [disabled]="pending() || !record()"
       (change)="onField($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     >
       <option value="" [selected]="field() === ''" i18n="@@admin.fieldHides.form.fieldPick">
         Choose a field
@@ -86,19 +85,11 @@
       }
     </select>
   </div>
-  <div>
-    <label
-      [attr.for]="id('source')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.source.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('source')" [class]="c.label" i18n="@@admin.fieldHides.source.label">
       Source link (required)
     </label>
-    <p
-      [id]="id('source-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldHides.source.help"
-    >
+    <p [id]="id('source-help')" [class]="c.hint" i18n="@@admin.fieldHides.source.help">
       The https:// page the request points to. The vendor sees it. Readers never do.
     </p>
     <input
@@ -112,32 +103,24 @@
       [attr.aria-describedby]="sourceError() ? id('source-help') + ' ' + id('source-error') : id('source-help')"
       [value]="sourceUrl()"
       (input)="onSource($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
     />
     @if (sourceError()) {
     <p
       [id]="id('source-error')"
       role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
+      [class]="c.error"
       i18n="@@admin.fieldHides.source.required"
     >
       Enter the source as a full https:// link.
     </p>
     }
   </div>
-  <div>
-    <label
-      [attr.for]="id('received')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.received.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('received')" [class]="c.label" i18n="@@admin.fieldHides.received.label">
       Request received (required)
     </label>
-    <p
-      [id]="id('received-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldHides.received.help"
-    >
+    <p [id]="id('received-help')" [class]="c.hint" i18n="@@admin.fieldHides.received.help">
       The hide-by and decide-by dates count business days from this date.
     </p>
     <input
@@ -151,32 +134,25 @@
       [attr.aria-describedby]="receivedError() ? id('received-help') + ' ' + id('received-error') : id('received-help')"
       [value]="receivedAt()"
       (input)="onReceived($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="max-w-48"
     />
     @if (receivedError()) {
     <p
       [id]="id('received-error')"
       role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
+      [class]="c.error"
       i18n="@@admin.fieldHides.received.required"
     >
       Enter the date the request was received. It cannot be in the future.
     </p>
     }
   </div>
-  <div>
-    <label
-      [attr.for]="id('reason')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.reason.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('reason')" [class]="c.label" i18n="@@admin.fieldHides.reason.label">
       Reason shown to the vendor (required)
     </label>
-    <p
-      [id]="id('reason-help')"
-      class="mt-1 text-xs text-(--text-secondary)"
-      i18n="@@admin.fieldHides.reason.help"
-    >
+    <p [id]="id('reason-help')" [class]="c.hint" i18n="@@admin.fieldHides.reason.help">
       The vendor reads this in its portal messages and beside the field. Say what you are checking,
       not that the value is wrong.
     </p>
@@ -191,25 +167,22 @@
       [attr.aria-describedby]="reasonError() ? id('reason-help') + ' ' + id('reason-error') : id('reason-help')"
       [value]="reason()"
       (input)="onReason($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
     ></textarea>
     @if (reasonError()) {
     <p
       [id]="id('reason-error')"
       role="alert"
-      class="mt-2 text-sm font-medium text-(--text-primary)"
+      [class]="c.error"
       i18n="@@admin.fieldHides.reason.required"
     >
       Enter a reason for the vendor. The vendor reads it in its portal messages.
     </p>
     }
   </div>
-  <div>
-    <label
-      [attr.for]="id('note')"
-      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.fieldHides.note.label"
-    >
+  <div [class]="c.field">
+    <label [attr.for]="id('note')" [class]="c.label" i18n="@@admin.fieldHides.note.label">
       Internal note (optional, never shown to the vendor)
     </label>
     <textarea
@@ -219,31 +192,28 @@
       [disabled]="pending()"
       [value]="internalNote()"
       (input)="onNote($event)"
-      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
     ></textarea>
   </div>
   } @else {
-  <div class="space-y-2 text-sm text-(--text-primary)" data-testid="field-hide-confirm">
-    <p i18n="@@admin.fieldHides.confirm.summary">
+  <div [class]="noticeClass" class="grid gap-2" data-testid="field-hide-confirm">
+    <p class="font-semibold" i18n="@@admin.fieldHides.confirm.summary">
       Hide {{ fieldLabel(field()) }} on {{ record()?.label }}.
     </p>
-    <p class="text-(--text-secondary)" i18n="@@admin.fieldHides.confirm.effect">
+    <p i18n="@@admin.fieldHides.confirm.effect">
       The public page will show "Under review. AEC Integrations is checking this detail." in its
       place, and search drops the value. The vendor gets a portal message with your reason. The
       vendor's own change to the field ends the hide.
     </p>
   </div>
   } @if (formError(); as message) {
-  <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+  <p [id]="id('form-error')" tabindex="-1" role="alert" [class]="c.failed">{{ message }}</p>
   }
-  <div class="flex flex-wrap items-center gap-3">
+  <div [class]="c.actions">
     @if (confirming()) {
-    <button
-      #confirmButton
-      type="submit"
-      [disabled]="pending()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-    >
+    <!-- Primary, not danger: Restore undoes a hide (DESIGN.md §5 Buttons, ruled 2026-11-24). -->
+    <button #confirmButton aecButton compact type="submit" [disabled]="pending()">
       @if (pending()) {
       <span i18n="@@admin.fieldHides.saving">Saving…</span>
       } @else {
@@ -251,28 +221,26 @@
       }
     </button>
     <button
+      aecButton
+      variant="secondary"
+      compact
       type="button"
       [disabled]="pending()"
       (click)="back()"
-      class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.fieldHides.back"
     >
       Back
     </button>
     } @else {
-    <button
-      type="submit"
-      [disabled]="pending()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-      i18n="@@admin.fieldHides.review"
-    >
+    <button aecButton compact type="submit" [disabled]="pending()" i18n="@@admin.fieldHides.review">
       Review
     </button>
     }
     <button
+      aecButton
+      variant="ghost"
       type="button"
       (click)="closeForm()"
-      class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.fieldHides.cancel"
     >
       Cancel
@@ -280,76 +248,60 @@
   </div>
 </form>
 } @if (loading()) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldHides.loading">
+<p [class]="c.statusLine" class="mt-4" i18n="@@admin.fieldHides.loading">
   Loading the values under review…
 </p>
 } @else if (failed()) {
-<div
-  role="alert"
-  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.fieldHides.loadError">
+<div role="alert" [class]="c.loadFailed" class="mt-4">
+  <p [class]="c.failedText" i18n="@@admin.fieldHides.loadError">
     We couldn't load this vendor's values under review.
   </p>
   <button
+    aecButton
+    variant="secondary"
     type="button"
     (click)="loadHides()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.fieldHides.retry"
   >
     Try again
   </button>
 </div>
 } @else if (hides().length === 0) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldHides.empty">
+<p [class]="c.t.empty" class="mt-4" i18n="@@admin.fieldHides.empty">
   No value is under review on this vendor's records.
 </p>
 } @else {
-<div class="mt-4 overflow-x-auto">
-  <table class="w-full min-w-[44rem] border-collapse text-sm">
-    <caption class="sr-only" i18n="@@admin.fieldHides.caption">
+<!-- The console table recipe (mock-up 14). One tbody per hide, so the row and its
+     restore or status reply form stay one group. -->
+<div
+  [class]="c.t.region"
+  class="mt-4"
+  role="region"
+  tabindex="0"
+  [attr.aria-labelledby]="id('caption')"
+>
+  <table [class]="c.t.table" class="min-w-[52rem]">
+    <caption [id]="id('caption')" [class]="c.t.caption" i18n="@@admin.fieldHides.caption">
       Values AEC Integrations hid on this vendor's records while it checks them
     </caption>
     <thead>
-      <tr class="border-b border-(--border-strong)">
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldHides.col.record"
-        >
+      <tr>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldHides.col.record">
           Record and field
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldHides.col.dates"
-        >
-          Dates
-        </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldHides.col.reason"
-        >
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldHides.col.dates">Dates</th>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.fieldHides.col.reason">
           Reason shown to the vendor
         </th>
-        <th
-          scope="col"
-          class="py-2 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.fieldHides.col.actions"
-        >
-          Actions
-        </th>
+        <th scope="col" [class]="c.t.headNum" i18n="@@admin.fieldHides.col.actions">Actions</th>
       </tr>
     </thead>
+    @for (hide of hides(); track hide.id) {
     <tbody>
-      @for (hide of hides(); track hide.id) {
-      <tr class="border-b border-(--border-default) align-top" data-testid="field-hide-row">
-        <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-          <span class="block font-medium text-(--text-primary)"
-            >{{ hide.entity_name ?? hide.entity_id }}</span
-          >
-          <span class="mt-0.5 block text-xs text-(--text-secondary)"
+      <tr [class]="action()?.id === hide.id ? c.t.rowOpen : c.t.row" data-testid="field-hide-row">
+        <th scope="row" [class]="c.t.rowHead">
+          {{ hide.entity_name ?? hide.entity_id }}
+          <span [class]="c.t.sub"
             >{{ entityLabel(hide.entity_type) }} · {{ fieldLabel(hide.field) }}</span
           >
           @if (sourceHref(hide); as href) {
@@ -358,27 +310,30 @@
             target="_blank"
             rel="noopener nofollow"
             data-testid="field-hide-source"
-            class="mt-0.5 inline-flex items-center gap-1 rounded-(--radius-sm) break-all text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="c.sourceLink"
             ><span i18n="@@admin.fieldHides.source.link">Source</span><aec-new-tab-icon
           /></a>
           }
         </th>
-        <td class="py-2.5 pe-4 text-xs text-(--text-secondary)">
-          <span class="block" i18n="@@admin.fieldHides.received"
+        <td [class]="c.t.cell" class="text-t-13 text-(--text-secondary)">
+          <span class="block whitespace-nowrap" i18n="@@admin.fieldHides.received"
             >Received {{ receivedDay(hide.received_at) }}</span
           >
-          <span class="block" i18n="@@admin.fieldHides.hideDue"
+          <span class="block whitespace-nowrap" i18n="@@admin.fieldHides.hideDue"
             >Hide by {{ dueDay(hide.hide_due) }}</span
           >
-          <span class="block" i18n="@@admin.fieldHides.decideDue"
+          <span class="block whitespace-nowrap" i18n="@@admin.fieldHides.decideDue"
             >Decide by {{ dueDay(hide.decide_due) }}</span
           >
           @if (overdue(hide)) {
-          <span
-            class="mt-1 inline-flex items-center rounded-(--radius-sm) border border-(--border-strong) px-2 py-0.5 font-bold text-(--text-primary)"
+          <aec-chip
+            density="dense"
+            [tone]="overdueTone"
+            class="mt-1"
             data-testid="field-hide-overdue"
-            i18n="@@admin.fieldHides.overdue"
-            >Decision overdue, no status reply</span
+            ><span i18n="@@admin.fieldHides.overdue"
+              >Decision overdue, no status reply</span
+            ></aec-chip
           >
           } @if (hide.last_status_reply; as reply) {
           <span
@@ -389,37 +344,41 @@
           >
           }
         </td>
-        <td class="py-2.5 pe-4 text-(--text-secondary)">
-          <span class="block">{{ hide.reason }}</span>
+        <td [class]="c.t.cell" class="text-(--text-secondary)">
+          <span class="block text-(--text-primary)">{{ hide.reason }}</span>
           @if (hide.internal_note) {
-          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldHides.internalNote"
+          <span [class]="c.t.sub" i18n="@@admin.fieldHides.internalNote"
             >Internal note: {{ hide.internal_note }}</span
           >
           }
-          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldHides.setAt"
+          <span [class]="c.t.sub" i18n="@@admin.fieldHides.setAt"
             >Hidden {{ hide.set_at | date: 'mediumDate' : 'UTC' }}</span
           >
         </td>
-        <td class="py-2.5 text-end">
-          <span class="inline-flex flex-wrap justify-end gap-2">
+        <td [class]="c.t.act">
+          <span class="inline-flex flex-wrap justify-end gap-2 py-1">
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
               [id]="triggerId(hide, 'reply')"
               [attr.aria-expanded]="isOpen(hide, 'reply')"
               [attr.aria-controls]="actionFormId(hide, 'form')"
               (click)="openAction(hide, 'reply')"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@admin.fieldHides.reply"
             >
               Record status reply
             </button>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
               [id]="triggerId(hide, 'restore')"
               [attr.aria-expanded]="isOpen(hide, 'restore')"
               [attr.aria-controls]="actionFormId(hide, 'form')"
               (click)="openAction(hide, 'restore')"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@admin.fieldHides.restore"
             >
               Restore
@@ -428,83 +387,84 @@
         </td>
       </tr>
       @if (action()?.id === hide.id) {
-      <tr class="border-b border-(--border-default)">
-        <td colspan="4" class="py-3">
-          <form
-            method="dialog"
-            [id]="actionFormId(hide, 'form')"
-            class="max-w-xl space-y-3"
-            novalidate
-            (aecSubmit)="runAction(hide)"
-          >
-            <div>
-              <label
-                [attr.for]="actionFormId(hide, 'text')"
-                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              >
-                @if (isOpen(hide, 'restore')) {
-                <span i18n="@@admin.fieldHides.restore.reasonLabel"
-                  >Reason shown to the vendor (required)</span
-                >
-                } @else {
-                <span i18n="@@admin.fieldHides.reply.noteLabel"
-                  >What you told the requester (required, internal)</span
-                >
-                }
-              </label>
-              <p [id]="actionFormId(hide, 'help')" class="mt-1 text-xs text-(--text-secondary)">
-                @if (isOpen(hide, 'restore')) {
-                <span i18n="@@admin.fieldHides.restore.help"
-                  >Restoring decides the value stands. It goes back on the public page.</span
-                >
-                } @else {
-                <span i18n="@@admin.fieldHides.reply.help"
-                  >Recorded in the audit trail only. The vendor is not told.</span
-                >
-                }
+      <tr [class]="c.t.detailRow">
+        <td colspan="4" [class]="c.t.detailCell">
+          <div [class]="c.t.detailInner">
+            <form
+              method="dialog"
+              [id]="actionFormId(hide, 'form')"
+              [class]="c.form"
+              novalidate
+              (aecSubmit)="runAction(hide)"
+              (keydown.escape)="onActionEscape(hide)"
+            >
+              <div [class]="c.field">
+                <label [attr.for]="actionFormId(hide, 'text')" [class]="c.label">
+                  @if (isOpen(hide, 'restore')) {
+                  <span i18n="@@admin.fieldHides.restore.reasonLabel"
+                    >Reason shown to the vendor (required)</span
+                  >
+                  } @else {
+                  <span i18n="@@admin.fieldHides.reply.noteLabel"
+                    >What you told the requester (required, internal)</span
+                  >
+                  }
+                </label>
+                <p [id]="actionFormId(hide, 'help')" [class]="c.hint">
+                  @if (isOpen(hide, 'restore')) {
+                  <span i18n="@@admin.fieldHides.restore.help"
+                    >Restoring decides the value stands. It goes back on the public page.</span
+                  >
+                  } @else {
+                  <span i18n="@@admin.fieldHides.reply.help"
+                    >Recorded in the audit trail only. The vendor is not told.</span
+                  >
+                  }
+                </p>
+                <textarea
+                  #actionInput
+                  [id]="actionFormId(hide, 'text')"
+                  rows="2"
+                  required
+                  [attr.maxlength]="reasonMax"
+                  [attr.aria-describedby]="actionFormId(hide, 'help')"
+                  [disabled]="pending()"
+                  [value]="actionText()"
+                  (input)="onActionText($event)"
+                  [class]="c.input"
+                  class="min-h-20 resize-y"
+                ></textarea>
+              </div>
+              @if (actionError(); as message) {
+              <p [id]="actionFormId(hide, 'error')" tabindex="-1" role="alert" [class]="c.failed">
+                {{ message }}
               </p>
-              <textarea
-                #actionInput
-                [id]="actionFormId(hide, 'text')"
-                rows="2"
-                required
-                [attr.maxlength]="reasonMax"
-                [attr.aria-describedby]="actionFormId(hide, 'help')"
-                [disabled]="pending()"
-                [value]="actionText()"
-                (input)="onActionText($event)"
-                class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ></textarea>
-            </div>
-            @if (actionError(); as message) {
-            <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
-            }
-            <div class="flex flex-wrap items-center gap-3">
-              <button
-                type="submit"
-                [disabled]="pending()"
-                class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (isOpen(hide, 'restore')) {
-                <span i18n="@@admin.fieldHides.restore.confirm">Restore the value</span>
-                } @else {
-                <span i18n="@@admin.fieldHides.reply.confirm">Record the reply</span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="closeAction(hide)"
-                class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@admin.fieldHides.action.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+              }
+              <div [class]="c.actions">
+                <button aecButton compact type="submit" [disabled]="pending()">
+                  @if (isOpen(hide, 'restore')) {
+                  <span i18n="@@admin.fieldHides.restore.confirm">Restore the value</span>
+                  } @else {
+                  <span i18n="@@admin.fieldHides.reply.confirm">Record the reply</span>
+                  }
+                </button>
+                <button
+                  aecButton
+                  variant="ghost"
+                  type="button"
+                  (click)="closeAction(hide)"
+                  i18n="@@admin.fieldHides.action.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </td>
       </tr>
-      } }
+      }
     </tbody>
+    }
   </table>
 </div>
 }

@@ -154,13 +154,17 @@ async function setup(api: ApiMock) {
   return { fixture, api, store, el: fixture.nativeElement as HTMLElement };
 }
 
+/** AECI-2111: one `<tbody>` per claim, its row and its detail row. The detail row is
+ *  always rendered and `[hidden]` while closed, so its text and controls are in the DOM. */
 function cardFor(el: HTMLElement, targetName: string): HTMLElement {
-  const article = [...el.querySelectorAll('article')].find((a) =>
-    a.querySelector('h3')?.textContent?.includes(targetName),
+  const record = [...el.querySelectorAll('tbody[data-testid="claim-record"]')].find((b) =>
+    b.querySelector('th[scope="row"]')?.textContent?.includes(targetName),
   );
-  if (!article) throw new Error(`No card for "${targetName}"`);
-  return article as HTMLElement;
+  if (!record) throw new Error(`No row for "${targetName}"`);
+  return record as HTMLElement;
 }
+
+const RECORD = 'tbody[data-testid="claim-record"]';
 
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
   const btn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
@@ -186,7 +190,9 @@ describe('ClaimQueue', () => {
     expect(el.textContent).toContain('Procore');
     expect(el.textContent).toContain('amy@vendor.test');
     expect(el.textContent).toContain('claim the listing');
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/products/procore');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/products/procore',
+    );
   });
 
   it('links a vendor target to the vendor detail page', async () => {
@@ -199,12 +205,14 @@ describe('ClaimQueue', () => {
         }),
       ]),
     );
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain('/vendors/autodesk');
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
+      '/vendors/autodesk',
+    );
   });
 
   it('renders a non-linked fallback when the target is missing', async () => {
     const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', target: null })]));
-    expect(el.querySelector('article h3 a')).toBeNull();
+    expect(el.querySelector('th[scope="row"] a')).toBeNull();
     expect(cardFor(el, 'Unknown product').textContent).toContain('Unknown product');
   });
 
@@ -224,7 +232,7 @@ describe('ClaimQueue', () => {
     expect(row?.textContent).toContain('Came from');
     expect(row?.textContent).toContain('Procore');
     expect(row?.querySelector('a')?.getAttribute('href')).toContain('/products/procore');
-    expect(el.querySelector('article h3 a')?.getAttribute('href')).toContain(
+    expect(el.querySelector('th[scope="row"] a')?.getAttribute('href')).toContain(
       '/vendors/procore-technologies',
     );
   });
@@ -583,7 +591,8 @@ describe('ClaimQueue', () => {
       const grant = buttonByText(card, 'Grant vendor account');
       expect(grant.disabled).toBe(true);
       expect(grant.getAttribute('aria-disabled')).toBe('true');
-      expect(grant.getAttribute('aria-describedby')).toBe(box!.id);
+      // AECI-2111: the claim's listing cell, then the box that says why Grant is off.
+      expect(grant.getAttribute('aria-describedby')).toBe(`claim-c1-target ${box!.id}`);
       expect(box!.id).toBe('claim-account-conflict-c1');
       // Reject stays available: it is the action the box asks for.
       expect(buttonByText(card, 'Reject').disabled).toBe(false);
@@ -626,7 +635,8 @@ describe('ClaimQueue', () => {
       const grant = buttonByText(card, 'Grant vendor account');
       expect(grant.disabled).toBe(false);
       expect(grant.hasAttribute('aria-disabled')).toBe(false);
-      expect(grant.hasAttribute('aria-describedby')).toBe(false);
+      // With no conflict Grant is described by its claim's listing cell alone.
+      expect(grant.getAttribute('aria-describedby')).toBe('claim-c1-target');
     });
   });
 
@@ -745,7 +755,7 @@ describe('ClaimQueue', () => {
     await settle();
     fixture.detectChanges();
     expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve' });
-    expect(el.querySelectorAll('article')).toHaveLength(1);
+    expect(el.querySelectorAll(RECORD)).toHaveLength(1);
     expect(el.textContent).toContain('Bluebeam');
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Free plan');
   });
@@ -840,7 +850,7 @@ describe('ClaimQueue', () => {
       action: 'reject',
       reason: 'Not a real claim.',
     });
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
   });
 
   it('keeps the row and shows the conflict message on a 409', async () => {
@@ -851,7 +861,7 @@ describe('ClaimQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).not.toBeNull();
+    expect(el.querySelector(RECORD)).not.toBeNull();
     expect(cardFor(el, 'Procore').querySelector('[role="alert"]')?.textContent).toContain(
       'already claims a different vendor',
     );
@@ -865,7 +875,7 @@ describe('ClaimQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).not.toBeNull();
+    expect(el.querySelector(RECORD)).not.toBeNull();
     expect(cardFor(el, 'Procore').querySelector('[role="alert"]')?.textContent).toContain(
       'Reject still works',
     );
@@ -881,7 +891,7 @@ describe('ClaimQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Confirm rejection').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
     // The admin who raced us already decremented.
     expect(store.pendingClaims()).toBe(3);
@@ -900,7 +910,7 @@ describe('ClaimQueue', () => {
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
   });
 
@@ -916,7 +926,7 @@ describe('ClaimQueue', () => {
   it('renders the empty state when nothing matches', async () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.textContent).toContain('No claims match');
-    expect(el.querySelector('article')).toBeNull();
+    expect(el.querySelector(RECORD)).toBeNull();
   });
 
   it('shows a retryable state when the initial load fails, then recovers', async () => {
@@ -927,7 +937,7 @@ describe('ClaimQueue', () => {
     buttonByText(el, 'Try again').click();
     await settle();
     fixture.detectChanges();
-    expect(el.querySelectorAll('article')).toHaveLength(1);
+    expect(el.querySelectorAll(RECORD)).toHaveLength(1);
   });
 
   // ── Billing link (AECI-532; readout retired in AECI-1375) ──────────────────
@@ -978,8 +988,8 @@ describe('ClaimQueue', () => {
   });
 
   describe('accessibility (structural)', () => {
-    it('nests headings without skipping levels (shell owns h1; h2 → h3 card → h4 signals)', async () => {
-      const { el } = await setup(
+    it('has one h2 and puts each claim in a console table row with a disclosure (AECI-2111)', async () => {
+      const { el, fixture } = await setup(
         makeApiMock([
           makeClaim({ id: 'c1' }),
           makeClaim({ id: 'c2', target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' } }),
@@ -987,11 +997,71 @@ describe('ClaimQueue', () => {
       );
       expect(el.querySelectorAll('h1')).toHaveLength(0);
       expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3')).toHaveLength(2); // one per card
-      // One h4 subsection per card: verification signals. The entitlement h4 is
-      // gone with its readout (AECI-1375).
-      expect(el.querySelectorAll('h4')).toHaveLength(2);
-      expect(el.querySelector('h5, h6')).toBeNull();
+      // The table replaced the cards: no per-claim heading below the h2.
+      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+      const region = el.querySelector('[role="region"]');
+      expect(region?.getAttribute('tabindex')).toBe('0');
+      expect(el.querySelector(`#${region?.getAttribute('aria-labelledby')}`)?.tagName).toBe(
+        'CAPTION',
+      );
+      expect(el.querySelectorAll(RECORD)).toHaveLength(2);
+
+      const card = cardFor(el, 'Procore');
+      const toggle = card.querySelector<HTMLButtonElement>(
+        'button[aria-controls="claim-c1-detail"]',
+      )!;
+      const detail = card.querySelector<HTMLElement>('#claim-c1-detail')!;
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle.textContent?.trim()).toBe('Claim on Procore by Sam Submitter');
+      expect(detail.hidden).toBe(true);
+      expect(detail.querySelector('td')?.getAttribute('colspan')).toBe(
+        String(el.querySelectorAll('thead th').length),
+      );
+      toggle.click();
+      fixture.detectChanges();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(detail.hidden).toBe(false);
+    });
+
+    it('shows the status and the duplicate flag as console chips', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', is_duplicate: true })]));
+      const chips = [...cardFor(el, 'Procore').querySelectorAll('aec-chip')].map((c) => [
+        c.textContent?.trim(),
+        c.querySelector('.aec-chip')?.getAttribute('data-tone'),
+      ]);
+      expect(chips).toContainEqual(['Open', 'waiting']);
+      expect(chips).toContainEqual(['Possible duplicate', 'attention']);
+    });
+
+    it('names the claim on every decision button, for a reader with several rows open', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      const card = cardFor(el, 'Procore');
+      const described = (b: HTMLButtonElement) =>
+        (b.getAttribute('aria-describedby') ?? '')
+          .split(' ')
+          .map((id) => el.querySelector(`[id="${id}"]`)?.textContent?.trim());
+      expect(described(buttonByText(card, 'Grant vendor account'))).toEqual(['Procore']);
+      expect(described(buttonByText(card, 'Reject'))).toEqual(['Procore']);
+      openApprove(fixture, card);
+      expect(described(buttonByText(card, 'Confirm grant'))).toEqual(['Procore']);
+    });
+
+    it('moves focus into a form on open, and back to its opener on Escape', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      const card = cardFor(el, 'Procore');
+      buttonByText(card, 'Reject').click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(document.activeElement?.id).toBe('claim-reason-c1');
+      card.querySelector('form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(card.querySelector('form')).toBeNull();
+      expect(document.activeElement?.id).toBe('claim-c1-reject');
+
+      openApprove(fixture, card);
+      await fixture.whenStable();
+      expect(document.activeElement?.id).toBe('claim-c1-approve-help');
     });
 
     it('gives the status filter an accessible group name', async () => {

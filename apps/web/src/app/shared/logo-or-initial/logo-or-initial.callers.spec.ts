@@ -23,12 +23,16 @@ import { describe, expect, it } from 'vitest';
  * - `preview`: a dev-only fixture route. The tag passes `'stored'`.
  * - `group`: `integration-group-card` forwards the `claimStatus` its parent put in the
  *   required `GroupCardLogo`. Its parents are classified as `link` below.
+ * - `wheel`: the product hero's integrations wheel and its card (AECI-2018). Ruling 64
+ *   (2026-11-24) shows a product's logo there whenever we hold one, claimed or not, from
+ *   the wheel's own `wheel_marks`. It widens the rule for the wheel only, so the tag
+ *   passes `'wheel'`, and only the wheel's file may.
  *
  * A new caller, or a new tag in a listed file, fails here until it is classified.
  */
 const APP = join(process.cwd(), 'src/app');
 
-type Kind = 'subject' | 'link' | 'portal' | 'admin' | 'person' | 'preview' | 'group';
+type Kind = 'subject' | 'link' | 'portal' | 'admin' | 'person' | 'preview' | 'group' | 'wheel';
 
 /** The `claimStatus` binding each kind must carry. */
 const BINDING: Record<Kind, RegExp> = {
@@ -39,7 +43,11 @@ const BINDING: Record<Kind, RegExp> = {
   person: /\[claimStatus\]="'stored'"/,
   preview: /\[claimStatus\]="'stored'"/,
   group: /\[claimStatus\]="mark\.claimStatus"/,
+  wheel: /\[claimStatus\]="'wheel'"/,
 };
+
+/** The one file that may pass `'wheel'` (ruling 64 widens the rule for the wheel only). */
+const WHEEL_FILE = 'products/product-integration-wheel.ts';
 
 /** Where `'stored'` may appear: portal, admin, the avatar and the preview fixtures. */
 const STORED_ALLOWED = /^(vendor|admin|preview)\/|^layout\/account-identity\.ts$/;
@@ -71,6 +79,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'products/product-card.ts': { link: 1 },
   'products/product-facts-card.ts': { link: 1 },
   'products/product-hero.ts': { subject: 2 },
+  // AECI-2018: each tile, the card and the centre (ruling 64).
+  'products/product-integration-wheel.ts': { wheel: 3 },
   'products/product-extensions.ts': { link: 2 },
   'products/product-integration-row.ts': { link: 1 },
   // AECI-1782: the card view of the same row, the same server-filtered ProductLink.
@@ -94,6 +104,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'vendor/components/vendor-product-connectors.ts': { portal: 1 },
   'vendor/integration-detail/vendor-integration-detail-page.ts': { portal: 4 },
   'vendor/sections/vendor-product-list-page.ts': { portal: 1 },
+  // AECI-1809: the portal header's 48px tile beside the h1.
+  'vendor/vendor-dashboard-tabbed.ts': { portal: 1 },
   'vendors/vendor-detail.ts': { subject: 2 },
   'vendors/vendor-product-row.ts': { link: 1 },
 };
@@ -157,6 +169,18 @@ describe('aec-logo-or-initial callers (AECI-1769)', () => {
       if (STORED_ALLOWED.test(file)) continue;
       for (const tag of tags(source)) expect(tag.text, file).not.toContain("'stored'");
     }
+  });
+
+  it("passes 'wheel' only in the integrations wheel (ruling 64)", () => {
+    let seen = 0;
+    for (const [file, source] of sources) {
+      for (const tag of tags(source)) {
+        if (!tag.text.includes("'wheel'")) continue;
+        seen++;
+        expect(file).toBe(WHEEL_FILE);
+      }
+    }
+    expect(seen).toBe(3);
   });
 
   it("integration-group-card's parents pass 'server-filtered' in the logo they hand over", () => {

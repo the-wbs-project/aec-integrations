@@ -26,32 +26,38 @@ import type { NullableChartSeries } from './chart-types';
  */
 @Component({
   selector: 'aec-chart-data-table',
+  // The wrapper carries sr-only, not the table: a table never shrinks to sr-only's
+  // 1px box, so on its own a long series widened the page at 320px (AECI-2125, the
+  // same fix `stacked-bar-chart.ts` took in AECI-1813). The wrapper clips it, and a
+  // screen reader still reads it.
   template: `
-    <table class="sr-only">
-      <caption>
-        {{
-          caption()
-        }}
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">{{ categoryHeader() }}</th>
-          @for (s of series(); track s.key) {
-            <th scope="col">{{ s.label }}</th>
-          }
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of rows(); track row.label; let i = $index) {
+    <div class="sr-only">
+      <table>
+        <caption>
+          {{
+            caption()
+          }}
+        </caption>
+        <thead>
           <tr>
-            <th scope="row">{{ row.label }}</th>
-            @for (cell of row.cells; track $index) {
-              <td>{{ cell }}</td>
+            <th scope="col">{{ categoryHeader() }}</th>
+            @for (s of series(); track s.key) {
+              <th scope="col">{{ s.label }}</th>
             }
           </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.label; let i = $index) {
+            <tr>
+              <th scope="row">{{ row.label }}</th>
+              @for (cell of row.cells; track $index) {
+                <td>{{ cell }}</td>
+              }
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
   `,
   styles: [':host { display: contents; }'],
 })

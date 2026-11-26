@@ -38,9 +38,9 @@
  *      `workflow_transitions` are governed by `STAGE_1_SPEC.md` §26.6, and this
  *      cron is not the vehicle for changing that. Since AECI-1638 the separate legal
  *      prune (`./legal-retention-prune`, ADR 0058) deletes `audit_log` rows older than
- *      four years, and the acceptance and grant records past their retention. It is
- *      the one vehicle for those tables; this module still never names them. The two
- *      workflow tables stay indefinite;
+ *      four years, and the acceptance and grant records past their retention. Since
+ *      AECI-1913 it also deletes the two workflow tables four years after the action.
+ *      It is the one vehicle for those tables; this module still never names them.
  *      `metrics_daily` is the long memory §7.1 exists to keep.
  *      `recrawl_submissions` (AECI-1183) is the search-engine submission log, and
  *      `recrawl_submission_causes` (AECI-1184) is why each row was sent. Both are

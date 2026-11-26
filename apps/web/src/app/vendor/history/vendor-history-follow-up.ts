@@ -114,7 +114,7 @@ export function followUpFailureDetail(line: FollowUpLine): string {
   host: { class: 'block', 'data-history-follow-up': '' },
   template: `
     @if (urls().length > 0) {
-      <div class="mt-3 max-w-[60ch] text-xs" data-follow-up-lines>
+      <div class="mt-4 max-w-[60ch] text-t-13" data-follow-up-lines>
         <p class="font-semibold text-(--text-secondary)" [id]="headingId()">
           <span i18n="@@vendor.history.followUp.heading">Search follow-up</span>
         </p>
@@ -122,7 +122,7 @@ export function followUpFailureDetail(line: FollowUpLine): string {
           @for (entry of urls(); track entry.url) {
             <li data-follow-up-url>
               <a
-                class="break-all font-medium text-(--text-primary) underline underline-offset-2"
+                class="rounded-mark font-semibold break-all text-(--text-primary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 [href]="entry.url"
                 >{{ entry.path }}</a
               >
@@ -133,7 +133,7 @@ export function followUpFailureDetail(line: FollowUpLine): string {
                     [attr.data-channel]="line.channel"
                     [attr.data-state]="line.state"
                   >
-                    <span class="font-medium text-(--text-primary)">{{
+                    <span class="font-semibold text-(--text-primary)">{{
                       channelLabel(line.channel)
                     }}</span
                     >: {{ stateLabel(line) }},
@@ -151,11 +151,11 @@ export function followUpFailureDetail(line: FollowUpLine): string {
         </ul>
       </div>
     } @else if (notEligible()) {
-      <div class="mt-3 max-w-[60ch] text-xs text-(--text-secondary)" data-follow-up-not-eligible>
+      <div class="mt-4 max-w-[60ch] text-t-13 text-(--text-secondary)" data-follow-up-not-eligible>
         <p class="font-semibold text-(--text-primary)" i18n="@@vendor.history.followUp.notEligible">
           No expedited search submission
         </p>
-        <p class="mt-0.5" i18n="@@vendor.history.followUp.notEligible.detail">
+        <p class="mt-1" i18n="@@vendor.history.followUp.notEligible.detail">
           Sending changed pages to search engines is part of Managed. Search engines still find the
           change on their own schedule.
         </p>

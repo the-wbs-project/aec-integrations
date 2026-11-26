@@ -9,9 +9,8 @@ import {
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 
-import type { VendorMeResponse, VendorSeat } from '@aeci/shared';
+import type { VendorListingHidden, VendorMeResponse, VendorSeat } from '@aeci/shared';
 
-import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
 import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-integration-create';
 import { VENDOR_EDIT_FORM_START_OPEN } from '../../vendor/components/vendor-integration-edit-form';
@@ -26,6 +25,7 @@ import {
   LEGAL_REQUIRED_OWNER_FIXTURE,
 } from '../../vendor/vendor-legal-fixtures';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';
+import { VendorSuspendedNotice } from '../../vendor/vendor-suspended-notice';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
   VENDOR_ME_DOWNGRADED_FIXTURE,
@@ -48,7 +48,6 @@ import {
 import { VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE } from '../../vendor/vendor-catalogue-fixtures';
 import { PreviewVendorApi } from './preview-vendor-api';
 
-type Concept = 'a' | 'b';
 type FixtureKey =
   | 'verified'
   | 'expiring'
@@ -62,12 +61,14 @@ type FixtureKey =
   | 'mixed'
   | 'product-ended'
   | 'removal-election'
+  | 'listing-hidden'
   | 'member'
   | 'legal-required'
   | 'legal-required-member'
   | 'legal-optional-terms'
   | 'legal-optional-managed'
-  | 'legal-accepted';
+  | 'legal-accepted'
+  | 'suspended';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
   'verified',
@@ -82,12 +83,14 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'mixed',
   'product-ended',
   'removal-election',
+  'listing-hidden',
   'member',
   'legal-required',
   'legal-required-member',
   'legal-optional-terms',
   'legal-optional-managed',
   'legal-accepted',
+  'suspended',
 ];
 
 /** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
@@ -98,6 +101,24 @@ function fixtureFrom(value: string | null): FixtureKey {
 
 /** AECI-1424: the far-term vendor from a member seat. */
 const MEMBER_SEAT_FIXTURE: VendorMeResponse = { ...VENDOR_ME_FIXTURE, seat_owner: false };
+
+/**
+ * AECI-2083: AECi hid the company from the public site, and with it every product (a
+ * company hide covers every product it joins, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). The
+ * overview carries the company banner and every product tab the product banner. No
+ * other fixture sets `hidden`.
+ */
+const LISTING_HIDE: VendorListingHidden = {
+  at: '2026-11-02T14:30:00.000Z',
+  kind: 'complaint_under_review',
+  reason:
+    'A rights holder says the logo on this listing is theirs. We hide a listing while we check a complaint like this.',
+};
+const LISTING_HIDDEN_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, hidden: LISTING_HIDE },
+  products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, hidden: LISTING_HIDE })),
+};
 
 /** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -113,18 +134,13 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
 ];
 
 /**
- * Dev-only preview for the AECI-522 vendor dashboard. It renders the TWO
- * information-architecture concepts as live-toggleable options so the PO can
- * choose one in the running app before it's wired into the real gated `/vendor`
- * route (the `unified-home-preview` precedent, AECI-270 / `docs/design/LESSONS.md`
- * "build all and then I chose"):
+ * Dev-only preview for the AECI-522 vendor dashboard. It first rendered two
+ * information-architecture concepts side by side so the PO could choose one (the
+ * `unified-home-preview` precedent, AECI-270). The PO chose the tabbed shell, and
+ * the unused single-page concept was deleted by AECI-1809 (ruled 2026-11-24), so it
+ * renders the shipped shell (`vendor-dashboard-tabbed.ts`) alone.
  *
- *   - **a · Tabbed** — a side-nav over one panel (Overview / Profile / Products /
- *     Seats). Focused surfaces; scales to more sections later.
- *   - **b · Single page** — the whole surface on one scroll. Fewer clicks; longer
- *     page.
- *
- * A second toggle swaps the ENTITLEMENT STATE (AECI-614 /
+ * The toggle swaps the ENTITLEMENT STATE (AECI-614 /
  * `docs/STAGE_2_PAID_TIERS_SPEC.md` §8), which is what the plan panel and the
  * read-only forms are reviewed against. All four states are here — active with a
  * far term, active and expiring soon, downgraded after a revoke, and never
@@ -146,7 +162,7 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
  */
 @Component({
   selector: 'app-vendor-dashboard-preview',
-  imports: [VendorDashboardTabbed, VendorDashboardSingle],
+  imports: [VendorDashboardTabbed, VendorSuspendedNotice],
   providers: [
     PreviewVendorApi,
     { provide: VendorApi, useExisting: PreviewVendorApi },
@@ -156,8 +172,7 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     // AECI-1011: `?create=open` renders the "Add an integration" form open on first
     // paint, so the design detector (which reads only the first render) sees it. Use
     // it on a child route, e.g. `products/summit-model-coordination/integrations`:
-    // the bare `/preview/vendor-dashboard` redirects and drops the query. `?concept=b`
-    // on a child route selects the single-page concept the same way.
+    // the bare `/preview/vendor-dashboard` redirects and drops the query.
     {
       provide: VENDOR_CREATE_FORM_START_OPEN,
       useFactory: () => inject(ActivatedRoute).snapshot.queryParamMap.get('create') === 'open',
@@ -186,25 +201,6 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     >
       <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3 md:px-8">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="aec-overline text-(--text-secondary)">AECI-522 concept</span>
-          <button
-            type="button"
-            [class]="tabClass(concept() === 'a')"
-            [attr.aria-pressed]="concept() === 'a'"
-            (click)="concept.set('a')"
-          >
-            a · Tabbed
-          </button>
-          <button
-            type="button"
-            [class]="tabClass(concept() === 'b')"
-            [attr.aria-pressed]="concept() === 'b'"
-            (click)="concept.set('b')"
-          >
-            b · Single page
-          </button>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
           <span class="aec-overline text-(--text-secondary)">AECI-614 entitlement state</span>
           @for (f of fixtures; track f.key) {
             <button
@@ -221,13 +217,10 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     </div>
 
     <div class="bg-(--surface-base)">
-      @switch (concept()) {
-        @case ('a') {
-          <aec-vendor-dashboard-tabbed [me]="activeMe()" />
-        }
-        @case ('b') {
-          <aec-vendor-dashboard-single [me]="activeMe()" />
-        }
+      @if (fixture() === 'suspended') {
+        <aec-vendor-suspended-notice [vendorName]="activeMe().vendor.company_name" />
+      } @else {
+        <aec-vendor-dashboard-tabbed [me]="activeMe()" />
       }
     </div>
   `,
@@ -237,9 +230,6 @@ export class VendorDashboardPreview {
   private readonly store = inject(VendorPortalStore);
   private readonly legal = inject(VendorLegalAcceptanceState);
 
-  protected readonly concept = signal<Concept>(
-    inject(ActivatedRoute).snapshot.queryParamMap.get('concept') === 'b' ? 'b' : 'a',
-  );
   protected readonly fixture = signal<FixtureKey>(
     fixtureFrom(inject(ActivatedRoute).snapshot.queryParamMap.get('fixture')),
   );
@@ -274,6 +264,9 @@ export class VendorDashboardPreview {
     // AECI-1618: Managed ended 20 days ago, so an owner seat's removal election is open
     // on each product's overview.
     { key: 'removal-election', label: 'Free · removal election open' },
+    // AECI-2083: the listing-hidden banner (section 11d.6). AECi hid the company and its
+    // products, so the overview and every product tab carry the banner.
+    { key: 'listing-hidden', label: 'Active · hidden by AECi' },
     // AECI-1424: the far-term vendor seen from a member seat (seat_owner false), so
     // the owner-only surfaces (Add a product, proposal decisions) show their member state.
     { key: 'member', label: 'Active · member seat' },
@@ -283,6 +276,9 @@ export class VendorDashboardPreview {
     { key: 'legal-optional-terms', label: 'Terms · may accept' },
     { key: 'legal-optional-managed', label: 'Managed plan · may accept' },
     { key: 'legal-accepted', label: 'Terms · just accepted' },
+    // AECI-1809: the account-status screen a suspended vendor's seats see in place of
+    // the portal (AECI-1623). `VendorPage` renders it; the preview renders it here.
+    { key: 'suspended', label: 'Suspended · account status' },
   ];
 
   /**
@@ -334,6 +330,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
       case 'removal-election':
         return VENDOR_ME_REMOVAL_ELECTION_FIXTURE;
+      case 'listing-hidden':
+        return LISTING_HIDDEN_FIXTURE;
       case 'member':
       case 'legal-required-member':
         return MEMBER_SEAT_FIXTURE;
@@ -347,6 +345,7 @@ export class VendorDashboardPreview {
     switch (this.fixture()) {
       case 'verified':
       case 'member':
+      case 'listing-hidden':
       case 'expiring':
       case 'large-catalog':
       case 'product-ended':

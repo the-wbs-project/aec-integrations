@@ -1195,8 +1195,8 @@ test.describe('header search shortcut (Ctrl+/ or Cmd+/)', () => {
 
 // AECI-1771: the header sits on Forest. These checks read COMPUTED styles, because
 // a class that names the right token can still lose in the cascade (a
-// `border-(--x)` utility loses to the global `*` border-color rule, and a layered
-// outline utility used to lose to the global `:focus-visible` colour).
+// `border-(--x)` utility lost to the global `*` border-color rule until AECI-2088,
+// and a layered outline utility used to lose to the global `:focus-visible` colour).
 //
 // The expected colours are resolved from the tokens in the page, so a token
 // change moves both sides. The signed-in account trigger needs a session this

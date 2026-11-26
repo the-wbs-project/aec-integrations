@@ -1,9 +1,9 @@
 <!--
   /admin/email, spec section 5.14. AECI-1223.
 
-  Same idiom as the other console lists (system-status.html table recipe, the
-  subscriber-list toolbar), so an operator meets one voice. Every value below is
-  rendered as text. No recipient address appears anywhere on this page: the ledger
+  The console recipe (AECI-2128, mock-up 14): the console table, the segmented
+  filter, the shared field recipe, aecButton and the status chips. Every value below
+  is rendered as text. No recipient address appears anywhere on this page: the ledger
   stores a hash only (ADR 0038), and the search box's value is never echoed.
   The sending switches (AECI-1224) are their own component, between the summary and
   the sends, and announce through this page's live region.
@@ -11,22 +11,17 @@
 <section aria-labelledby="admin-email-heading" class="space-y-10">
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div>
-      <h2
-        id="admin-email-heading"
-        class="text-lg font-bold text-(--text-primary)"
-        i18n="@@admin.email.heading"
-      >
-        Email
-      </h2>
-      <p class="mt-1 max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.subheading">
+      <h2 id="admin-email-heading" i18n="@@admin.email.heading">Email</h2>
+      <p [class]="captionClass" class="mt-2 max-w-[60ch]" i18n="@@admin.email.subheading">
         What this site sent, and what Resend reported after it took each message. Addresses are not
         stored, so a search needs the full address. All times UTC.
       </p>
     </div>
     <button
+      aecButton
+      variant="secondary"
       type="button"
       (click)="refresh()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n="@@admin.email.refresh"
     >
       Refresh
@@ -37,78 +32,37 @@
 
   <!-- Sign-in emails: production only. The API sends null on every other tier. -->
   @if (summary()?.sign_in; as signIn) {
-  <section aria-labelledby="admin-email-signin-heading" class="space-y-3">
-    <h3
-      id="admin-email-signin-heading"
-      class="text-base font-bold text-(--text-primary)"
-      i18n="@@admin.email.signIn.heading"
-    >
-      Sign-in emails
-    </h3>
-    <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.signIn.intro">
+  <section aria-labelledby="admin-email-signin-heading" class="space-y-4">
+    <h3 id="admin-email-signin-heading" i18n="@@admin.email.signIn.heading">Sign-in emails</h3>
+    <p [class]="captionClass" class="max-w-[60ch]" i18n="@@admin.email.signIn.intro">
       Supabase sends the sign-in link through Resend, so there is no send record for it. These are
       the delivery reports Resend sent back. Search an address below to see one person's.
     </p>
-    <div
-      class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      tabindex="0"
-      role="region"
-      aria-labelledby="admin-email-signin-heading"
-    >
-      <table class="w-full min-w-[36rem] border-collapse text-sm">
-        <caption class="sr-only" i18n="@@admin.email.signIn.caption">
+    <div [class]="t.region" tabindex="0" role="region" aria-labelledby="admin-email-signin-caption">
+      <table [class]="t.table" class="min-w-[36rem]">
+        <caption
+          id="admin-email-signin-caption"
+          [class]="t.caption"
+          i18n="@@admin.email.signIn.caption"
+        >
           Sign-in email delivery reports for the last 7 and 30 days
         </caption>
         <thead>
-          <tr class="border-b border-(--border-strong)">
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.window"
-            >
-              Window
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.accepted"
-            >
-              Accepted
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.delivered"
-            >
-              Delivered
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.delayed"
-            >
-              Delayed
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.bounced"
-            >
-              Bounced
-            </th>
-            <th
-              scope="col"
-              class="py-2 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.complained"
-            >
+          <tr>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.window">Window</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.accepted">Accepted</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.delivered">Delivered</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.delayed">Delayed</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.bounced">Bounced</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.complained">
               Spam reports
             </th>
           </tr>
         </thead>
         <tbody>
           @for (w of windows; track w) {
-          <tr class="border-b border-(--border-default)">
-            <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+          <tr [class]="t.row">
+            <th scope="row" [class]="t.rowHead">
               @if (w === 'd7') {
               <span i18n="@@admin.email.window.d7">Last 7 days</span>
               } @else {
@@ -116,21 +70,11 @@
               }
             </th>
             @let c = w === 'd7' ? signIn.d7 : signIn.d30;
-            <td class="py-2.5 pe-4 text-end tabular-nums" [class]="countClass(c.sent)">
-              {{ c.sent }}
-            </td>
-            <td class="py-2.5 pe-4 text-end tabular-nums" [class]="countClass(c.delivered)">
-              {{ c.delivered }}
-            </td>
-            <td class="py-2.5 pe-4 text-end tabular-nums" [class]="countClass(c.delivery_delayed)">
-              {{ c.delivery_delayed }}
-            </td>
-            <td class="py-2.5 pe-4 text-end tabular-nums" [class]="problemClass(c.bounced)">
-              {{ c.bounced }}
-            </td>
-            <td class="py-2.5 text-end tabular-nums" [class]="problemClass(c.complained)">
-              {{ c.complained }}
-            </td>
+            <td [class]="countClass(c.sent)">{{ c.sent }}</td>
+            <td [class]="countClass(c.delivered)">{{ c.delivered }}</td>
+            <td [class]="countClass(c.delivery_delayed)">{{ c.delivery_delayed }}</td>
+            <td [class]="problemClass(c.bounced)">{{ c.bounced }}</td>
+            <td [class]="problemClass(c.complained)">{{ c.complained }}</td>
           </tr>
           }
         </tbody>
@@ -142,71 +86,68 @@
   <!-- By template -->
   <section aria-labelledby="admin-email-summary-heading" class="space-y-4">
     <div class="flex flex-wrap items-end justify-between gap-4">
-      <h3
-        id="admin-email-summary-heading"
-        class="text-base font-bold text-(--text-primary)"
-        i18n="@@admin.email.summary.heading"
-      >
-        By template
-      </h3>
-      <fieldset class="flex items-center gap-2">
+      <h3 id="admin-email-summary-heading" i18n="@@admin.email.summary.heading">By template</h3>
+      <!-- The console's segmented filter (CONSOLE_FILTER): pressed is Forest with a tick. -->
+      <fieldset class="m-0 min-w-0 border-0 p-0">
         <legend class="sr-only" i18n="@@admin.email.window.label">Window</legend>
-        @for (w of windows; track w) {
-        <button
-          type="button"
-          (click)="setWindow(w)"
-          [attr.aria-pressed]="window() === w"
-          class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          [class]="
-            window() === w
-              ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
-              : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
-          "
-        >
-          @if (w === 'd7') {
-          <span i18n="@@admin.email.window.d7">Last 7 days</span>
-          } @else {
-          <span i18n="@@admin.email.window.d30">Last 30 days</span>
+        <div [class]="f.seg">
+          @for (w of windows; track w) {
+          <button
+            type="button"
+            [class]="f.option"
+            (click)="setWindow(w)"
+            [attr.aria-pressed]="window() === w"
+          >
+            @if (window() === w) {
+            <aec-icon name="check" decorative [size]="4" />
+            } @if (w === 'd7') {
+            <span i18n="@@admin.email.window.d7">Last 7 days</span>
+            } @else {
+            <span i18n="@@admin.email.window.d30">Last 30 days</span>
+            }
+          </button>
           }
-        </button>
-        }
+        </div>
       </fieldset>
     </div>
 
     @if (summaryLoading() && !summary()) {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.summary.loading">
-      Loading email activity…
-    </p>
+    <p [class]="statusLineClass" i18n="@@admin.email.summary.loading">Loading email activity…</p>
     } @else if (summaryError(); as kind) {
-    <div class="space-y-3" role="alert">
-      <p class="text-sm font-medium text-(--text-primary)">
+    <div [class]="loadFailedClass" role="alert">
+      <p [class]="failedTextClass">
         <span i18n="@@admin.email.summary.error">We couldn't load the template summary.</span>
         @if (kind === 'session') {
         <span i18n="@@admin.email.error.session">Your session may have expired.</span>
         }
       </p>
       <button
+        aecButton
+        variant="secondary"
         type="button"
         (click)="retrySummary()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.email.retry"
       >
         Try again
       </button>
     </div>
     } @else if (summaryRows().length === 0) {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.summary.empty">
+    <p [class]="t.empty" i18n="@@admin.email.summary.empty">
       Nothing was sent from this site in the last 30 days.
     </p>
     } @else {
     <div
-      class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="t.region"
       tabindex="0"
       role="region"
-      aria-labelledby="admin-email-summary-heading"
+      aria-labelledby="admin-email-summary-caption"
     >
-      <table class="w-full min-w-[68rem] border-collapse text-sm">
-        <caption class="sr-only" i18n="@@admin.email.summary.caption">
+      <table [class]="t.table" class="min-w-[68rem]">
+        <caption
+          id="admin-email-summary-caption"
+          [class]="t.caption"
+          i18n="@@admin.email.summary.caption"
+        >
           Send outcomes and delivery reports for each email template
         </caption>
         <thead>
@@ -215,7 +156,7 @@
             <th
               scope="colgroup"
               colspan="7"
-              class="pb-1 text-start text-xs font-bold text-(--text-secondary)"
+              [class]="groupHeadClass"
               i18n="@@admin.email.group.outcomes"
             >
               What happened when we sent it
@@ -223,127 +164,56 @@
             <th
               scope="colgroup"
               colspan="4"
-              class="pb-1 ps-4 text-start text-xs font-bold text-(--text-secondary)"
+              [class]="groupHeadClass + ' ' + groupStartClass"
               i18n="@@admin.email.group.delivery"
             >
               What Resend reported
             </th>
           </tr>
-          <tr class="border-b border-(--border-strong)">
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.template"
-            >
-              Template
-            </th>
+          <tr>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.template">Template</th>
             @for (o of summaryOutcomes; track o) {
-            <th scope="col" class="py-2 pe-3 text-end font-bold text-(--text-secondary)">
-              {{ outcomeLabel(o) }}
-            </th>
+            <th scope="col" [class]="t.headNum">{{ outcomeLabel(o) }}</th>
             }
             <th
               scope="col"
-              class="border-s border-(--border-default) py-2 ps-4 pe-3 text-end font-bold text-(--text-secondary)"
+              [class]="t.headNum + ' ' + groupStartClass"
               i18n="@@admin.email.col.delivered"
             >
               Delivered
             </th>
-            <th
-              scope="col"
-              class="py-2 pe-3 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.bounced"
-            >
-              Bounced
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-3 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.complained"
-            >
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.bounced">Bounced</th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.complained">
               Spam reports
             </th>
-            <th
-              scope="col"
-              class="py-2 text-end font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.delayed"
-            >
-              Delayed
-            </th>
+            <th scope="col" [class]="t.headNum" i18n="@@admin.email.col.delayed">Delayed</th>
           </tr>
         </thead>
         <tbody>
           @for (row of summaryRows(); track row.notification_id) { @let c = window() === 'd7' ?
           row.d7 : row.d30;
-          <tr class="border-b border-(--border-default) align-top">
-            <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-              <span class="block font-mono text-xs font-bold text-(--text-primary)"
-                >{{ row.notification_id }}</span
-              >
+          <tr [class]="t.row">
+            <th scope="row" [class]="t.rowHead">
+              <span [class]="keyClass">{{ row.notification_id }}</span>
               @if (row.summary) {
-              <span class="mt-0.5 block max-w-[40ch] text-xs text-(--text-secondary)"
-                >{{ row.summary }}</span
-              >
+              <span [class]="t.sub" class="max-w-[40ch]">{{ row.summary }}</span>
               } @else {
-              <span
-                class="mt-0.5 block text-xs text-(--text-secondary)"
-                i18n="@@admin.email.notInRegistry"
-                >Not in the registry</span
-              >
+              <span [class]="t.sub" i18n="@@admin.email.notInRegistry">Not in the registry</span>
               }
             </th>
-            <td class="py-2.5 pe-3 text-end tabular-nums" [class]="countClass(c.outcomes.sent)">
-              {{ c.outcomes.sent }}
-            </td>
-            <td class="py-2.5 pe-3 text-end tabular-nums" [class]="problemClass(c.outcomes.failed)">
-              {{ c.outcomes.failed }}
-            </td>
-            <td
-              class="py-2.5 pe-3 text-end tabular-nums"
-              [class]="cautionClass(c.outcomes.unknown)"
-            >
-              {{ c.outcomes.unknown }}
-            </td>
-            <td class="py-2.5 pe-3 text-end tabular-nums" [class]="countClass(c.outcomes.skipped)">
-              {{ c.outcomes.skipped }}
-            </td>
-            <td
-              class="py-2.5 pe-3 text-end tabular-nums"
-              [class]="countClass(c.outcomes.suppressed)"
-            >
-              {{ c.outcomes.suppressed }}
-            </td>
-            <td
-              class="py-2.5 pe-3 text-end tabular-nums"
-              [class]="countClass(c.outcomes.duplicate)"
-            >
-              {{ c.outcomes.duplicate }}
-            </td>
-            <td class="py-2.5 pe-3 text-end tabular-nums" [class]="cautionClass(c.outcomes.paused)">
-              {{ c.outcomes.paused }}
-            </td>
-            <td
-              class="border-s border-(--border-default) py-2.5 ps-4 pe-3 text-end tabular-nums"
-              [class]="countClass(c.delivery.delivered)"
-            >
+            <td [class]="countClass(c.outcomes.sent)">{{ c.outcomes.sent }}</td>
+            <td [class]="problemClass(c.outcomes.failed)">{{ c.outcomes.failed }}</td>
+            <td [class]="cautionClass(c.outcomes.unknown)">{{ c.outcomes.unknown }}</td>
+            <td [class]="countClass(c.outcomes.skipped)">{{ c.outcomes.skipped }}</td>
+            <td [class]="countClass(c.outcomes.suppressed)">{{ c.outcomes.suppressed }}</td>
+            <td [class]="countClass(c.outcomes.duplicate)">{{ c.outcomes.duplicate }}</td>
+            <td [class]="cautionClass(c.outcomes.paused)">{{ c.outcomes.paused }}</td>
+            <td [class]="countClass(c.delivery.delivered) + ' ' + groupStartClass">
               {{ c.delivery.delivered }}
             </td>
-            <td
-              class="py-2.5 pe-3 text-end tabular-nums"
-              [class]="problemClass(c.delivery.bounced)"
-            >
-              {{ c.delivery.bounced }}
-            </td>
-            <td
-              class="py-2.5 pe-3 text-end tabular-nums"
-              [class]="problemClass(c.delivery.complained)"
-            >
-              {{ c.delivery.complained }}
-            </td>
-            <td
-              class="py-2.5 text-end tabular-nums"
-              [class]="countClass(c.delivery.delivery_delayed)"
-            >
+            <td [class]="problemClass(c.delivery.bounced)">{{ c.delivery.bounced }}</td>
+            <td [class]="problemClass(c.delivery.complained)">{{ c.delivery.complained }}</td>
+            <td [class]="countClass(c.delivery.delivery_delayed)">
               {{ c.delivery.delivery_delayed }}
             </td>
           </tr>
@@ -351,7 +221,7 @@
         </tbody>
       </table>
     </div>
-    <p class="max-w-[60ch] text-xs text-(--text-secondary)" i18n="@@admin.email.summary.note">
+    <p [class]="hintClass" class="max-w-[60ch]" i18n="@@admin.email.summary.note">
       A send counts on the day we sent it, and a report on the day Resend's report arrived. The two
       can fall in different windows, so a template can briefly show more deliveries than sends.
     </p>
@@ -363,13 +233,7 @@
 
   <!-- Sends -->
   <section aria-labelledby="admin-email-sends-heading" class="space-y-4">
-    <h3
-      id="admin-email-sends-heading"
-      class="text-base font-bold text-(--text-primary)"
-      i18n="@@admin.email.sends.heading"
-    >
-      Sends
-    </h3>
+    <h3 id="admin-email-sends-heading" i18n="@@admin.email.sends.heading">Sends</h3>
 
     <form
       method="dialog"
@@ -377,11 +241,8 @@
       (submit)="onSearchSubmit($event)"
       class="flex flex-wrap items-end gap-2"
     >
-      <div class="flex flex-col gap-1">
-        <label
-          for="admin-email-address"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.email.search.label"
+      <div class="grid w-72 max-w-full gap-2">
+        <label for="admin-email-address" [class]="labelClass" i18n="@@admin.email.search.label"
           >Recipient address</label
         >
         <input
@@ -397,21 +258,18 @@
               ? 'admin-email-address-error admin-email-address-hint'
               : 'admin-email-address-hint'
           "
-          class="w-72 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="inputClass"
         />
       </div>
-      <button
-        type="submit"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.email.search.submit"
-      >
+      <button aecButton variant="secondary" type="submit" i18n="@@admin.email.search.submit">
         Search
       </button>
       @if (address()) {
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="clearSearch()"
-        class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.email.search.clear"
       >
         Clear search
@@ -422,14 +280,14 @@
     <p
       id="admin-email-address-error"
       role="alert"
-      class="text-sm font-medium text-(--text-primary)"
+      [class]="errorClass"
       i18n="@@admin.email.search.invalid"
     >
       Enter a full email address, with an &#64; sign.
     </p>
     }
-    <p id="admin-email-address-hint" class="text-xs text-(--text-secondary)">
-      <strong class="text-(--text-primary)" i18n="@@admin.email.search.rule"
+    <p id="admin-email-address-hint" [class]="hintClass">
+      <strong class="font-semibold text-(--text-primary)" i18n="@@admin.email.search.rule"
         >Exact match on the whole address.</strong
       >
       <span i18n="@@admin.email.search.hint">
@@ -438,7 +296,7 @@
       >
     </p>
 
-    <div class="flex flex-wrap items-end gap-3">
+    <div class="flex flex-wrap items-end gap-4">
       <aec-select
         i18n-label="@@admin.email.filter.template.label"
         label="Template"
@@ -463,41 +321,38 @@
         idPrefix="admin-email-delivery"
         (changed)="onDelivery($event)"
       />
-      <div class="flex items-center gap-2">
-        <label
-          for="admin-email-from"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.email.filter.from"
+      <div class="flex flex-wrap items-center gap-2">
+        <label for="admin-email-from" [class]="labelClass" i18n="@@admin.email.filter.from"
           >From</label
         >
-        <input
-          id="admin-email-from"
-          type="date"
-          [value]="from()"
-          [attr.max]="to() || null"
-          (change)="onFrom($event)"
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
-        <label
-          for="admin-email-to"
-          class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
-          i18n="@@admin.email.filter.to"
-          >to</label
-        >
-        <input
-          id="admin-email-to"
-          type="date"
-          [value]="to()"
-          [attr.min]="from() || null"
-          (change)="onTo($event)"
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        />
+        <div class="w-44 max-w-full">
+          <input
+            id="admin-email-from"
+            type="date"
+            [value]="from()"
+            [attr.max]="to() || null"
+            (change)="onFrom($event)"
+            [class]="inputClass"
+          />
+        </div>
+        <label for="admin-email-to" [class]="labelClass" i18n="@@admin.email.filter.to">to</label>
+        <div class="w-44 max-w-full">
+          <input
+            id="admin-email-to"
+            type="date"
+            [value]="to()"
+            [attr.min]="from() || null"
+            (change)="onTo($event)"
+            [class]="inputClass"
+          />
+        </div>
       </div>
       @if (anyFilter()) {
       <button
+        aecButton
+        variant="ghost"
         type="button"
         (click)="clearFilters()"
-        class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.email.filter.clearAll"
       >
         Clear filters
@@ -506,40 +361,37 @@
     </div>
 
     @if (listFirstLoad()) {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.sends.loading">Loading sends…</p>
+    <p [class]="statusLineClass" i18n="@@admin.email.sends.loading">Loading sends…</p>
     } @else if (listError() === 'invalid') {
-    <p
-      class="text-sm font-medium text-(--text-primary)"
-      role="alert"
-      i18n="@@admin.email.sends.invalid"
-    >
+    <p [class]="failedTextClass" role="alert" i18n="@@admin.email.sends.invalid">
       These filters can't be searched. Check that the address is complete and the From date is not
       after the To date.
     </p>
     } @else if (listError(); as kind) {
-    <div class="space-y-3" role="alert">
-      <p class="text-sm font-medium text-(--text-primary)">
+    <div [class]="loadFailedClass" role="alert">
+      <p [class]="failedTextClass">
         <span i18n="@@admin.email.sends.error">We couldn't load the sends.</span>
         @if (kind === 'session') {
         <span i18n="@@admin.email.error.session">Your session may have expired.</span>
         }
       </p>
       <button
+        aecButton
+        variant="secondary"
         type="button"
         (click)="retryList()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.email.retry"
       >
         Try again
       </button>
     </div>
     } @else if (isEmpty()) {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.sends.empty">
+    <p [class]="t.empty" i18n="@@admin.email.sends.empty">
       Nothing has been sent from this site yet.
     </p>
     } @else {
     <div [attr.aria-busy]="listBusy()" class="space-y-4">
-      <p class="text-sm text-(--text-secondary)">
+      <p [class]="statusLineClass">
         @if (address()) {
         <span i18n="@@admin.email.sends.countAddress"
           >{total(), plural, =1 {1 send to this address matches.} other {{{ total() }} sends to this
@@ -555,147 +407,103 @@
       </p>
 
       @if (noMatches()) {
-      <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.sends.noMatches">
+      <p [class]="t.empty" i18n="@@admin.email.sends.noMatches">
         No sends match this search or filter.
       </p>
       } @else {
       <div
-        class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="t.region"
         tabindex="0"
         role="region"
-        aria-labelledby="admin-email-sends-heading"
+        aria-labelledby="admin-email-sends-caption"
       >
-        <table class="w-full min-w-[60rem] border-collapse text-sm">
-          <caption class="sr-only" i18n="@@admin.email.sends.caption">
+        <table [class]="t.table" class="min-w-[60rem]">
+          <caption
+            id="admin-email-sends-caption"
+            [class]="t.caption"
+            i18n="@@admin.email.sends.caption"
+          >
             Each email send, newest first, with its outcome, Resend's latest delivery report, what
             it was about, and a link to the message in Resend
           </caption>
           <thead>
-            <tr class="border-b border-(--border-strong)">
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.when"
-              >
-                Sent at
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.template"
-              >
-                Template
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.outcome"
-              >
-                Outcome
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.delivery"
-              >
-                Delivery
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.about"
-              >
-                About
-              </th>
-              <th
-                scope="col"
-                class="py-2 text-start font-bold text-(--text-secondary)"
-                i18n="@@admin.email.col.resend"
-              >
-                In Resend
-              </th>
+            <tr>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.when">Sent at</th>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.template">Template</th>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.outcome">Outcome</th>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.delivery">Delivery</th>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.about">About</th>
+              <th scope="col" [class]="t.head" i18n="@@admin.email.col.resend">In Resend</th>
             </tr>
           </thead>
           <tbody>
             @for (row of sends(); track row.id) {
-            <tr class="border-b border-(--border-default) align-top">
-              <td class="py-2.5 pe-4 whitespace-nowrap text-(--text-secondary)">
+            <tr [class]="t.row">
+              <td [class]="t.nowrap">
                 {{ row.created_at | date: 'medium' : 'UTC' }}
-                <span class="block font-mono text-xs text-(--text-tertiary)">
+                <span [class]="t.sub" class="font-mono">
                   <span i18n="@@admin.email.recipientPrefix">Recipient</span>
                   {{ row.recipient_hash_prefix }}
                 </span>
               </td>
-              <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-                <span class="block font-mono text-xs font-bold text-(--text-primary)"
-                  >{{ row.notification_id }}</span
-                >
+              <th scope="row" [class]="t.rowHead">
+                <span [class]="keyClass">{{ row.notification_id }}</span>
               </th>
-              <td class="py-2.5 pe-4">
-                <span
-                  [class]="isFailure(row.outcome) ? 'font-bold text-(--status-error)' : 'text-(--text-primary)'"
-                  >{{ outcomeLabel(row.outcome) }}</span
+              <td [class]="t.cell">
+                <aec-chip density="dense" [tone]="outcomeTone(row.outcome)"
+                  >{{ outcomeLabel(row.outcome) }}</aec-chip
                 >
               </td>
-              <td class="py-2.5 pe-4">
+              <td [class]="t.cell">
                 @if (row.latest_delivery; as d) {
-                <span
-                  [class]="isProblem(d.event_type) ? 'font-bold text-(--status-error)' : 'text-(--text-primary)'"
-                  >{{ deliveryLabel(d.event_type) }}</span
+                <aec-chip density="dense" [tone]="deliveryTone(d.event_type)"
+                  >{{ deliveryLabel(d.event_type) }}</aec-chip
                 >
                 @if (d.bounce_type) {
-                <span class="block text-xs text-(--text-secondary)"
+                <span [class]="t.sub" class="mt-1"
                   >{{ d.bounce_type }}@if (d.bounce_subtype) { · {{ d.bounce_subtype }} }</span
                 >
                 } @if (eventDate(d.occurred_at); as at) {
-                <span class="block text-xs text-(--text-tertiary)"
-                  >{{ at | date: 'medium' : 'UTC' }}</span
-                >
+                <span [class]="t.sub">{{ at | date: 'medium' : 'UTC' }}</span>
                 } @else {
-                <span class="block text-xs text-(--text-tertiary)">{{ d.occurred_at }}</span>
+                <span [class]="t.sub">{{ d.occurred_at }}</span>
                 } } @else if (row.provider_message_id) {
                 <span class="text-(--text-secondary)" i18n="@@admin.email.delivery.none"
                   >No report yet</span
                 >
                 } @else {
-                <span class="text-(--text-tertiary)" i18n="@@admin.email.delivery.notApplicable"
+                <span class="text-(--text-secondary)" i18n="@@admin.email.delivery.notApplicable"
                   >Not applicable</span
                 >
                 }
               </td>
-              <td class="py-2.5 pe-4">
+              <td [class]="t.cell">
                 @if (row.entity; as e) { @if (e.admin_path) {
-                <a
-                  [routerLink]="e.admin_path"
-                  class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  >{{ entityLabel(e) }}</a
-                >
+                <a [routerLink]="e.admin_path" [class]="inlineLinkClass">{{ entityLabel(e) }}</a>
                 } @else {
                 <span class="text-(--text-primary)">{{ entityLabel(e) }}</span>
                 }
-                <span class="block max-w-[18ch] truncate font-mono text-xs text-(--text-tertiary)"
-                  >{{ e.id }}</span
-                >
+                <span [class]="t.sub" class="max-w-[18ch] truncate font-mono">{{ e.id }}</span>
                 } @else {
-                <span class="text-(--text-tertiary)" i18n="@@admin.email.entity.none"
+                <span class="text-(--text-secondary)" i18n="@@admin.email.entity.none"
                   >Not recorded</span
                 >
                 }
               </td>
-              <td class="py-2.5">
+              <td [class]="t.cell">
                 @if (row.provider_message_id) {
                 <a
                   [href]="resendUrl(row.provider_message_id)"
                   target="_blank"
                   rel="noopener nofollow"
-                  class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  [class]="inlineLinkClass"
                   ><span i18n="@@admin.email.openInResend">Open</span
                   ><span class="sr-only" i18n="@@admin.email.openInResend.sr">
                     this message in Resend (opens in a new tab)</span
                   ></a
                 >
                 } @else {
-                <span class="text-(--text-tertiary)" i18n="@@admin.email.resend.none">No id</span>
+                <span class="text-(--text-secondary)" i18n="@@admin.email.resend.none">No id</span>
                 }
               </td>
             </tr>
@@ -708,6 +516,7 @@
         [page]="page()"
         [perPage]="perPage"
         [total]="total()"
+        [busy]="listBusy()"
         (pageChange)="goToPage($event)"
       />
       }
@@ -718,94 +527,65 @@
   <!-- Delivery reports no send record claims. Only during an address search. -->
   @if (address() && !listError() && !listFirstLoad() && !listBusy()) {
   <section aria-labelledby="admin-email-unmatched-heading" class="space-y-4">
-    <h3
-      id="admin-email-unmatched-heading"
-      class="text-base font-bold text-(--text-primary)"
-      i18n="@@admin.email.unmatched.heading"
-    >
+    <h3 id="admin-email-unmatched-heading" i18n="@@admin.email.unmatched.heading">
       Delivery reports with no send record
     </h3>
-    <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.unmatched.intro">
+    <p [class]="captionClass" class="max-w-[60ch]" i18n="@@admin.email.unmatched.intro">
       Sign-in emails and blind copies reach Resend without a send record here. These are the newest
       reports Resend sent back that name this address and no other. A report that names several
       addresses is kept, but under none of them.
     </p>
     @if (unmatched().length === 0) {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.unmatched.empty">
-      No reports for this address.
-    </p>
+    <p [class]="t.empty" i18n="@@admin.email.unmatched.empty">No reports for this address.</p>
     } @else {
     <div
-      class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="t.region"
       tabindex="0"
       role="region"
-      aria-labelledby="admin-email-unmatched-heading"
+      aria-labelledby="admin-email-unmatched-caption"
     >
-      <table class="w-full min-w-[44rem] border-collapse text-sm">
-        <caption class="sr-only" i18n="@@admin.email.unmatched.caption">
+      <table [class]="t.table" class="min-w-[44rem]">
+        <caption
+          id="admin-email-unmatched-caption"
+          [class]="t.caption"
+          i18n="@@admin.email.unmatched.caption"
+        >
           Delivery reports for this address that no send record claims
         </caption>
         <thead>
-          <tr class="border-b border-(--border-strong)">
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.reportedAt"
-            >
-              Reported at
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.stream"
-            >
-              Email
-            </th>
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.delivery"
-            >
-              Delivery
-            </th>
-            <th
-              scope="col"
-              class="py-2 text-start font-bold text-(--text-secondary)"
-              i18n="@@admin.email.col.resend"
-            >
-              In Resend
-            </th>
+          <tr>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.reportedAt">Reported at</th>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.stream">Email</th>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.delivery">Delivery</th>
+            <th scope="col" [class]="t.head" i18n="@@admin.email.col.resend">In Resend</th>
           </tr>
         </thead>
         <tbody>
           @for (ev of unmatched(); track ev.id) {
-          <tr class="border-b border-(--border-default) align-top">
-            <td class="py-2.5 pe-4 whitespace-nowrap text-(--text-secondary)">
+          <tr [class]="t.row">
+            <td [class]="t.nowrap">
               @if (eventDate(ev.occurred_at); as at) { {{ at | date: 'medium' : 'UTC' }} } @else {
               {{ ev.occurred_at }} }
             </td>
-            <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-              <span class="block font-mono text-xs font-bold text-(--text-primary)"
-                >{{ ev.notification_id }}</span
-              >
+            <th scope="row" [class]="t.rowHead">
+              <span [class]="keyClass">{{ ev.notification_id }}</span>
             </th>
-            <td class="py-2.5 pe-4">
-              <span
-                [class]="isProblem(ev.event_type) ? 'font-bold text-(--status-error)' : 'text-(--text-primary)'"
-                >{{ deliveryLabel(ev.event_type) }}</span
+            <td [class]="t.cell">
+              <aec-chip density="dense" [tone]="deliveryTone(ev.event_type)"
+                >{{ deliveryLabel(ev.event_type) }}</aec-chip
               >
               @if (ev.bounce_type) {
-              <span class="block text-xs text-(--text-secondary)"
+              <span [class]="t.sub" class="mt-1"
                 >{{ ev.bounce_type }}@if (ev.bounce_subtype) { · {{ ev.bounce_subtype }} }</span
               >
               }
             </td>
-            <td class="py-2.5">
+            <td [class]="t.cell">
               <a
                 [href]="resendUrl(ev.provider_message_id)"
                 target="_blank"
                 rel="noopener nofollow"
-                class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="inlineLinkClass"
                 ><span i18n="@@admin.email.openInResend">Open</span
                 ><span class="sr-only" i18n="@@admin.email.openInResend.sr">
                   this message in Resend (opens in a new tab)</span

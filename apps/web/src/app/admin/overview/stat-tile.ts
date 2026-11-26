@@ -54,13 +54,20 @@ export type NotComparableReason = 'classifier_changed' | 'method_changed' | 'pri
   selector: 'aec-stat-tile',
   imports: [DecimalPipe, Sparkline],
   template: `
+    <!-- AECI-1813, mock-up 14: a flat bordered panel, the label at the Label
+         role, the figure at 36px in Forest. -->
     <div
-      class="flex h-full flex-col gap-2 rounded-(--radius-lg) border border-(--border-default)
-        bg-(--surface-raised) p-5"
+      class="flex h-full flex-col gap-2 rounded-panel border border-(--border-default) bg-(--surface-base) p-6"
     >
-      <p class="text-sm text-pretty text-(--text-secondary)">{{ label() }}</p>
+      <p
+        class="text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-pretty text-(--text-secondary)"
+      >
+        {{ label() }}
+      </p>
 
-      <p class="font-display text-4xl font-semibold tabular-nums text-(--accent-primary)">
+      <p
+        class="font-display text-t-36 font-semibold leading-none tracking-[-0.01em] tabular-nums lining-nums text-(--accent-primary)"
+      >
         {{ value() | number }}
       </p>
 
@@ -69,14 +76,14 @@ export type NotComparableReason = 'classifier_changed' | 'method_changed' | 'pri
       }
 
       @if (deltaLines().length > 0) {
-        <ul role="list" class="space-y-0.5">
+        <ul role="list" class="space-y-1">
           @for (d of deltaLines(); track $index) {
-            <li class="text-sm text-pretty tabular-nums text-(--text-secondary)">{{ d.text }}</li>
+            <li class="text-t-14 text-pretty tabular-nums text-(--text-primary)">{{ d.text }}</li>
           }
         </ul>
       }
 
-      <p class="mt-auto pt-1 text-xs leading-relaxed text-pretty text-(--text-secondary)">
+      <p class="mt-auto text-t-14 text-pretty text-(--text-secondary)">
         {{ caption() }}
       </p>
     </div>

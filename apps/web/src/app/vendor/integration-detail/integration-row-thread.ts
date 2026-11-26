@@ -30,15 +30,15 @@ import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { companyMidSentence, formatDay } from './integration-detail-model';
+import { AecButton } from '../../shared/button/button';
+import { CHOICE_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
 import {
   ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
   HELP,
   ID_STYLES,
+  INPUT,
   IN_TEXT_LINK,
-  LABEL,
-  ROW_ACTION,
+  NOTE_PANEL,
 } from './integration-detail-styles';
 
 /**
@@ -108,19 +108,34 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
 
 @Component({
   selector: 'aec-integration-row-thread',
-  imports: [AecConsentBox],
-  // The divider is component CSS: a layered border-color utility never applies
-  // (see ID_STYLES).
-  styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
+  imports: [AecButton, AecConsentBox],
+  styles: [ID_STYLES],
   template: `
-    <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + key()">
+    <!-- Inline, a hairline sets the thread off from its item. On its own page the thread
+         is the card's whole content, so it takes no rule (AECI-1811). -->
+    <div
+      [class]="byId() ? '' : 'mt-4 border-t border-(--border-default) pt-4'"
+      [attr.data-testid]="'thread-' + key()"
+    >
       <!-- On its own page (by id) the thread sits under the page's h2 (AECI-1548). -->
       @if (byId()) {
         @if (status() !== 'missing') {
-          <h3 class="id-h4" [id]="baseId() + '-heading'" tabindex="-1">{{ heading() }}</h3>
+          <h3
+            class="text-(--text-primary) focus:outline-none"
+            [id]="baseId() + '-heading'"
+            tabindex="-1"
+          >
+            {{ heading() }}
+          </h3>
         }
       } @else {
-        <h5 class="id-h4" [id]="baseId() + '-heading'" tabindex="-1">{{ heading() }}</h5>
+        <h5
+          class="text-t-14 font-semibold text-(--text-primary) focus:outline-none"
+          [id]="baseId() + '-heading'"
+          tabindex="-1"
+        >
+          {{ heading() }}
+        </h5>
       }
 
       @if (byId()) {
@@ -135,8 +150,10 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
             Could not load the conversation.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondary"
             (click)="retrySummary.emit()"
             i18n="@@vendor.im.retry"
           >
@@ -174,8 +191,9 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
           }
           @if (canOpen()) {
             <button
+              aecButton
+              variant="ghost"
               type="button"
-              [class]="rowAction"
               [attr.aria-expanded]="open()"
               [attr.aria-controls]="baseId() + '-panel'"
               (click)="toggle()"
@@ -207,7 +225,14 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
               <p class="text-(--text-primary)" i18n="@@vendor.im.thread.failed">
                 Could not load the conversation.
               </p>
-              <button type="button" [class]="secondary" (click)="reload()" i18n="@@vendor.im.retry">
+              <button
+                aecButton
+                variant="secondary"
+                compact
+                type="button"
+                (click)="reload()"
+                i18n="@@vendor.im.retry"
+              >
                 Try again
               </button>
             </div>
@@ -228,21 +253,18 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                 [attr.aria-labelledby]="baseId() + '-heading'"
               >
                 @for (m of t.messages; track m.id) {
-                  <li
-                    class="rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2"
-                    [attr.data-testid]="'thread-message-' + m.id"
-                  >
+                  <li [class]="notePanel" [attr.data-testid]="'thread-message-' + m.id">
                     <p class="text-(--text-secondary)">{{ metaLine(m) }}</p>
                     @if (m.deleted_at) {
                       <p
-                        class="mt-0.5 text-(--text-secondary) italic"
+                        class="mt-1 text-(--text-secondary) italic"
                         i18n="@@vendor.im.thread.deleted"
                       >
                         Message deleted
                       </p>
                     } @else {
                       <p
-                        class="mt-0.5 max-w-prose break-words whitespace-pre-line text-(--text-primary)"
+                        class="mt-1 max-w-prose break-words whitespace-pre-line text-(--text-primary)"
                       >
                         {{ m.body }}
                       </p>
@@ -255,9 +277,11 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                               >Delete this message? It will read "Message deleted".</span
                             >
                             <button
+                              aecButton
+                              variant="danger"
+                              compact
                               type="button"
                               [id]="baseId() + '-delete-yes-' + m.id"
-                              [class]="secondary"
                               [disabled]="busy() !== null"
                               (click)="remove(m)"
                               i18n="@@vendor.im.thread.deleteYes"
@@ -265,8 +289,10 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                               Yes, delete it
                             </button>
                             <button
+                              aecButton
+                              variant="secondary"
+                              compact
                               type="button"
-                              [class]="rowAction"
                               [disabled]="busy() !== null"
                               (click)="cancelDelete(m)"
                               i18n="@@vendor.im.thread.deleteKeep"
@@ -276,10 +302,11 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                           </div>
                         } @else {
                           <button
+                            aecButton
+                            variant="ghost"
                             type="button"
                             [id]="baseId() + '-delete-' + m.id"
-                            [class]="rowAction"
-                            class="mt-1"
+                            [class]="'-ms-4'"
                             [attr.aria-label]="deleteLabel(m)"
                             [disabled]="busy() !== null"
                             (click)="startDelete(m)"
@@ -314,12 +341,9 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
             }
 
             @if (canWrite()) {
-              <div class="mt-3">
+              <div class="mt-4">
                 @if (!acknowledged()) {
-                  <div
-                    class="mb-3 rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2"
-                    data-testid="thread-ack"
-                  >
+                  <div class="mb-4" [class]="notePanel" data-testid="thread-ack">
                     <p [id]="baseId() + '-ack-text'" class="max-w-prose text-(--text-primary)">
                       {{ ackText() }}
                     </p>
@@ -335,7 +359,8 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                       <input
                         type="checkbox"
                         aecConsent
-                        class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        class="mt-1"
+                        [class]="choice"
                         [checked]="ackChecked()"
                         [attr.aria-describedby]="baseId() + '-ack-text'"
                         (change)="setAck($event)"
@@ -350,7 +375,8 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                   [id]="baseId() + '-body'"
                   rows="3"
                   [attr.maxlength]="max"
-                  class="id-input mt-1"
+                  [class]="input"
+                  class="mt-2"
                   [attr.aria-describedby]="baseId() + '-warning ' + baseId() + '-count'"
                   [attr.aria-invalid]="error() ? 'true' : null"
                   [disabled]="!composerOpen()"
@@ -358,13 +384,14 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                   (input)="setDraft($event)"
                   data-testid="thread-composer"
                 ></textarea>
-                <p [id]="baseId() + '-count'" class="mt-1 text-xs text-(--text-secondary)">
+                <p [id]="baseId() + '-count'" class="mt-2 text-xs text-(--text-secondary)">
                   {{ countLabel() }}
                 </p>
-                <div class="mt-2 flex flex-wrap items-center gap-3">
+                <div class="mt-4 flex flex-wrap items-center gap-3">
                   <button
+                    aecButton
+                    compact
                     type="button"
-                    [class]="primary"
                     [disabled]="busy() !== null || !canSend()"
                     (click)="send()"
                     data-testid="thread-send"
@@ -374,8 +401,10 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
                   </button>
                   @if (t && !t.help_requested_at) {
                     <button
+                      aecButton
+                      variant="secondary"
+                      compact
                       type="button"
-                      [class]="secondary"
                       [disabled]="busy() !== null"
                       (click)="askHelp()"
                       data-testid="thread-help"
@@ -849,11 +878,11 @@ export class IntegrationRowThread {
     afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
-  protected readonly label = LABEL;
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly rowAction = ROW_ACTION;
+  protected readonly input = INPUT;
+  protected readonly choice = CHOICE_INPUT_CLASS;
+  protected readonly notePanel = NOTE_PANEL;
   protected readonly inTextLink = IN_TEXT_LINK;
 }

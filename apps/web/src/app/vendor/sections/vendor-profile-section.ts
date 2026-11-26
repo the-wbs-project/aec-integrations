@@ -24,12 +24,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
   template: `
     @if (me(); as m) {
       <div>
-        <h2
-          class="font-display text-xl font-semibold text-(--text-primary)"
-          i18n="@@vendor.section.profile"
-        >
-          Vendor profile
-        </h2>
+        <!-- AECI-1810: the global h2 (24px). A size utility on it was dead anyway. -->
+        <h2 i18n="@@vendor.section.profile">Vendor profile</h2>
         <p class="mt-1"><aec-vendor-docs-link page="editing-profile-and-products" /></p>
         <!-- AECI-1218: "Looks right" on the company details (section 13.8).
              AECI-1241: only while the step is not done at load. -->

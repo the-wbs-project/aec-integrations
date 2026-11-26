@@ -26,6 +26,7 @@ import {
   howYouGetIt,
   integrationStatus,
   isAddedByYouWaiting,
+  isClaimed,
   isCounterpartAddedUnanswered,
   needsItems,
   noteAudience,
@@ -34,6 +35,7 @@ import {
   rowsNeedingAnswer,
   sharedSummary,
   stampsToKeep,
+  statusExplain,
   statusFromParam,
   statusLabel,
   submittedChange,
@@ -263,6 +265,31 @@ describe('integrationStatus — the first that applies (§6.17.2)', () => {
     const connector = { ...CONNECTOR, owner: { id: 'x', name: 'Agave' } };
     expect(integrationStatus(connector, ctx())).toBe('connector');
     expect(statusLabel('connector')).toBe('AEC Integrations maintained');
+  });
+
+  it('the connector tooltip says who keeps the row, by claimed state', () => {
+    const agave = { id: 'x', name: 'Agave' };
+    const claimed_at = '2026-09-23T00:00:00.000Z';
+    expect(statusExplain('connector', { ...CONNECTOR, owner: agave, claimed_at: null })).toBe(
+      'It runs through a connector service, so AEC Integrations keeps its data up to date.',
+    );
+    expect(
+      statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: agave, claimed_at }),
+    ).toBe(
+      'It runs through a connector service. Agave keeps its details up to date, and AEC Integrations no longer updates it.',
+    );
+    expect(
+      statusExplain('connector', { ...CONNECTOR, is_owner: true, owner: agave, claimed_at }),
+    ).toBe(
+      'It runs through a connector service. Your company keeps its details up to date, and AEC Integrations no longer updates it.',
+    );
+    expect(
+      statusExplain('connector', { ...CONNECTOR, is_owner: false, owner: null, claimed_at }),
+    ).toBe(
+      'It runs through a connector service. Its owner keeps its details up to date, and AEC Integrations no longer updates it.',
+    );
+    expect(isClaimed({ claimed_at: null })).toBe(false);
+    expect(isClaimed({ claimed_at })).toBe(true);
   });
 
   it('names who a waiting request is with', () => {

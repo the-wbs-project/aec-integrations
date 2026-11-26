@@ -212,11 +212,11 @@ const SURFACES: readonly Surface[] = [
       'AECI-1783: groups A to Z by category name, slug tie-break, uncategorised last (R1); rows keep the lane order inside a group; a list groups only at 13 rows or more with fewer groups than half its rows (row count and categories only); a row sits in each of its categories; the first 6 rows of a group above "Show more"; one list shows the first 12 in lane order; no @defer cut in the grouped list',
   },
   {
-    key: 'product-page-hero-visual',
+    key: 'product-page-hero-wheel',
     status: 'covered',
     spec: 'web',
     order:
-      'Category hub (AECI-1787): every partner category, A to Z by name, slug tie-break (R1); from lg the first 8 of that order show and "Show all" reveals the rest (ruling 59); the count never orders or cuts',
+      'Integrations wheel (AECI-2018, replaced the AECI-1787 category hub): "All integrations" first, then one slide per partner category A to Z by name, slug tie-break; every product with an integration on record, A to Z by name with compareText, id tie-break, clockwise from 12 o\'clock; one tile size per product and the ring count or dots per slide from the product count and the stage width only; logo and claim state (ruling 64) decide the tile image and the card label, never inclusion, order or size',
   },
   {
     key: 'product-page-similar-products',
@@ -1638,11 +1638,6 @@ const ORDER_SITES: readonly OrderSite[] = [
     allowed: 'help center pages and sections in authored order; static content',
   },
   {
-    file: 'apps/web/src/app/products/category-hub.ts',
-    count: 1,
-    registered: ['product-page-hero-visual'],
-  },
-  {
     file: 'apps/web/src/app/products/connector-lane-grouping.ts',
     count: 3,
     registered: ['product-integrations-direct-lane', 'product-integrations-via-groups'],
@@ -1652,6 +1647,12 @@ const ORDER_SITES: readonly OrderSite[] = [
     file: 'apps/web/src/app/products/integration-filter.ts',
     count: 1,
     registered: ['product-page-integrations-redesign'],
+  },
+  {
+    // AECI-2018: the wheel's products A to Z, and its category slides A to Z.
+    file: 'apps/web/src/app/products/integration-wheel.ts',
+    count: 2,
+    registered: ['product-page-hero-wheel'],
   },
   {
     file: 'apps/web/src/app/products/powered-hub-grouping.ts',

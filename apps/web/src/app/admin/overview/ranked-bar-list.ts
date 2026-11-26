@@ -26,33 +26,32 @@ export interface RankedRow {
   imports: [DecimalPipe, RouterLink],
   template: `
     @if (rows().length === 0) {
-      <p class="text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+      <p class="text-t-16 text-(--text-secondary)">{{ emptyLabel() }}</p>
     } @else {
-      <ol role="list" class="space-y-3">
+      <!-- AECI-1813, mock-up 14: hairline rows, the name and the figure on one
+           line, an 8px bar under them. -->
+      <ol role="list">
         @for (r of scaled(); track r.key) {
-          <li>
-            <div class="flex items-baseline justify-between gap-4 text-sm">
-              @if (r.link) {
-                <a
-                  [routerLink]="r.link"
-                  class="min-w-0 truncate font-medium text-(--text-primary) no-underline
-                    transition-colors hover:text-(--accent-primary) focus-visible:outline-2
-                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  >{{ r.label }}</a
-                >
-              } @else {
-                <span class="min-w-0 truncate text-(--text-primary)">{{ r.label }}</span>
-              }
-              <span class="shrink-0 tabular-nums text-(--text-secondary)">{{
-                r.value | number
-              }}</span>
-            </div>
+          <li
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 border-b border-(--border-default) py-2 text-t-14"
+          >
+            @if (r.link) {
+              <a
+                [routerLink]="r.link"
+                class="min-w-0 truncate rounded-mark text-(--text-primary) no-underline underline-offset-3
+                  transition-colors duration-fast hover:text-(--accent-primary) hover:underline"
+                >{{ r.label }}</a
+              >
+            } @else {
+              <span class="min-w-0 truncate text-(--text-primary)">{{ r.label }}</span>
+            }
+            <span class="shrink-0 tabular-nums text-(--text-primary)">{{ r.value | number }}</span>
             <div
-              class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-(--surface-sunken)"
+              class="col-span-full h-2 w-full overflow-hidden rounded-pill bg-(--surface-sunken)"
               aria-hidden="true"
             >
               <div
-                class="h-full rounded-full bg-(--accent-primary)"
+                class="h-full rounded-pill bg-(--accent-primary)"
                 [style.width.%]="r.percent"
               ></div>
             </div>

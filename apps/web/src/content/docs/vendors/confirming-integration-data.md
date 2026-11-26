@@ -3,7 +3,7 @@ title: Confirming integration data
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, what happens when the two companies disagree, and how to talk a row over with the other company.
 section: vendors
 order: 7
-last_updated: November 2, 2026
+last_updated: November 24, 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -54,7 +54,7 @@ Once the other company or AEC Integrations has a Yes or No on the row, you can't
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
-You can answer on any integration where one of your products is at an end. An integration that runs through a connector product shows its rows as **Not needed**: AEC Integrations keeps those up to date, and neither company answers for them.
+You can answer on any integration where one of your products is at an end. An integration that runs through a connector product shows its rows as **Not needed**, because neither company answers for them. AEC Integrations keeps those rows up to date until the integration's owner claims it. After a claim, we no longer update them.
 
 ## Add a data flow
 

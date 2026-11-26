@@ -13,11 +13,25 @@ export interface ChartLegendItem {
 }
 
 /**
+ * The relief rule (`styles.css` `.aec-charts`, DESIGN.md "Data visualization"):
+ * slots 3, 4 and 5 sit below 3:1 on the light surface, so a mark in one of them
+ * must never be the only way to read its value. A line or stacked chart that
+ * draws a series in one of these slots shows that series' value as visible text
+ * in its legend, and shows the legend even for a single series (AECI-2125, WCAG
+ * 1.4.1). The visually hidden data table does not discharge this: the reader who
+ * needs the relief can see the chart.
+ */
+export function slotNeedsRelief(slot: ChartSlot): boolean {
+  return slot === 3 || slot === 4 || slot === 5;
+}
+
+/**
  * Chart legend — AECI-578 / Phase 8.3 P1.4.
  *
- * Present for **two or more series, absent for one**. A one-swatch legend
- * restates the chart's own title and costs vertical space; with a single series
- * the title already says what is plotted.
+ * Present for **two or more series, absent for one**, unless a series is on a
+ * relief slot (see {@link slotNeedsRelief}). A one-swatch legend restates the
+ * chart's own title and costs vertical space; with a single series the title
+ * already says what is plotted.
  *
  * The swatch carries the series colour; **the text never does**. A light
  * categorical hue (the yellow and aqua slots) is illegible as text on the light
@@ -31,8 +45,8 @@ export interface ChartLegendItem {
   template: `
     <ul class="flex flex-wrap items-center gap-x-4 gap-y-1">
       @for (item of items(); track item.key) {
-        <li class="flex items-center gap-1.5 text-xs text-(--text-secondary)">
-          <span class="size-2.5 shrink-0 rounded-full {{ swatch(item.slot) }}" aria-hidden="true">
+        <li class="flex items-center gap-2 text-t-13 text-(--text-secondary)">
+          <span class="size-3 shrink-0 rounded-pill {{ swatch(item.slot) }}" aria-hidden="true">
           </span>
           <span>{{ item.label }}</span>
           @if (item.value) {

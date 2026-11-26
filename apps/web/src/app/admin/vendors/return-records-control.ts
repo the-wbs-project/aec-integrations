@@ -2,21 +2,20 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
-  ElementRef,
-  Injector,
-  afterNextRender,
   computed,
+  effect,
   inject,
   input,
   output,
   signal,
-  viewChild,
+  untracked,
 } from '@angular/core';
 
 import type { AdminReturnRecordsResponse } from '@aeci/shared';
 
+import { CONSOLE_CAPTION_CLASS } from '../console/console-table';
+import { AdminDangerAction } from '../console/danger-action';
 import { AdminVendorsApi } from './admin-vendors-api';
-import { AecFormSubmit } from '../../shared/form-field/form-submit';
 
 /** `AdminReasonSchema`'s cap, mirrored so the field stops an over-long reason. */
 const REASON_MAX_LENGTH = 1000;
@@ -30,24 +29,26 @@ const REASON_MAX_LENGTH = 1000;
  * holds any seat, banned or not. The control shows that rule and disables the
  * button while seats remain, so an operator revokes them first.
  *
- * It confirms inline, the way the seat revoke on the same page does, rather than in
- * a dialog: the reason field is the confirmation, and no `BrnDialog` opens from an
- * effect. No heading and no live region: `VendorDetail` owns both, and
- * announcements leave through {@link announce}.
+ * It confirms inline on the console's danger form (`AdminDangerAction`, AECI-2124),
+ * rather than in a dialog: the reason field is the confirmation, and no `BrnDialog`
+ * opens from an effect. The confirm is danger: the return deletes the vendor's open
+ * product proposals, and no action brings them back. While seats remain the opener is
+ * blocked (`aria-disabled`, still focusable) and described by the sentence that says
+ * why. No heading and no live region: `VendorDetail` owns both, and announcements
+ * leave through {@link announce}.
  *
  * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
- * Opening the confirm step focuses the reason, and Cancel returns focus to "Return
- * records to AECi". A refusal focuses its message, because the confirm button was
- * disabled while the request ran and a disabled button drops focus.
+ * The danger form owns it: opening focuses the reason, Cancel and Escape return focus
+ * to "Return records to AECi", and a refusal focuses its message. Escape does nothing
+ * while the request runs.
  */
 @Component({
   selector: 'aec-return-records-control',
-  imports: [AecFormSubmit, DatePipe],
+  imports: [AdminDangerAction, DatePipe],
   templateUrl: './return-records-control.html',
 })
 export class ReturnRecordsControl {
   private readonly api = inject(AdminVendorsApi);
-  private readonly injector = inject(Injector);
 
   readonly vendorId = input.required<string>();
   /** `vendors.owned_at`: when the vendor's records became its own, or `null`. */
@@ -65,58 +66,65 @@ export class ReturnRecordsControl {
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
 
+  /** The danger form is open. */
   protected readonly confirming = signal(false);
-  protected readonly reason = signal('');
+  /** The internal note as typed, two-way with the danger form. Sent as typed. */
   protected readonly internalNote = signal('');
-  protected readonly reasonError = signal(false);
   protected readonly pending = signal(false);
-  protected readonly failedMessage = signal('');
+  protected readonly failedMessage = signal<string | null>(null);
   protected readonly reasonMaxLength = REASON_MAX_LENGTH;
+  protected readonly bodyClass = 'max-w-prose text-t-14 text-(--text-primary)';
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+
+  // The danger form's words: the messages this control has always carried.
+  protected readonly openerLabel = $localize`:@@admin.vendors.returnRecords.action.open:Return records to AECi`;
+  protected readonly confirmLabel = $localize`:@@admin.vendors.returnRecords.action.confirm:Return the records`;
+  protected readonly busyLabel = $localize`:@@admin.vendors.returnRecords.action.pending:Returning…`;
+  protected readonly cancelLabel = $localize`:@@admin.vendors.returnRecords.action.cancel:Cancel`;
+  protected readonly warning = $localize`:@@admin.vendors.returnRecords.warning:Use this only when the claim was approved by mistake. AECi takes back the vendor, its products and the integrations it claimed, and promote writes them again. Claims, attestations and subscriptions are kept. A new claim approval is the only way the vendor owns them again.`;
+  protected readonly reasonLabel = $localize`:@@admin.vendors.returnRecords.field.reason:Reason (required)`;
+  protected readonly reasonHelp = $localize`:@@admin.vendors.returnRecords.field.reasonHint:Recorded in the audit trail. Up to ${REASON_MAX_LENGTH}:INTERPOLATION: characters.`;
+  protected readonly reasonRequired = $localize`:@@admin.vendors.returnRecords.field.reasonError:Write a reason before returning the records.`;
+  protected readonly noteLabel = $localize`:@@admin.vendors.returnRecords.field.note:Internal note (optional)`;
 
   protected readonly owned = computed(() => this.ownedAt() !== null);
   protected readonly blockedBySeats = computed(() => this.hasSeats() === true);
 
-  private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
-  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
-  private readonly failedAlert = viewChild<ElementRef<HTMLElement>>('failedAlert');
-
-  protected open(): void {
-    this.failedMessage.set('');
-    this.reason.set('');
-    this.internalNote.set('');
-    this.reasonError.set(false);
-    this.confirming.set(true);
-    afterNextRender(() => this.reasonInput()?.nativeElement.focus(), {
-      injector: this.injector,
+  constructor() {
+    // A page reused for another vendor starts this control clean: the form closed, no
+    // refusal, no note. The keyed `@for` in the template drops the danger form's draft.
+    let last: string | null = null;
+    effect(() => {
+      const id = this.vendorId();
+      untracked(() => {
+        if (last !== null && last !== id) {
+          this.confirming.set(false);
+          this.failedMessage.set(null);
+          this.internalNote.set('');
+        }
+        last = id;
+      });
     });
   }
 
-  protected cancel(): void {
-    this.confirming.set(false);
-    afterNextRender(() => this.trigger()?.nativeElement.focus(), { injector: this.injector });
+  /**
+   * The danger form opened or closed (the opener, Cancel, Escape). A refusal belongs to
+   * the attempt that earned it, so every open and every close clears it: a reopened form
+   * never shows an old refusal (the danger form's parent contract).
+   */
+  protected onOpenChange(open: boolean): void {
+    this.failedMessage.set(null);
+    this.confirming.set(open);
   }
 
-  protected onReasonInput(event: Event): void {
-    this.reason.set((event.target as HTMLTextAreaElement).value);
-    if (this.reasonError()) this.reasonError.set(false);
-  }
-
-  protected onNoteInput(event: Event): void {
-    this.internalNote.set((event.target as HTMLTextAreaElement).value);
-  }
-
-  protected async confirm(): Promise<void> {
+  /** The danger form's confirm: a non-empty, trimmed reason. */
+  protected async confirm(reason: string): Promise<void> {
     if (this.pending()) return;
-    const reason = this.reason().trim();
-    if (!reason) {
-      this.reasonError.set(true);
-      this.reasonInput()?.nativeElement.focus();
-      return;
-    }
+    this.failedMessage.set(null);
     this.pending.set(true);
-    this.failedMessage.set('');
     try {
       const result = await this.api.returnRecords(this.vendorId(), reason, this.internalNote());
+      this.pending.set(false);
       this.confirming.set(false);
       this.returned.emit(result);
       this.announce.emit(
@@ -124,9 +132,6 @@ export class ReturnRecordsControl {
       );
     } catch (err) {
       this.failedMessage.set(messageForError(err));
-      afterNextRender(() => this.failedAlert()?.nativeElement.focus(), {
-        injector: this.injector,
-      });
     } finally {
       this.pending.set(false);
     }

@@ -17,6 +17,8 @@ import type {
   VendorProposal,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { BILLING_LINK_CLASS } from '../components/vendor-billing-styles';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorProposalCard } from '../components/vendor-proposal-card';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -70,22 +72,26 @@ function facetNoun(facet: ProposalTermFacet): string {
  * moves to the summary, or to the list heading after a decline, because the focused
  * button was just destroyed (WCAG 2.4.3). One announcement goes through the shell's
  * live region.
+ *
+ * ── LOOK (AECI-1812) ────────────────────────────────────────────────────────
+ * Each proposal is the shared white card. The accept summary is a Forest-soft panel,
+ * the same as the Billing tab's accepted-grant notice.
  */
 @Component({
   selector: 'aec-vendor-proposals-section',
-  imports: [RouterLink, VendorDocsLink, VendorProposalCard],
+  imports: [AecButton, RouterLink, VendorDocsLink, VendorProposalCard],
   template: `
     <h2
       #headingEl
       tabindex="-1"
-      class="font-display text-xl font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="w-fit rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       i18n="@@vendor.section.proposals"
     >
       Proposed products
     </h2>
     @if (!isOwner()) {
       <p
-        class="mt-2 max-w-[34rem] text-sm leading-relaxed text-(--text-secondary)"
+        class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
         data-testid="proposals-owners-only"
         i18n="@@vendor.proposals.ownersOnly"
       >
@@ -94,45 +100,42 @@ function facetNoun(facet: ProposalTermFacet): string {
       </p>
     } @else {
       <p
-        class="mt-1 max-w-[34rem] text-sm leading-relaxed text-(--text-secondary)"
+        class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
         i18n="@@vendor.proposals.intro"
       >
         Your company owns its listing, so AEC Integrations does not add products to it. When we find
         a new one, it waits here. Accept adds it exactly as shown, and you can edit it afterwards.
         Decline means it is not added.
       </p>
-      <p class="mt-1"><aec-vendor-docs-link page="editing-profile-and-products" /></p>
+      <p class="mt-2"><aec-vendor-docs-link page="editing-profile-and-products" /></p>
 
       @if (outcome(); as done) {
         <section
           #outcomeEl
           tabindex="-1"
-          class="mt-6 rounded-(--radius-md) border bg-(--surface-raised) p-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="mt-6 rounded-panel border border-(--border-default) bg-(--accent-primary-soft) p-6 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           aria-labelledby="vendor-proposals-outcome-heading"
           data-testid="proposals-outcome"
         >
-          <h3
-            id="vendor-proposals-outcome-heading"
-            class="font-label text-sm font-semibold text-(--text-primary)"
-          >
+          <h3 id="vendor-proposals-outcome-heading">
             {{ outcomeHeading() }}
           </h3>
           @if (done.dropped.length === 0) {
             <p
-              class="mt-1 text-sm text-(--text-secondary)"
+              class="mt-2 text-t-14 text-(--text-secondary)"
               i18n="@@vendor.proposals.outcome.nothingDropped"
             >
               Every value was added.
             </p>
           } @else {
             <p
-              class="mt-1 text-sm text-(--text-secondary)"
+              class="mt-2 text-t-14 text-(--text-secondary)"
               i18n="@@vendor.proposals.outcome.droppedIntro"
             >
               These values name no existing term on AEC Integrations, so they were left out:
             </p>
             <ul
-              class="mt-2 list-disc space-y-0.5 ps-5 text-sm text-(--text-primary)"
+              class="mt-2 list-disc space-y-1 ps-5 text-t-14 text-(--text-primary)"
               data-testid="proposals-outcome-dropped"
             >
               @for (term of done.dropped; track $index) {
@@ -140,10 +143,10 @@ function facetNoun(facet: ProposalTermFacet): string {
               }
             </ul>
           }
-          <p class="mt-3">
+          <p class="mt-4">
             <a
               [routerLink]="['../products', done.slug]"
-              class="text-sm font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              [class]="linkClass + ' text-t-14 font-semibold'"
               data-testid="proposals-outcome-link"
               >{{ outcomeLinkLabel() }}</a
             >
@@ -156,7 +159,7 @@ function facetNoun(facet: ProposalTermFacet): string {
           #staleEl
           role="alert"
           tabindex="-1"
-          class="mt-4 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="mt-4 rounded-mark text-t-14 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
           data-testid="proposals-stale"
         >
           {{ message }}
@@ -164,17 +167,19 @@ function facetNoun(facet: ProposalTermFacet): string {
       }
 
       @if (loading()) {
-        <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.proposals.loading">
+        <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@vendor.proposals.loading">
           Loading proposed products…
         </p>
       } @else if (failed()) {
-        <div class="mt-6 flex flex-wrap items-center gap-3">
-          <p class="text-sm text-(--text-primary)" i18n="@@vendor.proposals.error">
+        <div class="mt-6 flex flex-wrap items-center gap-4">
+          <p class="text-t-14 text-(--text-primary)" i18n="@@vendor.proposals.error">
             Could not load proposed products.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="retryClass"
             (click)="load()"
             i18n="@@vendor.proposals.retry"
           >
@@ -183,7 +188,7 @@ function facetNoun(facet: ProposalTermFacet): string {
         </div>
       } @else if (proposals().length === 0) {
         <p
-          class="mt-6 max-w-[34rem] text-sm text-(--text-secondary)"
+          class="mt-6 max-w-[32rem] text-t-14 leading-[1.6] text-pretty text-(--text-secondary)"
           data-testid="proposals-empty"
           i18n="@@vendor.proposals.empty"
         >
@@ -191,7 +196,7 @@ function facetNoun(facet: ProposalTermFacet): string {
           company, it appears here and every owner gets an email.
         </p>
       } @else {
-        <ul class="mt-6 list-none space-y-4 p-0" data-testid="proposals-list">
+        <ul class="mt-6 list-none space-y-6 p-0" data-testid="proposals-list">
           @for (proposal of proposals(); track proposal.id) {
             <li>
               <aec-vendor-proposal-card
@@ -204,7 +209,7 @@ function facetNoun(facet: ProposalTermFacet): string {
           }
         </ul>
         @if (truncated()) {
-          <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@vendor.proposals.truncated">
+          <p class="mt-4 text-xs text-(--text-secondary)" i18n="@@vendor.proposals.truncated">
             Showing the 100 oldest proposals. Decide these to see the rest.
           </p>
         }
@@ -243,8 +248,7 @@ export class VendorProposalsSection {
   });
 
   protected readonly facetNoun = facetNoun;
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly linkClass = BILLING_LINK_CLASS;
 
   constructor() {
     afterNextRender(() => {

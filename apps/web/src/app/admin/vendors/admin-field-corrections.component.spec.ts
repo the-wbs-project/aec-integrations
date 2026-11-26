@@ -576,3 +576,101 @@ describe('fieldCorrectionErrorMessage', () => {
     );
   });
 });
+
+describe('AdminFieldCorrections focus (AECI-2112)', () => {
+  const escape = (target: EventTarget) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const liftReason = (el: HTMLElement, id: string, value: string) => {
+    const reason = el.querySelector(`#admin-field-lock-${id}-reason`) as HTMLTextAreaElement;
+    reason.value = value;
+    reason.dispatchEvent(new Event('input'));
+  };
+  const liftSubmit = (el: HTMLElement, id: string) =>
+    (
+      el.querySelector(`#admin-field-lock-${id}-form button[type="submit"]`) as HTMLButtonElement
+    ).click();
+  async function openLift(fixture: ComponentFixture<unknown>, el: HTMLElement, id: string) {
+    (el.querySelector(`#admin-field-lock-lift-${id}`) as HTMLButtonElement).click();
+    await settle(fixture);
+  }
+
+  it('Escape closes the correction form and returns focus to "Correct a field"', async () => {
+    const { fixture, el } = await create();
+    await openForm(fixture, el);
+    escape(byId(el, 'record'));
+    await settle(fixture);
+    expect(byId(el, 'form')).toBeNull();
+    expect(document.activeElement).toBe(byId(el, 'open'));
+  });
+
+  it('Escape closes a lift form and returns focus to its Lift button', async () => {
+    const lock = makeLock();
+    const { fixture, el } = await create([lock]);
+    await openLift(fixture, el, lock.id);
+    escape(el.querySelector(`#admin-field-lock-${lock.id}-reason`)!);
+    await settle(fixture);
+    expect(el.querySelector(`#admin-field-lock-${lock.id}-form`)).toBeNull();
+    expect(document.activeElement?.id).toBe(`admin-field-lock-lift-${lock.id}`);
+  });
+
+  it('Escape does nothing while a lift is in flight', async () => {
+    let resolve!: (v: unknown) => void;
+    api.liftFieldOverride.mockReturnValue(new Promise((r) => (resolve = r)));
+    const lock = makeLock();
+    const { fixture, el } = await create([lock]);
+    await openLift(fixture, el, lock.id);
+    liftReason(el, lock.id, 'The vendor sent the registry extract.');
+    liftSubmit(el, lock.id);
+    await settle(fixture);
+    escape(el.querySelector(`#admin-field-lock-${lock.id}-reason`)!);
+    await settle(fixture);
+    expect(el.querySelector(`#admin-field-lock-${lock.id}-form`)).not.toBeNull();
+    resolve({ override: makeLock({ lifted_at: 'now' }) });
+    await settle(fixture);
+  });
+
+  it('after a lift, focus goes to the Lift button of the row that took its place', async () => {
+    api.liftFieldOverride.mockResolvedValue({ override: makeLock({ lifted_at: 'now' }) });
+    const first = makeLock();
+    const second = makeLock({ id: '00000000-0000-4000-8000-000000000102', field: 'website' });
+    const { fixture, el } = await create([first, second]);
+    await openLift(fixture, el, first.id);
+    liftReason(el, first.id, 'The vendor sent the registry extract.');
+    liftSubmit(el, first.id);
+    await settle(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-lock-lift-${second.id}`);
+  });
+
+  it('after the last lift, focus goes to the section intro', async () => {
+    api.liftFieldOverride.mockResolvedValue({ override: makeLock({ lifted_at: 'now' }) });
+    const lock = makeLock();
+    const { fixture, el } = await create([lock]);
+    await openLift(fixture, el, lock.id);
+    liftReason(el, lock.id, 'The vendor sent the registry extract.');
+    liftSubmit(el, lock.id);
+    await settle(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-corrections-${VENDOR_ID}-heading`);
+  });
+
+  it('a refused lift moves focus to its message', async () => {
+    api.liftFieldOverride.mockRejectedValue(apiError(500, 'INTERNAL'));
+    const lock = makeLock();
+    const { fixture, el } = await create([lock]);
+    await openLift(fixture, el, lock.id);
+    liftReason(el, lock.id, 'The vendor sent the registry extract.');
+    liftSubmit(el, lock.id);
+    await settle(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-lock-${lock.id}-error`);
+  });
+
+  it('a refused correction moves focus to its message', async () => {
+    api.setFieldOverride.mockRejectedValue(apiError(409, 'FIELD_OVERRIDE_ACTIVE'));
+    const { fixture, el } = await create();
+    await openForm(fixture, el);
+    await fillPhone(fixture, el);
+    type(el, 'reason', REASON);
+    (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(document.activeElement?.id).toBe(`admin-field-corrections-${VENDOR_ID}-form-error`);
+  });
+});

@@ -162,6 +162,11 @@ export const AEC_ICONS = {
     { k: 'p', d: 'M12 15.8h.01' },
   ],
   check: [{ k: 'p', d: 'm5 12.5 4.5 4.5L19 7' }],
+  // AECI-2083: the portal's confirmed-state glyph (a check in a ring).
+  'check-circle': [
+    { k: 'c', cx: 12, cy: 12, r: 9 },
+    { k: 'p', d: 'm8.5 12 2.5 2.5 4.5-5' },
+  ],
   checklist: [
     { k: 'r', x: 4, y: 3.5, w: 16, h: 17, rx: 2.5 },
     { k: 'p', d: 'm8 9 1.5 1.5L12 8M8 15l1.5 1.5L12 14M14.5 9.5H17M14.5 15.5H17' },
@@ -206,6 +211,11 @@ export const AEC_ICONS = {
     { k: 'p', d: 'm7 10 5 5 5-5' },
     { k: 'p', d: 'M5 21h14' },
   ], // Lucide
+  // AECI-2083: a bare exclamation mark, for the portal glance band's badge.
+  exclamation: [
+    { k: 'p', d: 'M12 4.5v10' },
+    { k: 'c', cx: 12, cy: 19, r: 0.875 },
+  ],
   external: [
     { k: 'p', d: 'M7 17 17 7' },
     { k: 'p', d: 'M8 7h9v9' },

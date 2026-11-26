@@ -1,0 +1,3 @@
+# AECI-2083 shrink-only allowlist: axe rules (WCAG 2.2 AA) that fail today on a /preview/admin-* route.
+# Spec: e2e/preview-admin-axe.spec.ts. One "<route> <rule id>" line each, sorted.
+# Delete a line when the rule no longer fails on that route at 1440 or 390. Never add a line.

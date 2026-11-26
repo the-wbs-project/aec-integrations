@@ -883,7 +883,7 @@ Every decision the plan left open is ruled. The table keeps the original questio
 
 | # | Question | Options | Recommendation (2026-11-13) | Outcome | Blocks |
 | --- | --- | --- | --- | --- | --- |
-| 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | **Ruled 2026-11-14 (R3, AECI-1734, "A"):** a category hub with a pair finder under it. Built by AECI-1787 (#1340). | Workstream E |
+| 1 | What replaces the hero ring on the product page? | Keep the ring. A category hub with counts. A pair finder. A data flow map. A project phase strip. The two ratings. No visual. | A category hub with a pair finder under it. It features no product, so no ranking rule is needed. | **Ruled 2026-11-14 (R3, AECI-1734, "A"):** a category hub with a pair finder under it. Built by AECI-1787 (#1340). **Replaced 2026-11-23 (Chris, chat, AECI-2018):** the integrations wheel, which removes both the hub and the product page's pair finder. Mock-up 9w, built by AECI-2018. `DESIGN.md` §5 "The hero diagram". | Workstream E |
 | 2 | What is the ordering rule for new lists? | The four options in 7.6 | A to Z | **Ruled 2026-11-14 (R1, AECI-1732):** new lists A to Z, existing orders kept. See 7.8 | A, C, E |
 | 3 | If a count is used, how is it made payment-proof? | AECi-recorded flows only. Open confirmation to Free. | No count in a new list | **Ruled 2026-11-14 (R1):** no new list uses a count. Taxonomy term counts accepted as they are (AECI-1814, "A, create a ticket to address later"). **Ruled again 2026-11-20 (ruling 63, AECI-1836):** leave the term counts as they are, option 1. See 7.4 | C |
 | 4 | Does the Browse menu keep the "How we rank" card? | Off. A band under the columns. | Off | **Ruled 2026-11-14 (R4, AECI-1735, "A"):** off. | D |
@@ -960,6 +960,9 @@ Each row is a ruling by Chris. "Chat" means he answered the build orchestrator i
 | 2026-11-20 | A defect found outside the work in hand becomes a Linear issue, not a fix. `main` is merged into the hold branch only when Chris says so. | Chat | Working rule |
 | 2026-11-22 | Answers 10 to 12 of that day: the Similar products A to Z cut stays, the mock-ups' unbuilt claim lines are dropped for launch, and AECI-1993 waits for the redesign. | Chat | No change |
 | 2026-11-22 | The final hold-to-`main` PR waits. The read-only production check for a Review Guidelines 1.0 acceptance runs just before ship. | Chat | Ship checklist |
+| 2026-11-23 | The product hero's integrations wheel replaces decision 1's category hub and pair finder. "All integrations" then one slide per category A to Z, arrows only, tiles A to Z, dots past what fits. The wheel's text says products and integrations, never partners. | Chat, AECI-2018 | `DESIGN.md` §5 "The hero diagram", mock-up 9w |
+| 2026-11-24 | Ruling 64: a wheel tile shows a product's logo whenever we hold one, claimed or not. Two lines under every tile slide, the second "Logos identify products only and imply no endorsement or affiliation. Listings may be unclaimed.", and an "Unclaimed" label in the card. It widens the AECI-1769 logo rule for the wheel only. | Chat, AECI-2018 comments | `DESIGN.md` §5 "Logos and initial tiles" |
+| 2026-11-24 | The wheel's card always opens toward the centre and never covers the title or the lines. Then "build it". | Chat, AECI-2018 comment | AECI-2018 |
 
 The legal agent's two verdicts on ranking page 1.2 (2026-11-20, AECI-1894) were relayed by Chris and applied in #1434. They are the legal agent's verdicts, not Chris's rulings.
 
@@ -974,6 +977,8 @@ The legal agent's two verdicts on ranking page 1.2 (2026-11-20, AECI-1894) were 
 | 2026-11-18 | The hydration class gap gets no runtime fix. The template rule, the docs and a passive style guard ship instead. | Orchestrator, after an independent review, AECI-1937 | #1410, `ANGULAR_STYLE_GUIDE.md` §10 |
 | 2026-11-20 | Consent checkboxes never carry a tick across hydration, and stay disabled until the app is live. Typed text carries. | Orchestrator, after the security review, #1432 | `TESTING_STRATEGY.md` §14.3 |
 | 2026-11-16 to 2026-11-22 | `main` is merged into the hold branch by a fast-forward push, never a squash. | Orchestrator | Syncs 1 to 13 |
+| 2026-11-23 to 2026-11-24 | The wheel's cut-offs fit the rendered width; one tile size per product; the ring count per slide; a one-ring slide on the outer circle; the second ring after 20 products; names under tiles on slides of 8 or fewer; a dots slide counts products in the title and integrations in the centre. Chris said "your call" and "do what's needed". | Orchestrator, AECI-2018 | `DESIGN.md` §5 "The hero diagram", mock-up 9w notes |
+| 2026-11-24 | The server lays the wheel's first slide out at eight stage widths and picks one by container query, and the browser keeps that layout, so nothing shifts at hydration (after the independent review). | Builder, AECI-2018 | `DESIGN.md` §5 "The hero diagram" |
 
 ## 12. Proposed workstreams and issues
 

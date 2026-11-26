@@ -5,13 +5,25 @@ import { RouterLink } from '@angular/router';
 import type { VendorBillingLicense } from '@aeci/shared';
 import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
+import { Chip } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { parseDate } from '../vendor-plan';
 
+import {
+  BILLING_LINK_CLASS,
+  BILLING_TABLE_CELL_CLASS,
+  BILLING_TABLE_HEAD_CLASS,
+  BILLING_TABLE_REGION_CLASS,
+  LICENSE_CHIP_ICON,
+  LICENSE_CHIP_TONE,
+} from './vendor-billing-styles';
+
 /**
- * How a status chip is coloured (AECI-1866). `live` is the Forest wash, `warning` is
- * Clay deep text for a live subscription that ends soon or will not renew, and
- * `ended` is the neutral chip. The chip's words always carry the same state, so the
+ * How a status chip is coloured (AECI-1866, AECI-1812; `LICENSE_CHIP_TONE` in
+ * `vendor-billing-styles.ts`). `live` is the Forest wash. `warning`, for a live
+ * subscription that ends soon or will not renew, is the strong edge with a clock.
+ * `ended` is the quiet chip. The chip's words always carry the same state, so the
  * colour is never the only signal.
  */
 export type VendorBillingLicenseTone = 'live' | 'warning' | 'ended';
@@ -164,10 +176,14 @@ export function toVendorBillingLicenseRow(
  * talks about ranking, price or buying. Buying is the section's "Pay by card"
  * panel (AECI-1502), never a control in this table.
  *
- * ── STATUS CHIPS (AECI-1866) ────────────────────────────────────────────────
- * The tone classes are unlayered `.aec-status-chip--*` rules in `styles.css`: a
- * Tailwind border-colour utility never beats the unlayered `* { border-color }`
- * rule there, which is why every chip used to come out the same grey.
+ * ── STATUS CHIPS (AECI-1866, AECI-1812) ─────────────────────────────────────
+ * The status and the badges are `aec-chip`s. The tones are `LICENSE_CHIP_TONE` in
+ * `vendor-billing-styles.ts`. Until AECI-1812 they were unlayered status-chip
+ * rules in `styles.css`. The cleanup slice (AECI-1729) deleted them.
+ *
+ * ── THE TABLES ──────────────────────────────────────────────────────────────
+ * Each table scrolls sideways inside its own labelled, focusable region, so the page
+ * never does (AECI-1812: at 390px the Billing page was 1056px wide).
  *
  * ── THE ACTIONS SLOT (E5.5) ──────────────────────────────────────────────────
  * `rowActions` is a template rendered in an Actions column when set, the admin
@@ -180,7 +196,7 @@ export function toVendorBillingLicenseRow(
  */
 @Component({
   selector: 'aec-vendor-billing-licenses',
-  imports: [NgTemplateOutlet, RouterLink],
+  imports: [AecIcon, Chip, NgTemplateOutlet, RouterLink],
   template: `
     @if (rows().length === 0) {
       <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.licenses.empty">
@@ -189,9 +205,19 @@ export function toVendorBillingLicenseRow(
       </p>
     } @else {
       @if (liveRows().length > 0) {
-        <div class="overflow-x-auto">
+        <div
+          [class]="regionClass"
+          role="region"
+          tabindex="0"
+          aria-labelledby="vendor-billing-licenses-caption"
+          data-testid="licenses-region"
+        >
           <table [class]="tableClass()">
-            <caption class="sr-only" i18n="@@vendor.billing.licenses.caption">
+            <caption
+              id="vendor-billing-licenses-caption"
+              class="sr-only"
+              i18n="@@vendor.billing.licenses.caption"
+            >
               Subscriptions
             </caption>
             <ng-container
@@ -212,28 +238,31 @@ export function toVendorBillingLicenseRow(
       @if (endedRows().length > 0) {
         <details class="group mt-4" data-testid="licenses-ended">
           <summary
-            class="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-(--radius-sm) text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
+            class="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-mark text-t-14 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
             data-testid="licenses-ended-summary"
           >
-            <svg
-              class="size-4 shrink-0 -rotate-90 text-(--text-secondary) transition-transform duration-200 group-open:rotate-0 motion-reduce:transition-none"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+            <span
+              class="inline-flex shrink-0 -rotate-90 text-(--text-secondary) transition-transform duration-200 group-open:rotate-0 motion-reduce:transition-none"
               aria-hidden="true"
             >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
+              <aec-icon name="chevron-down" decorative [size]="4" />
+            </span>
             <span i18n="@@vendor.billing.ended.summary"
               >Ended subscriptions ({{ endedRows().length }})</span
             >
           </summary>
-          <div class="mt-2 overflow-x-auto">
+          <div
+            [class]="regionClass + ' mt-2'"
+            role="region"
+            tabindex="0"
+            aria-labelledby="vendor-billing-ended-caption"
+          >
             <table [class]="tableClass()">
-              <caption class="sr-only" i18n="@@vendor.billing.ended.caption">
+              <caption
+                id="vendor-billing-ended-caption"
+                class="sr-only"
+                i18n="@@vendor.billing.ended.caption"
+              >
                 Ended subscriptions
               </caption>
               <ng-container
@@ -267,7 +296,7 @@ export function toVendorBillingLicenseRow(
         }
       </colgroup>
       <thead>
-        <tr class="border-b border-(--border-default) text-(--text-secondary)">
+        <tr>
           <th scope="col" [class]="thClass" i18n="@@vendor.billing.col.source">Source</th>
           <th scope="col" [class]="thClass" i18n="@@vendor.billing.col.product">Product</th>
           <th scope="col" [class]="thClass" i18n="@@vendor.billing.col.starts">Starts</th>
@@ -275,7 +304,7 @@ export function toVendorBillingLicenseRow(
           <th scope="col" [class]="thClass" i18n="@@vendor.billing.col.status">Status</th>
           <th scope="col" [class]="thClass" i18n="@@vendor.billing.col.reference">Reference</th>
           @if (rowActions()) {
-            <th scope="col" class="py-2 font-label font-semibold">
+            <th scope="col" [class]="thClass">
               <span class="sr-only" i18n="@@vendor.billing.col.actions">Actions</span>
             </th>
           }
@@ -284,25 +313,18 @@ export function toVendorBillingLicenseRow(
       <tbody>
         @for (row of asRows(group); track row.license.id) {
           <tr
-            class="border-b border-(--border-default) last:border-0"
-            [class]="row.tone === 'ended' ? 'text-(--text-secondary)' : ''"
+            [class]="row.tone === 'ended' ? 'text-(--text-secondary)' : 'text-(--text-primary)'"
             data-testid="license-row"
             [attr.data-tone]="row.tone"
           >
-            <td
-              class="py-3 pe-4"
-              [class]="row.tone === 'ended' ? 'text-(--text-secondary)' : 'text-(--text-primary)'"
-            >
+            <td [class]="cellClass">
               {{ row.sourceLabel }}
             </td>
-            <td class="py-3 pe-4 break-words">
+            <td [class]="cellClass + ' break-words'">
               @if (row.license.assigned_product; as product) {
                 <a
                   [routerLink]="['..', 'products', product.slug]"
-                  class="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  [class]="
-                    row.tone === 'ended' ? 'text-(--text-secondary)' : 'text-(--accent-primary)'
-                  "
+                  [class]="row.tone === 'ended' ? endedLinkClass : linkClass"
                   >{{ product.name }}</a
                 >
               } @else {
@@ -311,23 +333,25 @@ export function toVendorBillingLicenseRow(
                 </span>
               }
             </td>
-            <td class="py-3 pe-4 text-(--text-secondary)">{{ row.startsLabel }}</td>
-            <td class="py-3 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
-            <td class="py-3 pe-4">
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]"
-                [class]="chipClass[row.tone]"
-                data-testid="license-status"
-                >{{ row.statusLabel }}</span
-              >
-              @for (badge of row.badges; track badge) {
-                <span
-                  class="ms-1 mt-1 inline-flex items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-raised) px-2 py-0.5 text-xs font-semibold text-(--text-primary)"
-                  >{{ badge }}</span
+            <td [class]="cellClass + ' text-(--text-secondary)'">{{ row.startsLabel }}</td>
+            <td [class]="cellClass + ' text-(--text-secondary)'">{{ row.endsLabel }}</td>
+            <td [class]="cellClass">
+              <span class="flex flex-wrap items-center gap-1">
+                <aec-chip
+                  density="dense"
+                  [tone]="chipTone[row.tone]"
+                  [icon]="chipIcon[row.tone]"
+                  data-testid="license-status"
+                  >{{ row.statusLabel }}</aec-chip
                 >
-              }
+                @for (badge of row.badges; track badge) {
+                  <aec-chip density="dense" tone="strong" data-testid="license-badge">{{
+                    badge
+                  }}</aec-chip>
+                }
+              </span>
             </td>
-            <td class="py-3 pe-4 break-words text-(--text-secondary)">
+            <td [class]="cellClass + ' break-words text-(--text-secondary)'">
               @if (row.license.reference; as reference) {
                 {{ reference }}
               } @else {
@@ -336,7 +360,7 @@ export function toVendorBillingLicenseRow(
               }
             </td>
             @if (rowActions(); as actions) {
-              <td class="py-3 text-end">
+              <td [class]="cellClass + ' text-end'">
                 <ng-container
                   [ngTemplateOutlet]="actions"
                   [ngTemplateOutletContext]="{ $implicit: row }"
@@ -384,11 +408,13 @@ export class VendorBillingLicenses {
       : 'w-full min-w-[58rem] table-fixed border-collapse text-start text-sm',
   );
 
-  protected readonly thClass = 'py-2 pe-4 text-start font-label font-semibold';
-  /** The tone classes live in `styles.css` (unlayered), so the border colour wins. */
-  protected readonly chipClass: Record<VendorBillingLicenseTone, string> = {
-    live: 'aec-status-chip--live',
-    warning: 'aec-status-chip--warning',
-    ended: 'aec-status-chip--ended',
-  };
+  protected readonly regionClass = BILLING_TABLE_REGION_CLASS;
+  protected readonly thClass = BILLING_TABLE_HEAD_CLASS;
+  protected readonly cellClass = BILLING_TABLE_CELL_CLASS;
+  protected readonly linkClass = BILLING_LINK_CLASS;
+  /** An ended row's product link: the link role in secondary ink, as the row is. */
+  protected readonly endedLinkClass =
+    'rounded-mark text-(--text-secondary) underline underline-offset-2 hover:text-(--accent-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  protected readonly chipTone = LICENSE_CHIP_TONE;
+  protected readonly chipIcon = LICENSE_CHIP_ICON;
 }

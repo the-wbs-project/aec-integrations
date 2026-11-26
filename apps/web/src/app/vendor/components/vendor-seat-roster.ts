@@ -1,6 +1,15 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 
 import {
   claimOwnerReviewDeadline,
@@ -9,8 +18,19 @@ import {
   type VendorSeat,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+
+/** Which row's confirm is open: a seat's Remove or an invite's Revoke. */
+type Confirming = { readonly kind: 'seat' | 'invite'; readonly id: string };
+
+/** The Seats section heading (`sections/vendor-seats-page.ts`), focused when a
+ *  remove or revoke leaves no row with a control to land on. */
+const SEATS_HEADING_ID = 'vendor-seats-heading';
 
 /**
  * The seat roster for the vendor dashboard (AECI-522). Multi-seat is flat at
@@ -21,7 +41,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * ── WHAT LIVES HERE, AND WHAT DOESN'T ───────────────────────────────────────
  * This renders the roster, the pending-invite list, and the three actions an
  * owner has over them: remove a seat, revoke an invite, and re-send one
- * (AECI-927). **Creating** an invite does not live here — it is
+ * (AECI-927). Remove and revoke each ask first, in an inline confirm in the row
+ * (AECI-2129). **Creating** an invite does not live here — it is
  * {@link VendorSeatInviteDialog}, triggered from the section heading, so the list
  * people come here to read isn't sitting under a permanent form. Both surfaces
  * gate on the same `canManageSeats` flag.
@@ -50,48 +71,50 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-seat-roster',
-  imports: [DatePipe],
+  imports: [AecButton, AecCard, Chip, DatePipe],
   template: `
     @if (canManage()) {
-      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.owner">
+      <p
+        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.seats.intro.owner"
+      >
         Everyone with access to this vendor. You can invite anyone who helps maintain this listing,
         and remove access when someone leaves.
       </p>
     } @else {
-      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.member">
+      <p
+        class="max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.seats.intro.member"
+      >
         Everyone with access to this vendor. Ask an account owner (listed below) to add or remove a
         colleague.
       </p>
     }
 
     @if (canManage() && claims().length > 0) {
-      <section class="mt-6" aria-labelledby="vendor-seats-claims-heading">
-        <h3
-          id="vendor-seats-claims-heading"
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.seats.claims.heading"
-        >
-          Wants to join
-        </h3>
+      <!-- AECI-1812: the claims that need an owner sit on the shared white card, rows
+           divided by hairlines, like the Overview's "What needs you" list. -->
+      <section aecCard [class]="'mt-6 p-6'" aria-labelledby="vendor-seats-claims-heading">
+        <h3 id="vendor-seats-claims-heading" i18n="@@vendor.seats.claims.heading">Wants to join</h3>
         <p
-          class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+          class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.seats.claims.intro"
         >
           These people asked AEC Integrations to let them manage this company. Accept sends them a
           seat invite at the work email they gave. Their seat is not an owner seat. Decline tells
           them the claim was not approved. If no owner decides in time, AEC Integrations reviews it.
         </p>
-        <ul class="mt-3 divide-y divide-(--border-default) border-y border-(--border-default)">
+        <ul class="mt-4 divide-y divide-(--border-default) border-t border-(--border-default)">
           @for (claim of claims(); track claim.id) {
-            <li class="flex flex-wrap items-start justify-between gap-3 py-3">
+            <li class="flex flex-wrap items-start justify-between gap-4 py-4 last:pb-0">
               <div class="min-w-0 space-y-1">
-                <p class="text-sm font-semibold text-(--text-primary)">
+                <p class="text-sm font-semibold break-words text-(--text-primary)">
                   {{ claim.submitter_name || claim.submitter_email }}
                   @if (claim.submitter_title || claim.submitter_role; as title) {
                     <span class="font-normal text-(--text-secondary)">· {{ title }}</span>
                   }
                 </p>
-                <p class="text-sm text-(--text-secondary)">
+                <p class="text-sm break-words text-(--text-secondary)">
                   <span i18n="@@vendor.seats.claims.email">Work email:</span>
                   {{ claim.submitter_email }}
                 </p>
@@ -101,36 +124,38 @@ import { VendorPortalStore } from '../vendor-portal-store';
                       [href]="linkedin"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="rounded-mark text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       i18n="@@vendor.seats.claims.linkedin"
                       >LinkedIn profile</a
                     >
                   </p>
                 }
                 @if (claim.context_product_name; as product) {
-                  <p class="text-xs text-(--text-secondary)">
+                  <p class="text-t-13 text-(--text-secondary)">
                     <span i18n="@@vendor.seats.claims.cameFrom">Sent from the page for</span>
                     {{ product }}
                   </p>
                 }
                 @if (claim.comments) {
-                  <p class="text-sm whitespace-pre-line text-(--text-primary)">
+                  <p class="text-sm break-words whitespace-pre-line text-(--text-primary)">
                     {{ claim.comments }}
                   </p>
                 }
-                <p class="text-xs text-(--text-secondary)">
+                <p class="text-t-13 text-(--text-secondary)">
                   <ng-container i18n="@@vendor.seats.claims.asked">Asked</ng-container>
                   {{ claim.created_at | date: 'mediumDate' }}
                   <ng-container i18n="@@vendor.seats.claims.decideBy">· decide by</ng-container>
                   {{ decideBy(claim) | date: 'mediumDate' }}
                 </p>
               </div>
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex shrink-0 flex-wrap items-center gap-2">
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
                   [disabled]="busyClaim() !== null"
                   (click)="acceptClaim(claim)"
-                  [class]="dangerClass"
                 >
                   @if (isClaimBusy(claim, 'accept')) {
                     <span i18n="@@vendor.seats.claims.accepting">Accepting…</span>
@@ -142,10 +167,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   >
                 </button>
                 <button
+                  aecButton
+                  variant="secondary"
+                  compact
                   type="button"
                   [disabled]="busyClaim() !== null"
                   (click)="declineClaim(claim)"
-                  [class]="dangerClass"
                 >
                   @if (isClaimBusy(claim, 'decline')) {
                     <span i18n="@@vendor.seats.claims.declining">Declining…</span>
@@ -164,60 +191,55 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (loading()) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.seats.loading">
+      <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.seats.loading">
         Loading seats…
       </p>
     } @else if (failed()) {
-      <div class="mt-4 flex flex-wrap items-center gap-3">
+      <div class="mt-6 flex flex-wrap items-center gap-4">
         <p class="text-sm text-(--text-primary)" i18n="@@vendor.seats.error">
           Could not load the seat list.
         </p>
-        <button type="button" [class]="retryClass" (click)="reload()" i18n="@@vendor.seats.retry">
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          (click)="reload()"
+          i18n="@@vendor.seats.retry"
+        >
           Try again
         </button>
       </div>
     } @else if (seats().length === 0) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.seats.empty">
+      <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.seats.empty">
         No seats to show.
       </p>
     } @else {
-      <div class="mt-4 overflow-x-auto">
+      <!-- The region is positioned, so the visually hidden names inside the row
+           buttons (absolute boxes) stay inside it. Unpositioned, they escaped the
+           scroller and pushed the whole page sideways at 390px (AECI-1812).
+           It is also a size container, so a seat's Remove confirm can be exactly
+           as wide as the visible region and stay readable while the table
+           scrolls sideways under it (AECI-2129). -->
+      <div
+        class="@container relative mt-6 min-w-0 overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        role="region"
+        tabindex="0"
+        aria-labelledby="vendor-seats-caption"
+        data-seats-region
+      >
         <table class="w-full min-w-[32rem] border-collapse text-start text-sm">
-          <caption class="sr-only" i18n="@@vendor.seats.caption">
+          <caption id="vendor-seats-caption" class="sr-only" i18n="@@vendor.seats.caption">
             Vendor seats
           </caption>
           <thead>
-            <tr class="border-b border-(--border-default) text-(--text-secondary)">
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.name"
-              >
-                Name
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.email"
-              >
-                Email
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.status"
-              >
-                Status
-              </th>
-              <th
-                scope="col"
-                class="py-2 pe-4 font-label font-semibold"
-                i18n="@@vendor.seats.col.added"
-              >
-                Added
-              </th>
+            <tr>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.name">Name</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.email">Email</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.status">Status</th>
+              <th scope="col" [class]="headClass" i18n="@@vendor.seats.col.added">Added</th>
               @if (canManage()) {
-                <th scope="col" class="py-2 font-label font-semibold">
+                <th scope="col" [class]="headClass">
                   <span class="sr-only" i18n="@@vendor.seats.col.actions">Actions</span>
                 </th>
               }
@@ -225,60 +247,109 @@ import { VendorPortalStore } from '../vendor-portal-store';
           </thead>
           <tbody>
             @for (seat of seats(); track seat.user_id) {
-              <tr class="border-b border-(--border-default) last:border-0">
-                <td class="py-3 pe-4 text-(--text-primary)">
-                  {{ seat.display_name || fallbackName }}
+              <tr [attr.data-seat-row]="seat.user_id">
+                <td [class]="rowCell(seat, 'text-(--text-primary)')">
+                  <span class="font-semibold">{{ seat.display_name || fallbackName }}</span>
                   @if (seat.is_self) {
-                    <span class="text-(--text-secondary)" i18n="@@vendor.seats.you">(you)</span>
+                    <span class="ms-1 text-(--text-secondary)" i18n="@@vendor.seats.you"
+                      >(you)</span
+                    >
                   }
                   @if (seat.owner) {
-                    <span
-                      class="ms-1 text-xs text-(--text-secondary)"
+                    <aec-chip
+                      class="ms-2 align-middle"
+                      density="dense"
                       i18n="@@vendor.seats.ownerLabel"
-                      >Owner</span
+                      >Owner</aec-chip
                     >
                   }
                 </td>
-                <td class="py-3 pe-4 text-(--text-secondary)">
+                <td [class]="rowCell(seat, 'break-words text-(--text-secondary)')">
                   {{ seat.email || emailUnavailable }}
                 </td>
-                <td class="py-3 pe-4">
-                  <span
-                    class="inline-flex items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]"
-                    [class]="
-                      seat.banned
-                        ? 'border-(--border-strong) bg-(--surface-raised) text-(--text-primary)'
-                        : 'border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)'
-                    "
-                  >
+                <td [class]="rowCell(seat, '')">
+                  <aec-chip density="dense" [tone]="seat.banned ? 'strong' : 'forest'">
                     @if (seat.banned) {
                       <span i18n="@@vendor.seats.status.banned">Banned</span>
                     } @else {
                       <span i18n="@@vendor.seats.status.active">Active</span>
                     }
-                  </span>
+                  </aec-chip>
                 </td>
-                <td class="py-3 pe-4 text-(--text-secondary)">
+                <td [class]="rowCell(seat, 'whitespace-nowrap text-(--text-secondary)')">
                   {{ seat.created_at | date: 'mediumDate' }}
                 </td>
                 @if (canManage()) {
-                  <td class="py-3 text-end">
-                    @if (!seat.is_self) {
+                  <td [class]="rowActCell(seat)">
+                    @if (!seat.is_self && !isConfirming('seat', seat.user_id)) {
                       <button
+                        aecButton
+                        variant="secondary"
+                        compact
                         type="button"
+                        [id]="'vendor-seat-remove-start-' + seat.user_id"
                         [disabled]="busySeat() === seat.user_id"
-                        (click)="remove(seat)"
-                        [class]="dangerClass"
+                        (click)="startRemove(seat)"
                       >
                         <span i18n="@@vendor.seats.remove">Remove</span>
-                        <span class="sr-only"
-                          >&ngsp;{{ seat.display_name || seat.email || fallbackName }}</span
-                        >
+                        <span class="sr-only">&ngsp;{{ seatName(seat) }}</span>
                       </button>
                     }
                   </td>
                 }
               </tr>
+              @if (canManage() && isConfirming('seat', seat.user_id)) {
+                <!-- AECI-2129: the confirm sits in its own row under the seat, as wide
+                     as the visible region (100cqw) and pinned to its start edge, so
+                     it reads in full at 320px while the table scrolls sideways. A
+                     removed seat has no full undo, so the confirm is danger
+                     (DESIGN.md §5 Buttons). -->
+                <tr [attr.data-seat-confirm]="seat.user_id">
+                  <td colspan="5" class="border-b border-(--border-default) pb-4">
+                    <div
+                      class="sticky start-0 flex w-[100cqw] flex-wrap items-center gap-2"
+                      [attr.aria-busy]="busySeat() === seat.user_id ? 'true' : null"
+                    >
+                      <p
+                        class="basis-full text-sm text-(--text-primary) focus:outline-none"
+                        tabindex="-1"
+                        [id]="'vendor-seat-remove-confirm-' + seat.user_id"
+                      >
+                        {{ removeQuestion(seat) }}
+                        @if (seat.owner) {
+                          &ngsp;{{ ownerNote }}
+                        }
+                      </p>
+                      <button
+                        aecButton
+                        variant="danger"
+                        compact
+                        type="button"
+                        [disabled]="busySeat() !== null"
+                        (click)="remove(seat)"
+                      >
+                        @if (busySeat() === seat.user_id) {
+                          <span i18n="@@vendor.seats.remove.busy">Removing…</span>
+                        } @else {
+                          <span i18n="@@vendor.seats.remove.yes">Remove seat</span>
+                        }
+                        <span class="sr-only">&ngsp;{{ seatName(seat) }}</span>
+                      </button>
+                      <button
+                        aecButton
+                        variant="secondary"
+                        compact
+                        type="button"
+                        [disabled]="busySeat() !== null"
+                        (click)="cancelRemove(seat)"
+                        i18n="@@vendor.seats.remove.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -286,19 +357,19 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (invites().length > 0) {
-      <section class="mt-6">
-        <h3
-          class="font-label text-sm font-semibold text-(--text-primary)"
-          i18n="@@vendor.seats.pending.heading"
-        >
-          Pending invites
-        </h3>
-        <ul class="mt-2 divide-y divide-(--border-default) border-y border-(--border-default)">
+      <section class="mt-8">
+        <h3 i18n="@@vendor.seats.pending.heading">Pending invites</h3>
+        <ul class="mt-4 divide-y divide-(--border-default) border-y border-(--border-default)">
           @for (invite of invites(); track invite.id) {
-            <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+            <li
+              class="flex flex-wrap items-center justify-between gap-4 py-4"
+              [attr.data-invite-row]="invite.id"
+            >
               <div class="min-w-0">
-                <p class="text-sm text-(--text-primary)">{{ invite.email }}</p>
-                <p class="text-xs text-(--text-secondary)">
+                <p class="text-sm font-semibold break-words text-(--text-primary)">
+                  {{ invite.email }}
+                </p>
+                <p class="mt-1 text-t-13 text-(--text-secondary)">
                   <ng-container i18n="@@vendor.seats.pending.sent">Sent</ng-container>
                   {{ invite.last_sent_at || invite.created_at | date: 'mediumDate' }}
                   <ng-container i18n="@@vendor.seats.pending.expires">· expires</ng-container>
@@ -309,17 +380,62 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   }
                 </p>
               </div>
-              @if (canManage()) {
-                <div class="flex shrink-0 items-center gap-2">
+              @if (canManage() && isConfirming('invite', invite.id)) {
+                <!-- AECI-2129: the row's actions give way to the confirm. Undoing a
+                     revoke means a new invite, a new email and one of the day's
+                     invites, so the confirm is danger (DESIGN.md §5 Buttons). -->
+                <div
+                  class="flex basis-full flex-wrap items-center gap-2"
+                  [attr.data-invite-confirm]="invite.id"
+                  [attr.aria-busy]="isBusy(invite, 'revoke') ? 'true' : null"
+                >
+                  <p
+                    class="basis-full text-sm text-(--text-primary) focus:outline-none"
+                    tabindex="-1"
+                    [id]="'vendor-invite-revoke-confirm-' + invite.id"
+                  >
+                    {{ revokeQuestion(invite) }}
+                  </p>
+                  <button
+                    aecButton
+                    variant="danger"
+                    compact
+                    type="button"
+                    [disabled]="busyInvite() !== null"
+                    (click)="revoke(invite)"
+                  >
+                    @if (isBusy(invite, 'revoke')) {
+                      <span i18n="@@vendor.seats.revoke.busy">Revoking…</span>
+                    } @else {
+                      <span i18n="@@vendor.seats.revoke.yes">Revoke invite</span>
+                    }
+                    <span class="sr-only">&ngsp;{{ invite.email }}</span>
+                  </button>
+                  <button
+                    aecButton
+                    variant="secondary"
+                    compact
+                    type="button"
+                    [disabled]="busyInvite() !== null"
+                    (click)="cancelRevoke(invite)"
+                    i18n="@@vendor.seats.revoke.cancel"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              } @else if (canManage()) {
+                <div class="flex shrink-0 flex-wrap items-center gap-2">
                   <!-- Disabled states carry their reason in the accessible name,
                        not just in the visual state: a cooldown clears itself in
                        minutes, a spent invite never does, and the two need
                        opposite next steps. -->
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
                     [disabled]="busyInvite() !== null || invite.resend_state !== 'ok'"
                     (click)="resend(invite)"
-                    [class]="dangerClass"
                     [attr.title]="resendHint(invite)"
                   >
                     @if (isBusy(invite, 'resend')) {
@@ -332,10 +448,13 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     >
                   </button>
                   <button
+                    aecButton
+                    variant="secondary"
+                    compact
                     type="button"
+                    [id]="'vendor-invite-revoke-start-' + invite.id"
                     [disabled]="busyInvite()?.id === invite.id"
-                    (click)="revoke(invite)"
-                    [class]="dangerClass"
+                    (click)="startRevoke(invite)"
                   >
                     <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
                     <span class="sr-only">&ngsp;{{ invite.email }}</span>
@@ -349,16 +468,22 @@ import { VendorPortalStore } from '../vendor-portal-store';
     }
 
     @if (actionError(); as message) {
-      <p class="mt-3 text-sm text-(--text-primary)" role="alert">{{ message }}</p>
+      <p class="mt-4 text-sm font-semibold text-(--text-primary)" role="alert">{{ message }}</p>
     }
     @if (actionStatus(); as message) {
-      <p class="mt-3 text-sm text-(--text-secondary)" role="status">{{ message }}</p>
+      <!-- Plain text. The same sentence goes to the portal's one live region
+           (VendorPortalAnnouncer), so it is announced once (AECI-1812). -->
+      <p class="mt-4 text-sm text-(--text-secondary)" data-seats-status>{{ message }}</p>
     }
   `,
   styles: [':host { display: block; }'],
 })
 export class VendorSeatRoster {
   private readonly store = inject(VendorPortalStore);
+  private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** The seat count from the dashboard payload — shown by the parent as a
    *  header; the detailed roster loads separately. Optional so the component is
@@ -386,10 +511,11 @@ export class VendorSeatRoster {
    *  whose `resend_state` makes a send impossible. */
   protected readonly busyInvite = signal<{ id: string; action: 'resend' | 'revoke' } | null>(null);
   protected readonly actionError = signal<string | null>(null);
-  /** The success half of {@link actionError} — a `role="status"` line, so a
-   *  re-send that produces no visible list change is still announced. Kept
-   *  separate rather than reusing the error signal so the two can never end up
-   *  in the same live region with the wrong politeness. */
+  /** The success half of {@link actionError}: a plain line under the list, so a
+   *  re-send that produces no visible list change still shows. The same sentence
+   *  is announced through {@link VendorPortalAnnouncer} (AECI-1812), the portal's
+   *  one live region. Kept separate from the error signal, which stays
+   *  `role="alert"`. */
   protected readonly actionStatus = signal<string | null>(null);
   protected readonly loading = this.store.seatsLoading;
   protected readonly failed = this.store.seatsFailed;
@@ -401,11 +527,20 @@ export class VendorSeatRoster {
   protected readonly fallbackName = $localize`:@@vendor.seats.name.fallback:Unnamed admin`;
   protected readonly emailUnavailable = $localize`:@@vendor.seats.email.unavailable:Email unavailable`;
 
-  protected readonly dangerClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-2.5 py-1 text-xs font-label text-(--text-primary) transition-colors hover:border-(--border-strong) disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** A header cell: the Label role, a hairline above and a strong rule below
+   *  (the console table's header, without borrowing the admin recipe). */
+  protected readonly headClass =
+    'whitespace-nowrap border-t border-b border-t-(--border-default) border-b-(--border-strong) py-2 pe-4 text-start align-bottom text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary) last:pe-0';
+  /** A body cell. Its hairline is added by {@link rowCell}. */
+  private readonly cellClass = 'py-3 pe-4 align-middle';
+  /** The last cell, holding the row's one 44px action. Its hairline is added by
+   *  {@link rowActCell}. */
+  private readonly actCellClass = 'py-2 text-end align-middle whitespace-nowrap';
 
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** The one confirm open on the roster, if any (AECI-2129). */
+  protected readonly confirming = signal<Confirming | null>(null);
+  /** The extra sentence on an owner's Remove confirm. */
+  protected readonly ownerNote = $localize`:@@vendor.seats.remove.confirm.owner:Their owner status does not come back with a new invite.`;
 
   constructor() {
     // Browser-only: the seat read (with its Supabase email lookup) runs after
@@ -419,50 +554,195 @@ export class VendorSeatRoster {
     void this.store.reload('seats');
   }
 
+  // ─── Remove and revoke, behind an inline confirm (AECI-2129) ─────────────────
+  //
+  // Neither action has a full reverse. A removed owner comes back, if invited
+  // again, as a seat that is not an owner (`seat_owner` is cleared on removal and
+  // a redeemed invite never sets it). Undoing a revoke means a new invite: a new
+  // email and one of the day's invites. So each opens an inline confirm in its
+  // row, the contests-list pattern (never `confirm()`, which blocks the page),
+  // and the confirm is danger (DESIGN.md §5 Buttons). One confirm at a time over
+  // the whole roster. Opening one moves focus to its question, so a screen reader
+  // hears what will happen before it reaches the button.
+
+  /** Open the Remove confirm on this seat's row. */
+  protected startRemove(seat: VendorSeat): void {
+    this.openConfirm({ kind: 'seat', id: seat.user_id });
+    this.focusAfterRender(`vendor-seat-remove-confirm-${seat.user_id}`);
+  }
+
+  protected cancelRemove(seat: VendorSeat): void {
+    this.confirming.set(null);
+    this.focusAfterRender(`vendor-seat-remove-start-${seat.user_id}`);
+  }
+
+  /** Open the Revoke confirm on this invite's row. */
+  protected startRevoke(invite: ManageableSeatInvite): void {
+    this.openConfirm({ kind: 'invite', id: invite.id });
+    this.focusAfterRender(`vendor-invite-revoke-confirm-${invite.id}`);
+  }
+
+  protected cancelRevoke(invite: ManageableSeatInvite): void {
+    this.confirming.set(null);
+    this.focusAfterRender(`vendor-invite-revoke-start-${invite.id}`);
+  }
+
+  protected isConfirming(kind: Confirming['kind'], id: string): boolean {
+    const open = this.confirming();
+    return open?.kind === kind && open.id === id;
+  }
+
   /**
-   * Remove a colleague's access. Pessimistic and re-read from the server rather
-   * than spliced locally: this is a destructive, security-relevant action, and a
-   * row that vanished optimistically and then came back would leave an owner
-   * unsure whether the person still has access. `STAGE_2_REALTIME_SPEC.md` keeps
-   * optimism for toggles only.
-   *
-   * No `confirm()` — a browser modal blocks the whole page and the action is
-   * reversible by re-inviting. The button names the person in its accessible
-   * label so it can't be hit blind.
+   * Remove a colleague's access, from the confirm. Pessimistic and re-read from the
+   * server rather than spliced locally: this is a destructive, security-relevant
+   * action, and a row that vanished optimistically and then came back would leave
+   * an owner unsure whether the person still has access. `STAGE_2_REALTIME_SPEC.md`
+   * keeps optimism for toggles only.
    */
   protected async remove(seat: VendorSeat): Promise<void> {
     if (this.busySeat()) return;
     this.busySeat.set(seat.user_id);
     this.actionError.set(null);
     this.actionStatus.set(null);
+    const before = this.seats().map((s) => s.user_id);
     try {
-      await this.api.removeSeat(seat.user_id);
+      try {
+        await this.api.removeSeat(seat.user_id);
+      } catch {
+        this.refuse(
+          { kind: 'seat', id: seat.user_id },
+          $localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`,
+        );
+        return;
+      }
+      this.closeConfirm({ kind: 'seat', id: seat.user_id });
+      const name = this.seatName(seat);
+      this.settle($localize`:@@vendor.seats.remove.done:Seat removed for ${name}:name:.`);
       await this.store.reload('seats');
-    } catch {
-      this.actionError.set(
-        $localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`,
-      );
+      // A confirm opened on another row meanwhile keeps focus.
+      if (this.confirming() === null) this.focusAfterRemoval('seat', seat.user_id, before);
     } finally {
       this.busySeat.set(null);
     }
   }
 
-  /** Revoke a pending invite before it is redeemed. */
+  /** Revoke a pending invite before it is redeemed, from the confirm. */
   protected async revoke(invite: ManageableSeatInvite): Promise<void> {
     if (this.busyInvite()) return;
     this.busyInvite.set({ id: invite.id, action: 'revoke' });
     this.actionError.set(null);
     this.actionStatus.set(null);
+    const before = this.invites().map((i) => i.id);
     try {
-      await this.api.revokeInvite(invite.id);
+      try {
+        await this.api.revokeInvite(invite.id);
+      } catch {
+        this.refuse(
+          { kind: 'invite', id: invite.id },
+          $localize`:@@vendor.seats.revoke.error:Could not revoke that invite. Try again.`,
+        );
+        return;
+      }
+      this.closeConfirm({ kind: 'invite', id: invite.id });
+      this.settle($localize`:@@vendor.seats.revoke.done:Invite to ${invite.email}:email: revoked.`);
       await this.store.reload('seats');
-    } catch {
-      this.actionError.set(
-        $localize`:@@vendor.seats.revoke.error:Could not revoke that invite. Try again.`,
-      );
+      if (this.confirming() === null) this.focusAfterRemoval('invite', invite.id, before);
     } finally {
       this.busyInvite.set(null);
     }
+  }
+
+  /** The question the Remove confirm asks. The owner sentence is separate
+   *  ({@link ownerNote}) and only follows it on an owner's row. */
+  protected removeQuestion(seat: VendorSeat): string {
+    const name = this.seatName(seat);
+    return $localize`:@@vendor.seats.remove.confirm:Remove ${name}:name:'s seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat.`;
+  }
+
+  protected revokeQuestion(invite: ManageableSeatInvite): string {
+    return $localize`:@@vendor.seats.revoke.confirm:Revoke the invite to ${invite.email}:email:? The link stops working. A new invite sends a new email and counts toward your daily invite limit.`;
+  }
+
+  /** Who a seat row names: the same fallback chain as its buttons' hidden names. */
+  protected seatName(seat: VendorSeat): string {
+    return seat.display_name || seat.email || this.fallbackName;
+  }
+
+  /** A seat row's body cell. The row whose confirm is open drops its hairline,
+   *  so the row and its confirm read as one unit. */
+  protected rowCell(seat: VendorSeat, extra: string): string {
+    const edge = this.isConfirming('seat', seat.user_id)
+      ? ''
+      : ' border-b border-(--border-default)';
+    return `${this.cellClass}${edge}${extra ? ' ' + extra : ''}`;
+  }
+
+  /** A seat row's action cell, on the same rule as {@link rowCell}. */
+  protected rowActCell(seat: VendorSeat): string {
+    const edge = this.isConfirming('seat', seat.user_id)
+      ? ''
+      : ' border-b border-(--border-default)';
+    return `${this.actCellClass}${edge}`;
+  }
+
+  /** Close this confirm only. While a request runs, another row's opener is still
+   *  live, so the confirm open now may not be the one that was submitted. */
+  private closeConfirm(which: Confirming): void {
+    if (this.isConfirming(which.kind, which.id)) this.confirming.set(null);
+  }
+
+  private openConfirm(next: Confirming): void {
+    this.actionError.set(null);
+    this.actionStatus.set(null);
+    this.confirming.set(next);
+  }
+
+  /** A refused remove or revoke: close the confirm, show the alert, and return
+   *  focus to the row's Remove or Revoke, which is still there. The alert is never
+   *  focused: a focused `role="alert"` is read twice (the contests-list rule). A
+   *  confirm opened on another row meanwhile keeps focus. */
+  private refuse(which: Confirming, message: string): void {
+    this.closeConfirm(which);
+    this.actionError.set(message);
+    if (this.confirming() !== null) return;
+    this.focusAfterRender(
+      which.kind === 'seat'
+        ? `vendor-seat-remove-start-${which.id}`
+        : `vendor-invite-revoke-start-${which.id}`,
+    );
+  }
+
+  /**
+   * After a row leaves the list, put focus where the reader was: the next row's
+   * first live control, else the previous row's, else the section heading. The
+   * rows are found in the DOM after the re-read renders, so a row that is still
+   * there (a re-read that failed, or another tab's change) is handled the same way.
+   */
+  private focusAfterRemoval(kind: Confirming['kind'], id: string, before: string[]): void {
+    const at = before.indexOf(id);
+    const order = [...before.slice(at + 1), ...before.slice(0, Math.max(at, 0)).reverse()];
+    const attr = kind === 'seat' ? 'data-seat-row' : 'data-invite-row';
+    afterNextRender(
+      () => {
+        const host = this.host.nativeElement;
+        for (const candidate of order) {
+          const row = host.querySelector(`[${attr}="${candidate}"]`);
+          const control = row?.querySelector<HTMLElement>('button:not([disabled])');
+          if (control) {
+            control.focus();
+            return;
+          }
+        }
+        this.document.getElementById(SEATS_HEADING_ID)?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), {
+      injector: this.injector,
+    });
   }
 
   /**
@@ -472,7 +752,7 @@ export class VendorSeatRoster {
    * change is a "Sent" date and a now-disabled button, and guessing either
    * locally would mean re-implementing the cooldown the server just applied.
    *
-   * The confirmation is a `role="status"` line rather than the list itself,
+   * The confirmation is a status line (announced once) rather than the list itself,
    * because a successful re-send moves no row — without it the only feedback
    * would be a button going quiet, which reads like a failure.
    */
@@ -483,7 +763,7 @@ export class VendorSeatRoster {
     this.actionStatus.set(null);
     try {
       await this.api.resendInvite(invite.id);
-      this.actionStatus.set(
+      this.settle(
         $localize`:@@vendor.seats.resend.sent:Invite sent again to ${invite.email}:email:.`,
       );
       // The server's row, not a local splice: it holds the new expiry and the
@@ -511,7 +791,7 @@ export class VendorSeatRoster {
       const { invite, invite_sent } = await this.api.acceptSeatClaim(claim.id);
       // `invite_sent: false` means the claimant already held a pending invite, so the
       // server reused it and mailed nothing. Saying "was sent" there would be false.
-      this.actionStatus.set(
+      this.settle(
         invite_sent
           ? $localize`:@@vendor.seats.claims.accepted:Accepted. A seat invite was sent to ${invite.email}:email:.`
           : $localize`:@@vendor.seats.claims.acceptedExistingInvite:Accepted. ${invite.email}:email: already has a seat invite, so no new email was sent.`,
@@ -537,7 +817,7 @@ export class VendorSeatRoster {
     try {
       await this.api.declineSeatClaim(claim.id);
       const who = claim.submitter_name || claim.submitter_email;
-      this.actionStatus.set(
+      this.settle(
         $localize`:@@vendor.seats.claims.declined:Declined the request from ${who}:name:.`,
       );
       await this.store.reload('seats');
@@ -549,6 +829,13 @@ export class VendorSeatRoster {
     } finally {
       this.busyClaim.set(null);
     }
+  }
+
+  /** A write succeeded: show the sentence as plain text under the list and say it
+   *  once through the portal's one live region (STAGE_2_REALTIME_SPEC.md §6.3). */
+  private settle(message: string): void {
+    this.actionStatus.set(message);
+    this.announcer.announce(message);
   }
 
   protected isClaimBusy(claim: PendingSeatClaim, action: 'accept' | 'decline'): boolean {

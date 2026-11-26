@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
@@ -16,6 +16,26 @@ import { ADMIN_REASON_MAX, type BrandAssetRemoval } from '@aeci/shared';
 
 import { AdminVendorsApi } from './admin-vendors-api';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+  VENDOR_PANEL_CLASS,
+} from './vendor-console-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 type HoldAction = 'hold' | 'lift';
 
@@ -34,12 +54,29 @@ type HoldAction = 'hold' | 'lift';
  */
 @Component({
   selector: 'aec-brand-asset-removals',
-  imports: [AecFormSubmit, DatePipe, RouterLink],
+  imports: [AecButton, AecFormSubmit, DatePipe, RouterLink],
   templateUrl: './brand-asset-removals.html',
 })
 export class BrandAssetRemovals {
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+
+  // AECI-2112: the console recipe (mock-up 14) and the queues' form pieces.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = VENDOR_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
 
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
@@ -114,8 +151,21 @@ export class BrandAssetRemovals {
     afterNextRender(() => this.reasonInput()?.nativeElement.focus(), { injector: this.injector });
   }
 
+  /** The row's Hold or Lift hold button. One id in both states (AECI-2112). */
+  protected triggerId(vendorId: string): string {
+    return 'brand-asset-trigger-' + vendorId;
+  }
+
+  /** Cancel and Escape close the form and give focus back to its opener. */
   protected cancel(): void {
+    const acting = this.acting();
+    if (!acting || this.pending()) return;
     this.acting.set(null);
+    this.focusAfterRender(this.triggerId(acting.vendorId));
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
   protected onReasonInput(event: Event): void {
@@ -148,8 +198,12 @@ export class BrandAssetRemovals {
       }
       this.acting.set(null);
       await this.load();
+      // The row stays, its button flipped between Hold and Lift hold under one id.
+      this.focusAfterRender(this.triggerId(acting.vendorId));
     } catch (err) {
       this.failedMessage.set(messageForError(err));
+      // The disabled confirm drops focus: move it to the refusal (AECI-1994).
+      this.focusAfterRender('brand-asset-failed-' + acting.vendorId);
     } finally {
       this.pending.set(false);
     }

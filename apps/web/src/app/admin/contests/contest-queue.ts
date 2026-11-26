@@ -1,6 +1,14 @@
 import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { ADMIN_REASON_MAX, isHttpsUrl } from '@aeci/shared';
@@ -22,8 +30,31 @@ import {
   contestStatusLabel,
 } from '../../vendor/components/vendor-contest-labels';
 import { AdminSummaryStore } from '../admin-summary.store';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import { CONSOLE_LABEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AdminDangerAction } from '../console/danger-action';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FORM_CLASS,
+  QUEUE_HELP_CLASS,
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
 import { AdminContestsApi } from './admin-contests-api';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** One request covers a launch-scale backlog. The API caps `perPage` at 100; we
  *  load the max and say so when the server reports more. */
@@ -67,16 +98,106 @@ const QUEUE_PAGE_SIZE = 100;
  * decision on an open AECi row decrements it. A `409 CONTEST_NOT_OPEN` does not:
  * the row was closed by someone else (another admin, or the vendor withdrawing),
  * and, as on `/admin/claims`, the next full visit re-seeds the count.
+ *
+ * ── THE TABLE (AECI-2102, mock-up 14) ───────────────────────────────────────
+ * One console table row per change request: the integration, the field, who
+ * filed it, when, and its status. The values, the reason, the appeal and the
+ * decision sit in the row's expanded detail. After a decision removes a row,
+ * focus moves to the disclosure of the row that took its place, or to the queue
+ * heading when none is left. A failed decision moves focus to the row's alert.
  */
 @Component({
   selector: 'aec-contest-queue',
-  imports: [AecFormSubmit, DatePipe, NewTabIcon, RouterLink],
+  imports: [
+    AdminDangerAction,
+    AdminDisclosureButton,
+    AecButton,
+    AecFormSubmit,
+    AecIcon,
+    Chip,
+    DatePipe,
+    NewTabIcon,
+    RouterLink,
+  ],
   templateUrl: './contest-queue.html',
 })
 export class ContestQueue {
   private readonly api = inject(AdminContestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly document = inject(DOCUMENT);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** The table's columns, for the detail cell's `colspan`. */
+  protected readonly columnCount = 6;
+  /** Ids of the rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(c: AdminContest): string {
+    const pair = this.pairLabel(c);
+    const field = this.fieldLabel(c.field);
+    const vendor = c.submitter_vendor.name;
+    return $localize`:@@admin.contests.row.label:Change request on ${pair}:pair:, ${field}:field:, filed by ${vendor}:vendor:`;
+  }
+
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** The chip tone for a contest status. Exhaustive: a new status fails to compile. */
+  protected statusTone(status: ContestStatus): ConsoleChipTone {
+    switch (status) {
+      case 'open':
+        return adminStatusTone('open');
+      case 'accepted':
+        return adminStatusTone('accepted');
+      case 'declined':
+        return adminStatusTone('declined');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+    }
+  }
+
+  /** The chip tone for an appeal status. Exhaustive: a new status fails to compile. */
+  protected protestTone(status: ContestProtestStatus): ConsoleChipTone {
+    switch (status) {
+      case 'open':
+        return adminStatusTone('open');
+      case 'upheld':
+        return adminStatusTone('agreedWithSubmitter');
+      case 'rejected':
+        return adminStatusTone('agreedWithOwner');
+      case 'withdrawn':
+        return adminStatusTone('withdrawn');
+    }
+  }
 
   /** The loaded contests, in server order (newest first). */
   private readonly contests = signal<readonly AdminContest[]>([]);
@@ -105,6 +226,17 @@ export class ContestQueue {
    *  a vendor. */
   protected readonly internalNote = signal('');
   protected readonly internalNoteMax = ADMIN_REASON_MAX;
+  /** Decline's reason is optional and natively capped, as before. */
+  protected readonly declineMax = 2000;
+  /** Decline's words (AECI-2104: the shared danger form). */
+  protected readonly declineCopy = {
+    opener: $localize`:@@admin.contests.decline:Decline`,
+    label: $localize`:@@admin.contests.decline.label:Why you are declining (recommended)`,
+    help: $localize`:@@admin.contests.decline.help:Shown to the vendor that filed the contest. A reason tells them what evidence would change the answer.`,
+    confirm: $localize`:@@admin.contests.decline.confirm:Confirm decline`,
+    busy: $localize`:@@admin.contests.declining:Declining…`,
+    cancel: $localize`:@@admin.contests.form.cancel2:Cancel`,
+  } as const;
   /**
    * AECI-1628: an accept that writes a vendor-held field here is shown publicly as AECi's
    * correction, so it names where AECi read the value. The list says so per row
@@ -338,6 +470,38 @@ export class ContestQueue {
     this.sourceProblem.set(null);
     this.formMode.set(mode);
     this.formOpenId.set(id);
+    // The opener disables itself, so move focus into the form it opened. Only
+    // Accept opens here: Decline is the danger form, which focuses its own field.
+    this.focusAfterRender(`contest-note-${id}`);
+  }
+
+  /** The decline form opened or closed (its opener, Cancel or Escape). It shares
+   *  the one-form-at-a-time state with Accept. The danger form starts each open
+   *  clean, focuses its own field and ignores a close while the request runs. */
+  protected onDeclineOpen(id: string, open: boolean): void {
+    if (open) {
+      this.closeForm();
+      this.failedActionId.set(null);
+      this.formMode.set('decline');
+      this.formOpenId.set(id);
+    } else if (this.formOpenId() === id && this.formMode() === 'decline') {
+      this.closeForm();
+    }
+  }
+
+  /** Decline is blocked while this row's accept form is open or its request runs,
+   *  as the opener was before. Its own open form keeps the opener live. */
+  protected declineBlocked(id: string): boolean {
+    if (this.formOpenId() === id && this.formMode() === 'decline') return false;
+    return this.pendingActionId() === id || this.formOpenId() === id;
+  }
+
+  /** Cancel or Escape in the accept form: close it and return focus to its opener. */
+  protected dismissForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.formMode();
+    this.closeForm();
+    if (mode) this.focusAfterRender(`contest-${id}-${mode}-open`);
   }
 
   protected closeForm(): void {
@@ -364,9 +528,15 @@ export class ContestQueue {
     if (this.noteMissing()) this.noteMissing.set(false);
   }
 
-  protected async confirm(id: string, decision: ContestDecision): Promise<void> {
+  /** `typed` is the danger form's trimmed reason on a decline; the accept form's
+   *  note is read from `formText`. */
+  protected async confirm(
+    id: string,
+    decision: ContestDecision,
+    typed: string = this.formText(),
+  ): Promise<void> {
     if (this.pendingActionId()) return;
-    const note = this.formText().trim();
+    const note = typed.trim();
     // Read before the row is dropped: only an open AECi row is in the count.
     const row = this.contests().find((c) => c.id === id);
     if (decision === 'accept' && !note && row && this.acceptNoteRequired(row)) {
@@ -460,16 +630,28 @@ export class ContestQueue {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.locked:This field carries an AEC Integrations lock. Lift it under Field corrections on the vendor page, then decide again. Nothing was changed.`,
       );
+      this.focusAfterRender(`contest-${id}-failed`);
       return;
     }
     if (code === 'CONTEST_ROUTED_TO_OWNER') {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.routedToOwner:The integration's owner decides this contest, not AEC Integrations. Nothing was changed.`,
       );
+      this.focusAfterRender(`contest-${id}-failed`);
       return;
     }
     this.failedActionMessage.set(
       $localize`:@@admin.contests.action.failed:Something went wrong. Please try again.`,
+    );
+    this.focusAfterRender(`contest-${id}-failed`);
+  }
+
+  /** Focus an element by id once the next render lands. A failed decision uses it:
+   *  the disabled button dropped focus, so it moves to the alert. */
+  private focusAfterRender(elementId: string): void {
+    afterNextRender(
+      { write: () => this.document.getElementById(elementId)?.focus() },
+      { injector: this.injector },
     );
   }
 
@@ -508,6 +690,16 @@ export class ContestQueue {
     this.protestNoteMissing.set(false);
     this.protestMode.set(mode);
     this.protestFormOpenId.set(id);
+    // The opener disables itself, so move focus into the form it opened.
+    this.focusAfterRender(`protest-note-${id}`);
+  }
+
+  /** Cancel or Escape in the appeal form: close it and return focus to its opener. */
+  protected dismissProtestForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.protestMode();
+    this.closeProtestForm();
+    if (mode) this.focusAfterRender(`contest-${id}-protest-${mode}-open`);
   }
 
   protected closeProtestForm(): void {
@@ -553,15 +745,31 @@ export class ContestQueue {
         this.failedActionMessage.set(
           $localize`:@@admin.contests.protest.failed:Something went wrong. Please try again.`,
         );
+        this.focusAfterRender(`contest-${id}-protest-failed`);
       }
     } finally {
       this.pendingActionId.set(null);
     }
   }
 
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`): the row that took its place, the heading, or
+   *  nowhere when the row was not on screen. */
   private removeRow(id: string): void {
+    const index = this.contests().findIndex((c) => c.id === id);
     this.contests.update((list) => list.filter((c) => c.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    const target = queueFocusAfterRemoval(index, 1, 1, this.contests());
+    if (target.kind === 'none') return;
+    if (target.kind === 'heading') {
+      this.focusAfterRender('admin-contests-heading');
+      return;
+    }
+    const selector = `[aria-controls="contest-${target.row.id}-detail"]`;
+    afterNextRender(
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(selector)?.focus() },
+      { injector: this.injector },
+    );
   }
 }
 

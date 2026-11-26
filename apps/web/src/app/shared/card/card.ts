@@ -31,8 +31,8 @@ export interface AecCardOptions {
  * caller (`p-6`, or `p-4` in a dense list; `flex flex-col gap-4`).
  *
  * EDGE. The 1px border is transparent and comes from the unlayered `.aec-card`
- * rule in `styles.css`, because a `border-(--x)` utility loses to the unlayered
- * `* { border-color }` rule. There is no hairline beside the shadow. Forced-colours
+ * rule in `styles.css`, written while a `border-(--x)` utility lost to the
+ * then-unlayered `* { border-color }` rule (fixed in AECI-2088). There is no hairline beside the shadow. Forced-colours
  * mode drops `box-shadow` and paints a transparent border in a system colour, so
  * the card still has an edge there.
  *

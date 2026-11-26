@@ -192,7 +192,7 @@ export async function readLastFetchByPath(db: Db, toIso: string): Promise<LastFe
 /**
  * The grouped read behind {@link readLastFetchByPath}, exported so a spec can
  * `EXPLAIN QUERY PLAN` it. It is served by `page_views_crawl_path_idx` (migration
- * `0129`), a covering scan of Googlebot and Bingbot rows with a concrete path
+ * `0130`), a covering scan of Googlebot and Bingbot rows with a concrete path
  * rather than a range scan of every bot row.
  *
  * `INDEXED BY` pins the index. Left to itself, SQLite picks `page_views_bot_idx`,

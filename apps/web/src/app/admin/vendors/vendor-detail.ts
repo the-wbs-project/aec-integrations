@@ -1,7 +1,7 @@
 import { AdminFieldCorrections } from './admin-field-corrections';
 import { AdminFieldHides } from './admin-field-hides';
 import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import {
   Component,
   ElementRef,
@@ -56,6 +56,41 @@ import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatEmailText, seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+  VENDOR_INLINE_LINK_CLASS,
+  VENDOR_PANEL_CLASS,
+  VENDOR_PANEL_STACK_CLASS,
+} from './vendor-console-classes';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FACTS_CLASS,
+  CONSOLE_FACT_VALUE_CLASS,
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 const AUDIT_PAGE_SIZE = 25;
 const PRODUCTS_PAGE_SIZE = 25;
@@ -136,7 +171,10 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    AecButton,
     AecFormSubmit,
+    AecIcon,
+    Chip,
     AdminLogoEditor,
     AdminFieldCorrections,
     AdminFieldHides,
@@ -171,6 +209,36 @@ export class VendorDetail {
    *  pencil on the Basics logo rather than leading the Vendor tab. */
   private readonly logoDialog = viewChild(BrnDialog);
 
+  // AECI-2112: the console recipe (mock-up 14 "detail"): flat panels, the table,
+  // the Label role for facts, the segmented filter and the shared field classes.
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = VENDOR_PANEL_CLASS;
+  protected readonly panelStackClass = VENDOR_PANEL_STACK_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly factsClass = CONSOLE_FACTS_CLASS;
+  protected readonly factValueClass = CONSOLE_FACT_VALUE_CLASS;
+  protected readonly standaloneLinkClass = STANDALONE_LINK_CLASS;
+  protected readonly inlineLinkClass = VENDOR_INLINE_LINK_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
   /** The dialog's own live region. While the modal is open the CDK sets
    *  `aria-hidden` on the app root, which silences the page's `liveMessage`, so
    *  upload status has to be announced from inside the dialog. */
@@ -181,7 +249,12 @@ export class VendorDetail {
   private logoSavedPending = false;
 
   /** Called from the pencil's click handler only (NG0602: `open()` creates an effect). */
+  /** The dialog's editor is saving: its Close button waits, as Escape does inside
+   *  the editor (AECI-2112), so the save's confirmation is never dropped. */
+  protected readonly logoSaving = signal(false);
+
   protected openLogoDialog(): void {
+    this.logoSaving.set(false);
     this.logoDialogMessage.set('');
     this.logoSavedPending = false;
     this.logoDialog()?.open();
@@ -231,7 +304,7 @@ export class VendorDetail {
     { key: 'products', label: $localize`:@@admin.vendors.tab.products:Products` },
     // AECI-1046: the vendor-held integrations it owns, and the admin retire/restore.
     { key: 'integrations', label: $localize`:@@admin.vendors.tab.integrations:Integrations` },
-    { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit Trail` },
+    { key: 'audit', label: $localize`:@@admin.vendors.tab.audit:Audit trail` },
   ];
 
   /** `undefined` clears the param, which is what keeps the default tab's URL
@@ -263,6 +336,7 @@ export class VendorDetail {
   protected readonly revokeInternalNote = signal('');
   protected readonly reasonMax = ADMIN_REASON_MAX;
   private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
   private readonly revokeReasonInput =
     viewChild<ElementRef<HTMLTextAreaElement>>('revokeReasonInput');
 
@@ -447,8 +521,25 @@ export class VendorDetail {
     });
   }
 
+  /** A seat's Remove seat button, the confirm's opener. */
+  protected seatRevokeTriggerId(userId: string): string {
+    return 'seat-revoke-open-' + userId;
+  }
+
+  /** Cancel and Escape close the confirm and give focus back to Remove seat. */
   protected cancelRevoke(): void {
+    const id = this.revokeConfirmId();
     this.revokeConfirmId.set(null);
+    if (id) this.focusAfterRender(this.seatRevokeTriggerId(id));
+  }
+
+  /** Escape cancels, except while the revoke is in flight. */
+  protected onRevokeEscape(): void {
+    if (!this.revokePendingId()) this.cancelRevoke();
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), { injector: this.injector });
   }
 
   protected onRevokeNoteInput(event: Event): void {
@@ -480,6 +571,7 @@ export class VendorDetail {
     this.revokeFailedMessage.set('');
     try {
       await this.api.revokeSeat(id, seat.user_id, reason, this.revokeInternalNote());
+      const index = this.seats().findIndex((s) => s.user_id === seat.user_id);
       this.vendor.update((v) =>
         v && v.seats ? { ...v, seats: v.seats.filter((s) => s.user_id !== seat.user_id) } : v,
       );
@@ -487,6 +579,11 @@ export class VendorDetail {
       this.liveMessage.set(
         $localize`:@@admin.vendors.seats.announce.revoked2:Seat removed for ${this.seatName(seat)}:NAME:. The vendor's subscriptions are unchanged.`,
       );
+      // The row is gone: the queues' focus rule picks the seat that took its place,
+      // or the Seats heading when none is left (AECI-2112).
+      const next = queueFocusAfterRemoval(index, 1, 1, this.seats());
+      if (next.kind === 'row') this.focusAfterRender(this.seatRevokeTriggerId(next.row.user_id));
+      else if (next.kind === 'heading') this.focusAfterRender('admin-vendor-seats');
       void this.loadAudit();
     } catch (err) {
       this.revokeFailedMessage.set(
@@ -494,6 +591,8 @@ export class VendorDetail {
           ? $localize`:@@admin.vendors.seats.error.gone:That seat is already gone. Reload to see the current roster.`
           : $localize`:@@admin.vendors.seats.error.failed:Something went wrong. Please try again.`,
       );
+      // The disabled confirm drops focus: move it to the refusal (AECI-1994).
+      this.focusAfterRender('seat-revoke-failed-' + seat.user_id);
     } finally {
       this.revokePendingId.set(null);
     }

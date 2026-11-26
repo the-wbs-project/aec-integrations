@@ -38,6 +38,13 @@ function marks(el: HTMLElement): SVGPathElement[] {
   return [...el.querySelectorAll('svg path')] as unknown as SVGPathElement[];
 }
 
+/** The legend's visible words, swatches excluded. */
+function legendWords(el: HTMLElement): string[] {
+  return [...el.querySelectorAll('aec-chart-legend li span:not([aria-hidden])')].map(
+    (s) => s.textContent?.trim() ?? '',
+  );
+}
+
 /** The vertical extent of a path, read back out of its `d`. */
 function yRange(path: SVGPathElement): { min: number; max: number } {
   const ys = [...(path.getAttribute('d') ?? '').matchAll(/[ML] [\d.-]+ ([\d.-]+)/g)].map((m) =>
@@ -135,6 +142,21 @@ describe('StackedSeriesChart', () => {
   it('omits the legend for a single series — the title already names it', () => {
     const el = render([{ key: 'human', label: 'Human', slot: 1, values: [1, 2, 3] }]);
     expect(el.querySelector('aec-chart-legend')).toBeNull();
+  });
+
+  // AECI-2125, the relief rule: slots 3 to 5 sit below 3:1, so a series drawn in
+  // one of them states its value in text and never leaves it to the colour.
+  it('writes the window total beside a series on a relief slot, even when it is alone', () => {
+    const el = render([{ key: 'campaign', label: 'Campaign', slot: 3, values: [1200, 20, 30] }]);
+    expect(legendWords(el)).toEqual(['Campaign', '1,250']);
+  });
+
+  it('adds no value text for the slots that clear 3:1', () => {
+    const el = render([
+      { key: 'human', label: 'Human', slot: 1, values: [10, 20, 30] },
+      { key: 'bot', label: 'Bot', slot: 2, values: [5, 0, 15] },
+    ]);
+    expect(legendWords(el)).toEqual(['Human', 'Bot']);
   });
 
   it('renders bands rather than columns in the area variant', () => {

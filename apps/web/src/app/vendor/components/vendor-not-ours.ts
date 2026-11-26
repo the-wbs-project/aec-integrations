@@ -25,7 +25,18 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { NO_OWNER } from './vendor-contest-form';
 import { contestSubmitErrorMessage } from './vendor-contest-labels';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { FORM_PANEL } from '../integration-detail/integration-detail-styles';
+import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
+import { PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /**
  * The caller's newest "not ours" on one row (AECI-1225): an `owner` contest it filed
@@ -78,6 +89,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
  */
 @Component({
   selector: 'aec-vendor-not-ours',
+  imports: [KeepClearOfSaveBar, AecButton, AecIcon],
   styles: [':host { display: block; }'],
   template: `
     @switch (contest()?.status) {
@@ -88,9 +100,9 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
           >
           <button
             #withdrawButton
+            aecButton
+            variant="ghost"
             type="button"
-            [class]="linkButtonClass"
-            class="ms-2"
             [disabled]="withdrawing()"
             (click)="withdraw()"
             [attr.aria-label]="withdrawLabel()"
@@ -127,8 +139,10 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
         }
         <button
           #trigger
+          aecButton
+          variant="ghost"
           type="button"
-          [class]="linkButtonClass"
+          [class]="'-ms-4'"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="fieldId('panel')"
           [attr.aria-label]="triggerLabel()"
@@ -143,9 +157,11 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
 
     @if (open()) {
       <form
+        aecKeepClearOfSaveBar
         method="dialog"
         [id]="fieldId('panel')"
-        class="mt-3 max-w-2xl space-y-4 rounded-(--radius-md) border border-(--border-default) p-4"
+        class="mt-2 max-w-2xl space-y-6"
+        [class]="panelClass"
         novalidate
         (submit)="onSubmit($event)"
         [attr.aria-labelledby]="fieldId('title')"
@@ -182,18 +198,11 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
                 </option>
               }
             </select>
-            <svg
-              class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+            <span
+              class="pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)"
             >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
+              <aec-icon name="chevron-down" decorative [size]="4" />
+            </span>
           </div>
         </div>
 
@@ -218,7 +227,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
           ></textarea>
           <p
             [id]="fieldId('reason') + '-hint'"
-            class="text-xs text-(--text-secondary)"
+            [class]="hintClass"
             i18n="@@vendor.notOurs.form.reasonHint"
           >
             Required. Say who offers it if you know, and link to a source if you have one.
@@ -230,8 +239,8 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
           }
         </div>
 
-        <div class="flex flex-wrap items-center gap-3">
-          <button type="submit" [class]="primaryButtonClass" [disabled]="submitting()">
+        <div [class]="saveBarClass">
+          <button aecButton type="submit" [class]="saveButtonClass" [disabled]="submitting()">
             @if (submitting()) {
               <span i18n="@@vendor.notOurs.form.sending">Sending…</span>
             } @else {
@@ -239,8 +248,10 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
             }
           </button>
           <button
+            aecButton
+            variant="secondary"
             type="button"
-            [class]="secondaryButtonClass"
+            [class]="saveButtonClass"
             [disabled]="submitting()"
             (click)="close()"
             i18n="@@vendor.notOurs.form.cancel"
@@ -252,7 +263,7 @@ export function selfDisclaimStands(contest: VendorContest | null): boolean {
     }
 
     @if (notice(); as message) {
-      <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">{{ message }}</p>
+      <p role="alert" class="mt-2" [class]="errorClass">{{ message }}</p>
     }
   `,
 })
@@ -414,16 +425,12 @@ export class VendorNotOurs {
     return (event.target as HTMLTextAreaElement).value;
   }
 
-  protected readonly linkButtonClass =
-    'text-sm font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly selectClass =
-    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  /** A form nested in a row (part 1's nested save bar, AECI-1811). */
+  protected readonly panelClass = FORM_PANEL;
+  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
 }

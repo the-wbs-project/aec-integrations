@@ -1364,7 +1364,9 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     // AECI-1618 adds the claim end.
     expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
-    expect(batchedMessages().filter((m) => m.startsWith('workflow '))).toHaveLength(0);
+    // The seeded contest has no workflow link, so the re-route re-creates its instance
+    // and records the transition (AECI-1913, `lib/workflow-restore.ts`).
+    expect(batchedMessages().filter((m) => m.startsWith('workflow '))).toHaveLength(1);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 

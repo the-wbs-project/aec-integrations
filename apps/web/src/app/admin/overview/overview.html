@@ -1,15 +1,12 @@
 <section aria-labelledby="admin-overview-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
+  <!-- AECI-1813, mock-up 14: the page head, then flat bordered panels. -->
+  <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
     <div>
-      <h2
-        id="admin-overview-heading"
-        class="text-lg font-bold text-(--text-primary)"
-        i18n="@@admin.overview.heading"
-      >
+      <h2 id="admin-overview-heading" class="text-(--text-primary)" i18n="@@admin.overview.heading">
         Overview
       </h2>
       @if (overview(); as o) {
-      <p class="mt-1 text-xs text-(--text-secondary)">
+      <p class="mt-2 text-t-14 text-(--text-secondary)">
         <ng-container i18n="@@admin.overview.window"
           >Reporting UTC day {{ windowDay() }}</ng-container
         >
@@ -22,11 +19,12 @@
     </div>
 
     <button
-      type="button"
+      aecButton
+      variant="secondary"
       (click)="recompute()"
       [disabled]="recomputing() || loading() || overview() === null"
-      class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     >
+      <aec-icon name="refresh" decorative [size]="4" />
       @if (recomputing()) {
       <span i18n="@@admin.overview.recomputing">Recomputing…</span>
       } @else {
@@ -38,11 +36,7 @@
   <!-- A failed recompute keeps the figures already on screen and says so here,
        rather than replacing a good response with a full-page error. -->
   @if (recomputeFailed()) {
-  <p
-    class="mt-3 text-sm font-medium text-(--accent-secondary-deep)"
-    role="alert"
-    i18n="@@admin.overview.recomputeFailed"
-  >
+  <p [class]="errorClass" class="mt-4" role="alert" i18n="@@admin.overview.recomputeFailed">
     Recompute failed. The figures below are unchanged; try again.
   </p>
   }
@@ -51,24 +45,19 @@
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.overview.loading">
+  <p class="mt-8 text-t-16 text-(--text-secondary)" i18n="@@admin.overview.loading">
     Loading the overview…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div class="mt-8 space-y-4">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.overview.loadFailed"
     >
       We couldn't load the overview. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.overview.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.overview.retry">
       Try again
     </button>
   </div>
@@ -89,7 +78,7 @@
   </div>
 
   <!-- Stat tiles. AECI-1460 removed the residual tile, so three remain. -->
-  <div class="mt-4 grid gap-4 md:grid-cols-3">
+  <div class="mt-6 grid gap-6 md:grid-cols-3">
     <aec-stat-tile
       i18n-label="@@admin.overview.tile.visitors"
       label="Unique visitors"
@@ -117,119 +106,106 @@
     />
   </div>
 
-  <!-- Catalog totals: five snapshot counts, so a single-figure tile would
-         have to hide four of them. Same card vocabulary, own layout. -->
-  <div
-    class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
-  >
-    <h3 class="text-sm font-bold text-(--text-primary)" i18n="@@admin.overview.catalog.heading">
-      Catalog totals
-    </h3>
-    <dl class="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
-      <div>
-        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.products">
-          Products
-        </dt>
-        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
-          {{ o.catalog.products }}
-        </dd>
+  <!-- The 30-day chart beside the catalog totals from lg, as in mock-up 14. -->
+  <div class="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+    <!-- 30-day traffic --------------------------------------------------- -->
+    <section [class]="panelClass" aria-labelledby="admin-overview-traffic-heading">
+      <h3
+        id="admin-overview-traffic-heading"
+        class="text-(--text-primary)"
+        i18n="@@admin.overview.traffic.headingClasses"
+      >
+        Page requests by class over the last 30 days
+      </h3>
+      <div class="mt-4">
+        <aec-stacked-bar-chart
+          [points]="trafficPoints()"
+          [seriesLabels]="trafficSeriesLabels"
+          [seriesFills]="trafficSeriesFills"
+          [label]="trafficChartLabel"
+          [emptyLabel]="trafficChartEmpty"
+          [degradedLabel]="trafficChartDegraded"
+          [notMeasuredLabel]="trafficChartNotClassified"
+          [versionLabel]="trafficChartVersion"
+        />
       </div>
-      <div>
-        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.integrations">
-          Integrations
-        </dt>
-        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
-          {{ o.catalog.integrations }}
-        </dd>
-      </div>
-      <div>
-        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.vendors">
-          Vendors
-        </dt>
-        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
-          {{ o.catalog.vendors }}
-        </dd>
-      </div>
-      <div>
-        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.claims">
-          Claims
-        </dt>
-        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
-          {{ o.catalog.claims }}
-        </dd>
-      </div>
-      <div>
-        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.attestations">
-          Attestations
-        </dt>
-        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
-          {{ o.catalog.attestations }}
-        </dd>
-      </div>
-    </dl>
-    <p class="mt-3 text-xs text-(--text-secondary)">{{ snapshotCaption }}</p>
+    </section>
+
+    <!-- Catalog totals: five snapshot counts, so a single-figure tile would
+         have to hide four of them. Same panel, own layout. -->
+    <section [class]="panelClass" aria-labelledby="admin-overview-catalog-heading">
+      <h3
+        id="admin-overview-catalog-heading"
+        class="text-(--text-primary)"
+        i18n="@@admin.overview.catalog.heading"
+      >
+        Catalog totals
+      </h3>
+      <dl class="mt-4 flex flex-wrap gap-x-12 gap-y-4">
+        <div>
+          <dt [class]="labelClass" i18n="@@admin.overview.catalog.products">Products</dt>
+          <dd [class]="totalClass">{{ o.catalog.products }}</dd>
+        </div>
+        <div>
+          <dt [class]="labelClass" i18n="@@admin.overview.catalog.integrations">Integrations</dt>
+          <dd [class]="totalClass">{{ o.catalog.integrations }}</dd>
+        </div>
+        <div>
+          <dt [class]="labelClass" i18n="@@admin.overview.catalog.vendors">Vendors</dt>
+          <dd [class]="totalClass">{{ o.catalog.vendors }}</dd>
+        </div>
+        <div>
+          <dt [class]="labelClass" i18n="@@admin.overview.catalog.claims">Claims</dt>
+          <dd [class]="totalClass">{{ o.catalog.claims }}</dd>
+        </div>
+        <div>
+          <dt [class]="labelClass" i18n="@@admin.overview.catalog.attestations">Attestations</dt>
+          <dd [class]="totalClass">{{ o.catalog.attestations }}</dd>
+        </div>
+      </dl>
+      <p class="mt-4 text-t-14 text-(--text-secondary)">{{ snapshotCaption }}</p>
+    </section>
   </div>
 
-  <!-- 30-day traffic --------------------------------------------------- -->
-  <section class="mt-8" aria-labelledby="admin-overview-traffic-heading">
-    <h3
-      id="admin-overview-traffic-heading"
-      class="text-sm font-bold text-(--text-primary)"
-      i18n="@@admin.overview.traffic.headingClasses"
-    >
-      Page requests by class over the last 30 days
-    </h3>
-    <div class="mt-3">
-      <aec-stacked-bar-chart
-        [points]="trafficPoints()"
-        [seriesLabels]="trafficSeriesLabels"
-        [seriesFills]="trafficSeriesFills"
-        [label]="trafficChartLabel"
-        [emptyLabel]="trafficChartEmpty"
-        [degradedLabel]="trafficChartDegraded"
-        [notMeasuredLabel]="trafficChartNotClassified"
-        [versionLabel]="trafficChartVersion"
-      />
-    </div>
-  </section>
-
   <!-- Top sources + top products --------------------------------------- -->
-  <div class="mt-8 grid gap-8 lg:grid-cols-2">
-    <section aria-labelledby="admin-overview-sources-heading">
+  <div class="mt-6 grid items-start gap-6 lg:grid-cols-2">
+    <section [class]="panelClass" aria-labelledby="admin-overview-sources-heading">
       <h3
         id="admin-overview-sources-heading"
-        class="text-sm font-bold text-(--text-primary)"
+        class="text-(--text-primary)"
         i18n="@@admin.overview.sources.heading"
       >
         Top traffic sources
       </h3>
-      <p class="mb-3 mt-1 text-xs text-(--text-secondary)">{{ dayCaption() }}</p>
+      <p class="mb-4 mt-2 text-t-14 text-(--text-secondary)">{{ dayCaption() }}</p>
       <aec-ranked-bar-list [rows]="sourceRows()" [emptyLabel]="sourcesEmpty" />
     </section>
 
-    <section aria-labelledby="admin-overview-products-heading">
+    <section [class]="panelClass" aria-labelledby="admin-overview-products-heading">
       <h3
         id="admin-overview-products-heading"
-        class="text-sm font-bold text-(--text-primary)"
+        class="text-(--text-primary)"
         i18n="@@admin.overview.products.heading"
       >
         Top viewed products
       </h3>
-      <p class="mb-3 mt-1 text-xs text-(--text-secondary)">{{ dayCaption() }}</p>
+      <p class="mb-4 mt-2 text-t-14 text-(--text-secondary)">{{ dayCaption() }}</p>
       <aec-ranked-bar-list [rows]="productRows()" [emptyLabel]="productsEmpty" />
     </section>
   </div>
 
   <!-- Status strip ------------------------------------------------------ -->
-  <section class="mt-8" aria-labelledby="admin-overview-status-heading">
+  <section [class]="panelClass" class="mt-6" aria-labelledby="admin-overview-status-heading">
     <h3
       id="admin-overview-status-heading"
-      class="mb-3 text-sm font-bold text-(--text-primary)"
+      class="text-(--text-primary)"
       i18n="@@admin.overview.status.heading"
     >
       System status
     </h3>
-    <aec-status-strip [status]="o.status" [ssrVersion]="ssrVersion()" />
+    <div class="mt-4">
+      <aec-status-strip [status]="o.status" [ssrVersion]="ssrVersion()" />
+    </div>
   </section>
   }
 </section>

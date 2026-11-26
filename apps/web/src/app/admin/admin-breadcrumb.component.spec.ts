@@ -40,11 +40,18 @@ async function renderAt(url: string): Promise<{ el: HTMLElement; store: AdminBre
   return { el: fixture.nativeElement as HTMLElement, store };
 }
 
-/** The visible trail, separators dropped — they are `aria-hidden` decoration. */
+/** The visible trail, separators dropped: they are `aria-hidden` decoration.
+ *  Since AECI-1813 the trail is the shared `aec-breadcrumb`, which puts each
+ *  separator inside the crumb it leads. */
 function trail(el: HTMLElement): string[] {
-  return [...el.querySelectorAll('li')]
-    .filter((li) => li.getAttribute('aria-hidden') !== 'true')
-    .map((li) => li.textContent?.trim() ?? '');
+  return [...el.querySelectorAll('li')].map((li) =>
+    [...li.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE || n instanceof HTMLElement)
+      .filter((n) => !(n instanceof HTMLElement && n.getAttribute('aria-hidden') === 'true'))
+      .map((n) => n.textContent ?? '')
+      .join('')
+      .trim(),
+  );
 }
 
 function links(el: HTMLElement): Array<{ text: string; href: string }> {
@@ -165,7 +172,7 @@ describe('AdminBreadcrumb', () => {
 
     it('hides the separators from assistive tech', async () => {
       const { el } = await renderAt(`/admin/vendors/${VENDOR_ID}`);
-      const separators = [...el.querySelectorAll('li[aria-hidden="true"]')];
+      const separators = [...el.querySelectorAll('li > [aria-hidden="true"]')];
       // Four crumbs → three separators.
       expect(separators).toHaveLength(3);
       expect(separators.every((s) => s.textContent?.trim() === '›')).toBe(true);

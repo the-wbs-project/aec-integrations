@@ -96,6 +96,7 @@ import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { isReplayedEvent } from '../core/event-replay';
 import { Chip } from '../shared/chip/chip';
+import { FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 import { AecIcon } from '../shared/icon/icon';
 
 const DEFAULT_FIELD_CLASS =
@@ -297,8 +298,8 @@ export class SearchAutocomplete {
   readonly label = input<string | undefined>(undefined);
   /** Show `label` on screen instead of `sr-only`. The header keeps it hidden. */
   readonly labelVisible = input(false);
-  /** Classes for a visible label. */
-  readonly labelClass = input('mb-2 block text-sm font-semibold text-(--text-primary)');
+  /** Classes for a visible label. Defaults to the Label role (AECI-2003). */
+  readonly labelClass = input(`mb-2 ${FIELD_LABEL_CLASS}`);
   /** Tailwind height utility for the input. The header keeps `h-9`. */
   readonly inputHeightClass = input('h-9');
   /**

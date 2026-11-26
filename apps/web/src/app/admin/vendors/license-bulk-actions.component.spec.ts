@@ -414,3 +414,39 @@ describe('LicenseBulkActions in the Billing table', () => {
     expect(button(el, 'Revoke').disabled).toBe(false);
   });
 });
+
+describe('LicenseBulkActions on the console recipe (AECI-2124)', () => {
+  const escape = (target: Element) =>
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  it('the bar and its form draw no box; Set end date saves with primary, Revoke with danger', async () => {
+    const { el, refresh } = await setup();
+    click(rowBoxes(el)[0]!);
+    await refresh();
+    expect(bar(el)!.className).not.toContain('bg-(--surface-raised)');
+    expect(bar(el)!.className).not.toContain('rounded');
+    expect(button(el, 'Set end date').className).toContain('aec-btn-secondary');
+    button(el, 'Set end date').click();
+    await refresh();
+    const form = el.querySelector('[data-testid="license-bulk-form"]')!;
+    expect(form.className).not.toContain('bg-(--surface-sunken)');
+    expect(button(el, 'Save end date').className).toContain('bg-(--accent-primary)');
+    button(el, 'Revoke').click();
+    await refresh();
+    expect(button(el, 'Revoke 1 subscription').className).toContain('bg-(--status-error)');
+  });
+
+  it('Escape closes the form and returns focus to its button', async () => {
+    const { el, refresh } = await setup();
+    click(rowBoxes(el)[0]!);
+    await refresh();
+    button(el, 'Revoke').click();
+    await refresh();
+    const reason = el.querySelector<HTMLTextAreaElement>('[id="t-bulk-reason"]')!;
+    expect(document.activeElement).toBe(reason);
+    escape(reason);
+    await refresh();
+    expect(el.querySelector('[data-testid="license-bulk-form"]')).toBeNull();
+    expect(document.activeElement).toBe(button(el, 'Revoke'));
+  });
+});

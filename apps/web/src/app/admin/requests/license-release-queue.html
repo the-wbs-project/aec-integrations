@@ -1,62 +1,66 @@
+<!-- AECI-2111: early-unassign requests as a console table (mock-up 14). The owner's
+     reason and the decision sit in the row's expanded detail. -->
 <section aria-labelledby="admin-license-releases-heading" data-testid="license-release-queue">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <div>
-      <h2
-        id="admin-license-releases-heading"
-        class="text-lg font-bold text-(--text-primary)"
-        i18n="@@admin.licenseReleases.heading"
+  <h2
+    id="admin-license-releases-heading"
+    tabindex="-1"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.licenseReleases.heading"
+  >
+    Early-unassign requests
+  </h2>
+  <p [class]="captionClass" class="mt-2 max-w-prose" i18n="@@admin.licenseReleases.lede">
+    Vendor owners asking us to take a subscription off a product before renewal. Approving puts the
+    subscription back in their pool and moves the product to Free.
+  </p>
+
+  <div [class]="f.toolbar">
+    <div [class]="f.group">
+      <span
+        id="admin-license-releases-status-label"
+        [class]="f.label"
+        i18n="@@admin.requests.filter.status.label"
+        >Status</span
       >
-        Early-unassign requests
-      </h2>
-      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.licenseReleases.lede">
-        Vendor owners asking us to take a subscription off a product before renewal. Approving puts
-        the subscription back in their pool and moves the product to Free.
-      </p>
-    </div>
-    <div
-      role="group"
-      aria-labelledby="admin-license-releases-heading"
-      class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-    >
-      @for (opt of statusOptions; track opt.key) {
-      <button
-        type="button"
-        (click)="setStatus(opt.key)"
-        [attr.aria-pressed]="status() === opt.key"
-        class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base)"
-      >
-        {{ opt.label }}
-      </button>
-      }
+      <div role="group" aria-labelledby="admin-license-releases-status-label" [class]="f.seg">
+        @for (opt of statusOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setStatus(opt.key)"
+          [attr.aria-pressed]="status() === opt.key"
+          [class]="f.option"
+        >
+          @if (status() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
+        </button>
+        }
+      </div>
     </div>
   </div>
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   @if (loading()) {
-  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.licenseReleases.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.licenseReleases.loading">
     Loading early-unassign requests…
   </p>
   } @else if (loadFailed()) {
-  <p class="mt-6 text-sm font-medium text-(--text-primary)" role="alert">
+  <p class="mt-6 text-t-16 font-semibold text-(--text-primary)" role="alert">
     <span i18n="@@admin.licenseReleases.loadFailed">We couldn't load early-unassign requests.</span>
     {{ ' ' }}
-    <button
-      type="button"
-      (click)="load()"
-      class="font-semibold text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.requests.retry"
-    >
+    <button aecButton variant="ghost" (click)="load()" i18n="@@admin.requests.retry">
       Try again
     </button>
   </p>
   } @else if (rows().length === 0) {
-  <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.licenseReleases.empty">
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.licenseReleases.empty">
     No early-unassign requests match this filter.
   </p>
   } @else { @if (truncated()) {
   <p
-    class="mt-6 text-xs text-(--text-secondary)"
+    [class]="captionClass"
+    class="mt-6"
     data-testid="license-releases-capped"
     i18n="@@admin.licenseReleases.cappedNote"
   >
@@ -64,172 +68,228 @@
     see the rest.
   </p>
   }
-  <ul role="list" class="mt-6 space-y-5">
-    @for (r of rows(); track r.id) {
-    <li>
-      <article
-        [attr.aria-labelledby]="'license-release-' + r.id"
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-        [attr.data-license-release]="r.id"
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-license-releases-caption"
+  >
+    <table [class]="t.table" class="min-w-[52rem]">
+      <caption
+        id="admin-license-releases-caption"
+        [class]="t.caption"
+        i18n="@@admin.licenseReleases.heading"
       >
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <h3 [id]="'license-release-' + r.id" class="text-base font-bold text-(--text-primary)">
+        Early-unassign requests
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" [class]="t.head">
+            <span class="sr-only" i18n="@@admin.reviews.col.details">Details</span>
+          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.requests.col.product">Product</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.productRequests.vendor">Vendor</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.licenseReleases.license">Subscription</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.requests.meta.submitted">Submitted</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.requests.filter.status.label">Status</th>
+        </tr>
+      </thead>
+      @for (r of rows(); track r.id) {
+      <tbody [attr.data-license-release]="r.id">
+        <tr [class]="isOpen(r.id) ? t.rowOpen : t.row">
+          <td [class]="t.disclosure">
+            <aec-admin-disclosure-button
+              [expanded]="isOpen(r.id)"
+              [controls]="'license-release-' + r.id + '-detail'"
+              [label]="rowLabel(r)"
+              (toggled)="toggleRow(r.id)"
+            />
+          </td>
+          <th scope="row" [id]="'license-release-' + r.id" [class]="t.rowHead">
             {{ productName(r) }}
-          </h3>
-          <span class="shrink-0 text-xs text-(--text-secondary)"
-            >{{ r.created_at | date: 'medium' }}</span
-          >
-        </div>
-        <dl class="mt-3 grid gap-x-6 gap-y-1 text-xs text-(--text-secondary) sm:grid-cols-2">
-          <div class="flex flex-wrap gap-1.5">
-            <dt class="font-bold" i18n="@@admin.productRequests.vendor">Vendor</dt>
-            <dd>
-              @if (r.vendor; as vendor) {
-              <a
-                [routerLink]="['/admin/vendors', vendor.id]"
-                [queryParams]="{ tab: 'billing' }"
-                class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ vendor.name }}</a
-              >
-              } @else {
-              <span i18n="@@admin.productRequests.gone">No longer on record</span>
-              }
-            </dd>
-          </div>
-          @if (termLine(r); as term) {
-          <div class="flex flex-wrap gap-1.5">
-            <dt class="font-bold" i18n="@@admin.licenseReleases.license">Subscription</dt>
-            <dd>{{ term }}</dd>
-          </div>
-          }
-        </dl>
-        <div class="mt-4">
-          <p
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.licenseReleases.reason"
-          >
-            Their reason
-          </p>
-          <p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
-            {{ r.reason }}
-          </p>
-        </div>
+          </th>
+          <td [class]="t.cell">
+            @if (r.vendor; as vendor) {
+            <a
+              [routerLink]="['/admin/vendors', vendor.id]"
+              [queryParams]="{ tab: 'billing' }"
+              [class]="t.link"
+              >{{ vendor.name }}</a
+            >
+            } @else {
+            <span class="text-(--text-secondary)" i18n="@@admin.productRequests.gone"
+              >No longer on record</span
+            >
+            }
+          </td>
+          <td [class]="t.cell">
+            @if (termLine(r); as term) { {{ term }} } @else {
+            <!-- DESIGN.md: an absent value is an aria-hidden en dash beside hidden words. -->
+            <span aria-hidden="true">–</span
+            ><span class="sr-only" i18n="@@admin.reviewUpdates.meta.reviewerUnknown"
+              >Not available</span
+            >
+            }
+          </td>
+          <td [class]="t.nowrap">{{ r.created_at | date: 'medium' }}</td>
+          <td [class]="t.cell">
+            <aec-chip density="dense" [tone]="statusTone(r.status)"
+              >{{ statusLabel(r.status) }}</aec-chip
+            >
+          </td>
+        </tr>
+        <tr
+          [id]="'license-release-' + r.id + '-detail'"
+          [class]="t.detailRow"
+          [hidden]="!isOpen(r.id)"
+        >
+          <td [attr.colspan]="columnCount" [class]="t.detailCell">
+            <div [class]="t.detailInner">
+              <div [class]="detailGridClass">
+                <div class="min-w-0">
+                  <p [class]="labelClass" i18n="@@admin.licenseReleases.reason">Their reason</p>
+                  <p [class]="bodyClass" class="mt-2">{{ r.reason }}</p>
+                </div>
 
-        @if (licenseMoved(r)) {
-        <p
-          class="mt-4 text-sm font-medium text-(--text-primary)"
-          data-testid="license-release-moved"
-          i18n="@@admin.licenseReleases.moved"
-        >
-          The subscription is no longer on this product, so it cannot be freed. Decline the request.
-        </p>
-        } @if (r.status !== 'open') {
-        <p class="mt-4 text-sm text-(--text-primary)" data-testid="license-release-outcome">
-          {{ outcomeLine(r) }}
-        </p>
-        } @else if (openId() === r.id && decision(); as kind) {
-        <form
-          method="dialog"
-          class="mt-5 space-y-3 border-t border-(--border-default) pt-4"
-          novalidate
-          (submit)="submit($event, r)"
-          [attr.aria-label]="formLabel(kind, r)"
-          data-testid="license-release-decision"
-        >
-          @if (kind === 'decline') {
-          <label
-            [for]="'license-release-reason-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.licenseReleases.reason.label"
-            >Reason</label
-          >
-          <textarea
-            [id]="'license-release-reason-' + r.id"
-            rows="3"
-            maxlength="1000"
-            [value]="reason()"
-            (input)="onReason($event)"
-            aria-required="true"
-            [attr.aria-invalid]="formError() ? 'true' : null"
-            [attr.aria-describedby]="
-              'license-release-reason-hint-' +
-              r.id +
-              (formError() ? ' license-release-error-' + r.id : '')
-            "
-            class="w-full max-w-xl rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          <p
-            [id]="'license-release-reason-hint-' + r.id"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.licenseReleases.reason.hint"
-          >
-            The vendor sees this reason. The subscription stays on the product until renewal.
-          </p>
-          } @else {
-          <p class="max-w-xl text-sm text-(--text-primary)" data-testid="license-release-summary">
-            {{ approveSummary(r) }}
-          </p>
-          } @if (formError(); as message) {
-          <p
-            [id]="'license-release-error-' + r.id"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-          >
-            {{ message }}
-          </p>
-          }
-          <div class="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              [disabled]="pending()"
-              [class]="primaryClass"
-              data-testid="license-release-confirm"
-            >
-              @if (kind === 'approve') {
-              <span i18n="@@admin.licenseReleases.confirm.approve"
-                >Approve and free the subscription</span
-              >
-              } @else {
-              <span i18n="@@admin.licenseReleases.confirm.decline">Decline request</span>
-              }
-            </button>
-            <button
-              type="button"
-              (click)="cancel()"
-              [disabled]="pending()"
-              [class]="secondaryClass"
-              i18n="@@admin.productRequests.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-        } @else {
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            (click)="start(r, 'approve')"
-            data-decision="approve"
-            [disabled]="licenseMoved(r)"
-            [class]="primaryClass"
-            i18n="@@admin.licenseReleases.action.approve"
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            (click)="start(r, 'decline')"
-            data-decision="decline"
-            [class]="secondaryClass"
-            i18n="@@admin.licenseReleases.action.decline"
-          >
-            Decline
-          </button>
-        </div>
-        }
-      </article>
-    </li>
-    }
-  </ul>
+                <div class="grid min-w-0 content-start gap-4">
+                  @if (licenseMoved(r)) {
+                  <p
+                    [class]="noticeClass"
+                    data-testid="license-release-moved"
+                    i18n="@@admin.licenseReleases.moved"
+                  >
+                    The subscription is no longer on this product, so it cannot be freed. Decline
+                    the request.
+                  </p>
+                  } @if (r.status !== 'open') {
+                  <p class="text-t-14 text-(--text-primary)" data-testid="license-release-outcome">
+                    {{ outcomeLine(r) }}
+                  </p>
+                  } @else if (openId() === r.id && decision(); as kind) {
+                  <form
+                    method="dialog"
+                    [class]="formClass"
+                    novalidate
+                    (submit)="submit($event, r)"
+                    (keydown.escape)="dismiss(r)"
+                    [attr.aria-label]="formLabel(kind, r)"
+                    data-testid="license-release-decision"
+                  >
+                    @if (kind === 'decline') {
+                    <label
+                      [for]="'license-release-reason-' + r.id"
+                      [class]="labelClass"
+                      i18n="@@admin.licenseReleases.reason.label"
+                      >Reason</label
+                    >
+                    <textarea
+                      [id]="'license-release-reason-' + r.id"
+                      rows="3"
+                      maxlength="1000"
+                      [value]="reason()"
+                      (input)="onReason($event)"
+                      aria-required="true"
+                      [attr.aria-invalid]="formError() ? 'true' : null"
+                      [attr.aria-describedby]="
+                        'license-release-reason-hint-' +
+                        r.id +
+                        (formError() ? ' license-release-error-' + r.id : '')
+                      "
+                      [class]="inputClass"
+                      class="min-h-24 resize-y py-3"
+                    ></textarea>
+                    <p
+                      [id]="'license-release-reason-hint-' + r.id"
+                      [class]="hintClass"
+                      i18n="@@admin.licenseReleases.reason.hint"
+                    >
+                      The vendor sees this reason. The subscription stays on the product until
+                      renewal.
+                    </p>
+                    } @else {
+                    <p
+                      [id]="'license-release-summary-' + r.id"
+                      tabindex="-1"
+                      class="max-w-xl text-t-14 text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+                      data-testid="license-release-summary"
+                    >
+                      {{ approveSummary(r) }}
+                    </p>
+                    } @if (formError(); as message) {
+                    <p
+                      [id]="'license-release-error-' + r.id"
+                      tabindex="-1"
+                      role="alert"
+                      [class]="failedClass"
+                    >
+                      {{ message }}
+                    </p>
+                    }
+                    <div class="mt-2 flex flex-wrap items-center gap-3">
+                      <button
+                        aecButton
+                        [variant]="kind === 'decline' ? 'danger' : 'primary'"
+                        compact
+                        type="submit"
+                        [disabled]="pending()"
+                        [attr.aria-describedby]="'license-release-' + r.id"
+                        data-testid="license-release-confirm"
+                      >
+                        @if (kind === 'approve') {
+                        <span i18n="@@admin.licenseReleases.confirm.approve"
+                          >Approve and free the subscription</span
+                        >
+                        } @else {
+                        <span i18n="@@admin.licenseReleases.confirm.decline">Decline request</span>
+                        }
+                      </button>
+                      <button
+                        aecButton
+                        variant="ghost"
+                        (click)="dismiss(r)"
+                        [disabled]="pending()"
+                        i18n="@@admin.productRequests.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                  } @else {
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button
+                      aecButton
+                      variant="secondary"
+                      [id]="'license-release-' + r.id + '-approve'"
+                      (click)="start(r, 'approve')"
+                      data-decision="approve"
+                      [disabled]="licenseMoved(r)"
+                      [attr.aria-describedby]="'license-release-' + r.id"
+                      i18n="@@admin.licenseReleases.action.approve"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      aecButton
+                      variant="secondary"
+                      [id]="'license-release-' + r.id + '-decline'"
+                      (click)="start(r, 'decline')"
+                      data-decision="decline"
+                      [attr.aria-describedby]="'license-release-' + r.id"
+                      i18n="@@admin.licenseReleases.action.decline"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                  }
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+      }
+    </table>
+  </div>
   }
 </section>

@@ -14,9 +14,25 @@ import {
 
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { TRAFFIC_CLASS_ORDER, trafficClassLabel } from '../overview/traffic-classes';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
+import { CHOICE_INPUT_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { AdminPageViewsApi } from './admin-page-views-api';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
+
+/** A second line in a cell, in the console's sub-line type. */
+const SUB_LINE = 'mt-1 block text-t-13 leading-[1.4]';
 
 /** Rows per page. Larger than the shared `perPage` default of 24 because this is
  *  a log to scan, not a queue to work through. The API caps it at 100. */
@@ -95,11 +111,37 @@ const NO_FILTER: AdminInternalFilter = { available: false, applied: false, asns:
  */
 @Component({
   selector: 'aec-activity-feed',
-  imports: [RouterLink, AdminNotes, AdminPaginator, AecSelect],
+  imports: [RouterLink, AdminNotes, AdminPaginator, AecButton, AecIcon, AecSelect, Chip],
   templateUrl: './activity-feed.html',
 })
 export class ActivityFeed {
   private readonly api = inject(AdminPageViewsApi);
+
+  /** The console recipe (AECI-2125, mock-up 14). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  /** A summary figure: 24px at 600 in the display face, as the Overview's totals. */
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
+  /** The lines under a summary figure. */
+  protected readonly summaryNoteClass = 'mt-1 text-t-13 text-(--text-secondary)';
+  /** The date fields: the field recipe at the width a date needs. */
+  protected readonly dateInputClass = `${FIELD_INPUT_CLASS} w-auto`;
+  /** The path field: the field recipe, capped. */
+  protected readonly pathInputClass = `${FIELD_INPUT_CLASS} w-56 max-w-full`;
+  protected readonly checkboxClass = CHOICE_INPUT_CLASS;
+  /** A day's group header row inside the table. */
+  protected readonly dayHeadClass =
+    'bg-(--surface-sunken) px-3 py-2 text-start text-t-13 font-semibold leading-[1.4] tracking-[0.01em] text-(--text-secondary) border-b border-(--border-default)';
+  /** A linked product or vendor name in the Page cell. */
+  protected readonly entityLinkClass =
+    'rounded-mark font-semibold text-(--accent-primary) no-underline underline-offset-3 hover:underline';
+  /** A path, referrer or reason codes under a cell's first line. */
+  protected readonly monoSubClass = `${SUB_LINE} font-mono break-words text-(--text-secondary)`;
+  /** "Evidence incomplete": the Clay-deep caution, as the network and verdict notes. */
+  protected readonly evidenceIncompleteClass = `${SUB_LINE} text-(--accent-secondary-deep)`;
 
   /** False until the browser has resolved the default window — see the class
    *  docblock. The filter bar renders off this. */
@@ -450,8 +492,8 @@ export class ActivityFeed {
    */
   protected asnTone(row: AdminPageViewRow): string {
     return row.asn_registry?.network_class === 'non_eyeball'
-      ? 'text-(--accent-secondary-deep)'
-      : 'text-(--text-tertiary)';
+      ? `${SUB_LINE} font-sans text-(--accent-secondary-deep)`
+      : `${SUB_LINE} font-sans text-(--text-secondary)`;
   }
 
   /**
@@ -501,8 +543,15 @@ export class ActivityFeed {
    *  same strength as the non-eyeball network note. The words carry it alone. */
   protected verdictTone(row: AdminPageViewRow): string {
     return row.client_verdict === 'inconsistent' || row.client_verdict === 'non-browser'
-      ? 'text-(--accent-secondary-deep)'
-      : 'text-(--text-tertiary)';
+      ? `${SUB_LINE} text-(--accent-secondary-deep)`
+      : `${SUB_LINE} text-(--text-secondary)`;
+  }
+
+  /** The bot chip's console tone (AECI-2125). A named bot is a fact about the row;
+   *  an unclassified row is being counted as human, so the console marks it for a
+   *  look, never as a fault. */
+  protected botChipTone(row: AdminPageViewRow): ConsoleChipTone {
+    return row.is_bot === null ? adminStatusTone('botUnclassified') : adminStatusTone('bot');
   }
 
   /** The localized class name (AECI-1461). A class this build does not know is

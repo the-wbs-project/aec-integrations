@@ -13,6 +13,7 @@ import {
   type VendorPendingGrant,
 } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_ACCEPTANCES_FIXTURE,
@@ -200,6 +201,7 @@ describe('VendorBillingSection: subscriptions waiting for you (AECI-1615)', () =
       warnings: [],
     });
     const fixture = await create();
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
     const el = fixture.nativeElement as HTMLElement;
     getBilling.mockResolvedValue(AFTER_ACCEPT);
     expect(getBilling).toHaveBeenCalledTimes(1);
@@ -218,7 +220,13 @@ describe('VendorBillingSection: subscriptions waiting for you (AECI-1615)', () =
     // The grant is gone from the card, and the notice says where the subscriptions went.
     expect(q(el, 'pending-grants')).toBeNull();
     const notice = q(el, 'grant-notice')!;
-    expect(notice.getAttribute('role')).toBe('status');
+    // AECI-1812: plain text, and the same words go once through the shell's live region.
+    expect(notice.getAttribute('role')).toBeNull();
+    expect(notice.getAttribute('aria-live')).toBeNull();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      'Subscriptions accepted The 2 new subscriptions are in the pool below. Put each one on a product to move that product to Managed.',
+    );
     expect(notice.textContent).toContain('Subscriptions accepted');
     expect(notice.textContent).toContain('The 2 new subscriptions are in the pool below.');
   });

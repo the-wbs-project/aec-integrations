@@ -1,9 +1,21 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip } from '../../shared/chip/chip';
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
+import { FIELD_HINT_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import {
@@ -23,6 +35,28 @@ import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { CONSOLE_FILTER } from '../console/console-filter';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { AdminDisclosureButton } from '../console/disclosure-button';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
+import {
+  QUEUE_BODY_CLASS,
+  QUEUE_DETAIL_GRID_CLASS,
+  QUEUE_FACTS_CLASS,
+  QUEUE_FAILED_CLASS,
+  QUEUE_FORM_CLASS,
+  QUEUE_HELP_CLASS,
+} from '../reviews/queue-classes';
+import { queueFocusAfterRemoval } from '../reviews/queue-focus';
+import {
+  CONSOLE_FOREST_LINK_CLASS,
+  CONSOLE_NEUTRAL_BOX_CLASS,
+  CONSOLE_NOTICE_CLASS,
+} from '../console/console-detail';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -86,10 +120,10 @@ type FormMode = 'approve' | 'reject';
  * connector claim, which AECI-1367 retired: a pure-connector vendor is approved
  * like anyone else, and its row shows a neutral "Connector vendor: contact them
  * directly" flag instead of a parking banner. The three stay useful:
- *  - the **operator note** renders on the card. It lives on the detail page, but
+ *  - the **operator note** renders on the row (its expanded detail since AECI-2111). It lives on the detail page, but
  *    the queue is where the operator actually looks, so the note has to be
  *    legible without opening anything;
- *  - each card links to **`/admin/claims/:id`**, where the note is written and the
+ *  - each row links to **`/admin/claims/:id`**, where the note is written and the
  *    duplicate chip is explained;
  *  - the status filter gained **In review**, which the API could not express at all
  *    until AECI-739 widened its enum — so no status is reachable by id but
@@ -98,7 +132,11 @@ type FormMode = 'approve' | 'reject';
 @Component({
   selector: 'aec-claim-queue',
   imports: [
+    AdminDisclosureButton,
+    AecButton,
+    Chip,
     AecFormSubmit,
+    AecIcon,
     ClaimAccountConflict,
     DatePipe,
     DomainMatchSignal,
@@ -110,6 +148,32 @@ type FormMode = 'approve' | 'reject';
 export class ClaimQueue {
   private readonly api = inject(AdminClaimsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  // AECI-2111: the console recipe (`admin/console/`) and the queues' shared
+  // detail-row classes (`admin/reviews/queue-classes.ts`, AECI-2102).
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly f = CONSOLE_FILTER;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly neutralBoxClass = CONSOLE_NEUTRAL_BOX_CLASS;
+  protected readonly inlineLinkClass = CONSOLE_FOREST_LINK_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  protected readonly bodyClass = QUEUE_BODY_CLASS;
+  protected readonly factsClass = QUEUE_FACTS_CLASS;
+  protected readonly helpClass = QUEUE_HELP_CLASS;
+  protected readonly formClass = QUEUE_FORM_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  /** Disclosure, listing, submitter, email domain, submitted, status. */
+  protected readonly columnCount = 6;
+  protected readonly tone = adminStatusTone;
+
+  /** The rows whose detail is open. */
+  private readonly openIds = signal<ReadonlySet<string>>(new Set());
 
   /** The loaded claims (server order: newest-first). */
   private readonly claims = signal<readonly AdminClaim[]>([]);
@@ -230,6 +294,46 @@ export class ClaimQueue {
     }
   }
 
+  /** The chip tone for a claim status. Exhaustive, so a new status is a compile error. */
+  protected statusTone(status: AdminClaim['status']) {
+    let key: AdminStatusKey;
+    switch (status) {
+      case 'open':
+        key = 'open';
+        break;
+      case 'in_review':
+        key = 'inReview';
+        break;
+      case 'resolved':
+        key = 'approved';
+        break;
+      case 'rejected':
+        key = 'rejected';
+        break;
+    }
+    return adminStatusTone(key);
+  }
+
+  protected isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  protected toggleRow(id: string): void {
+    this.openIds.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** The row's name, true open or closed: `aria-expanded` carries the state. */
+  protected rowLabel(r: AdminClaim): string {
+    const target = r.target?.name ?? this.targetFallbackLabel(r.target_type);
+    const claimant = r.submitter_name?.trim() || r.submitter_email;
+    return $localize`:@@admin.claims.row.label:Claim on ${target}:target: by ${claimant}:claimant:`;
+  }
+
   /** Non-linked fallback label when the target row is missing (deleted/un-promoted). */
   protected targetFallbackLabel(type: AdminClaim['target_type']): string {
     return type === 'product'
@@ -289,6 +393,9 @@ export class ClaimQueue {
     this.formText.set('');
     this.formMode.set('approve');
     this.formOpenId.set(id);
+    // Grant disables itself, so move focus to the form's one sentence: what a grant does
+    // is heard before the confirm button.
+    this.focusAfterRender(`claim-${id}-approve-help`);
   }
 
   /** Open the inline reject form (optional internal note) for a row. */
@@ -297,6 +404,15 @@ export class ClaimQueue {
     this.formText.set('');
     this.formMode.set('reject');
     this.formOpenId.set(id);
+    this.focusAfterRender(`claim-reason-${id}`);
+  }
+
+  /** Cancel or Escape in an open form: close it and return focus to its opener. */
+  protected cancelForm(id: string): void {
+    if (this.pendingActionId() === id) return;
+    const mode = this.formMode();
+    this.closeForm();
+    this.focusAfterRender(mode === 'reject' ? `claim-${id}-reject` : `claim-${id}-grant`);
   }
 
   protected closeForm(): void {
@@ -352,6 +468,7 @@ export class ClaimQueue {
       this.liveMessage.set(announcement);
     } catch (err) {
       this.handleModerateError(id, err);
+      if (this.failedActionId() === id) this.focusFailure(id);
     } finally {
       this.pendingActionId.set(null);
     }
@@ -399,9 +516,41 @@ export class ClaimQueue {
     );
   }
 
+  /** Every failure path above ends here: a failed decision moves focus to its message. */
+  private focusFailure(id: string): void {
+    this.focusAfterRender(`claim-${id}-failed`);
+  }
+
+  /** Drop a decided row, then move focus by the queues' one rule
+   *  (`queueFocusAfterRemoval`, AECI-2102): the row that took its place, the new last
+   *  row, the heading, or nowhere when the row was not on screen. */
   private removeRow(id: string): void {
+    const index = this.visibleClaims().findIndex((r) => r.id === id);
     this.claims.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+    this.openIds.update((ids) => {
+      if (!ids.has(id)) return ids;
+      const next = new Set(ids);
+      next.delete(id);
+      return next;
+    });
+    // The queue is one unpaged list of up to 100, so the page never changes.
+    const target = queueFocusAfterRemoval(index, 1, 1, this.visibleClaims());
+    if (target.kind === 'none') return;
+    this.focusAfterRender(
+      target.kind === 'heading' ? 'admin-claims-heading' : undefined,
+      target.kind === 'row' ? `[aria-controls="claim-${target.row.id}-detail"]` : undefined,
+    );
+  }
+
+  /** Focus an element of this queue once the next render lands: by id, or by a
+   *  selector when the id is not known. */
+  private focusAfterRender(elementId: string | undefined, selector?: string): void {
+    const query = selector ?? `[id="${elementId}"]`;
+    afterNextRender(
+      { write: () => this.host.nativeElement.querySelector<HTMLElement>(query)?.focus() },
+      { injector: this.injector },
+    );
   }
 }
 

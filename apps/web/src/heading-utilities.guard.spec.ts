@@ -4,6 +4,23 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  conditionalClasses,
+  resolveBinding,
+  scopeFor,
+  type Scope,
+} from './guard-allowlists/class-binding.harness';
+import {
+  MIN_FILES,
+  checkUnreadable,
+  countPerFile,
+  countSource,
+  filesByFolder,
+  portalAdminSources,
+  readSource,
+  stripComments,
+} from './guard-allowlists/shrink-only.harness';
+
 /**
  * AECI-1847: the Unlayered-Heading Rule (`DESIGN.md` §3). The `h1`, `h2` and `h3`
  * rules in `styles.css` sit outside any `@layer` and set the family, weight, size,
@@ -18,6 +35,12 @@ import { describe, expect, it } from 'vitest';
  * same component, directly or through one constant. A binding it cannot resolve (a
  * `computed()`, a concatenation, an import) is skipped, not guessed. It has no false
  * positive, because every listed utility on these three elements is dead.
+ *
+ * AECI-2083: `admin/` and `vendor/` are read too. They were on a shrink-only
+ * allowlist until the redesign slices emptied it, and since AECI-1729 they hold the
+ * public rule with no exceptions. Comments are not read there. An unreadable binding fails
+ * until it is named in `PORTAL_ADMIN_UNREADABLE`, and a `[class.x]` binding counts its
+ * class. The binding reader lives in `guard-allowlists/class-binding.harness.ts`.
  */
 
 const SRC_DIR = dirname(fileURLToPath(import.meta.url)); // apps/web/src
@@ -40,101 +63,6 @@ function publicSources(): string[] {
   };
   walk(APP_DIR);
   return out;
-}
-
-function safeRead(path: string): string {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Where to look for a name: the component's own sources, then each file it imports
- * from by a relative path (one level), so an imported constant such as
- * `BROWSE_HEADER_CLASS` resolves too.
- */
-interface Scope {
-  sources: readonly string[];
-  importFile: (name: string) => string;
-}
-
-/** A string literal that may span lines: '…', "…" or a template with no `${}`. */
-const LITERAL = String.raw`'([^']*)'|"([^"]*)"|\`([^\`$]*)\``;
-
-function literalAt(text: string): string | null {
-  const m = text.match(new RegExp(`^\\s*(?:${LITERAL})`));
-  return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
-}
-
-/** The string a name holds: a literal, another constant, or a constant it imports. */
-function resolveName(name: string, scope: Scope, depth = 0): string | null {
-  if (depth > 3) return null;
-  for (const src of scope.sources) {
-    const assign = src.match(new RegExp(`\\b${name}\\s*(?::[^=;]+)?=\\s*`));
-    if (!assign) continue;
-    const rest = src.slice(assign.index! + assign[0].length);
-    const literal = literalAt(rest);
-    if (literal !== null) return literal;
-    const alias = rest.match(/^([A-Za-z_$][\w$]*)\s*;/);
-    if (alias) return resolveName(alias[1]!, scope, depth + 1);
-  }
-  const imported = scope.importFile(name);
-  return imported
-    ? resolveName(name, { sources: [imported], importFile: () => '' }, depth + 1)
-    : null;
-}
-
-/** The object literal a name holds (`const X = { … }`), followed through an alias. */
-function resolveObject(name: string, scope: Scope, depth = 0): string | null {
-  if (depth > 3) return null;
-  for (const src of scope.sources) {
-    const assign = src.match(new RegExp(`\\b${name}\\s*(?::[^=;]+)?=\\s*`));
-    if (!assign) continue;
-    const rest = src.slice(assign.index! + assign[0].length);
-    if (rest.startsWith('{')) return rest.slice(0, rest.indexOf('}') + 1);
-    const alias = rest.match(/^([A-Za-z_$][\w$]*)\s*;/);
-    if (alias) return resolveObject(alias[1]!, scope, depth + 1);
-  }
-  const imported = scope.importFile(name);
-  return imported
-    ? resolveObject(name, { sources: [imported], importFile: () => '' }, depth + 1)
-    : null;
-}
-
-/**
- * The class string a `[class]` binding produces, or null when it cannot be read
- * statically. Reads string literals, names (`headingClass`), member reads
- * (`headerClass.title`) and `+` concatenations of those. A call (`titleClass()`), a
- * ternary or a template with `${}` is not read.
- */
-export function resolveBinding(expr: string, scope: Scope): string | null {
-  const parts = expr.split('+').map((p) => p.trim());
-  const out: string[] = [];
-  for (const part of parts) {
-    const literal = literalAt(part);
-    if (literal !== null && literalAt(part)!.length + 2 === part.length) {
-      out.push(literal);
-      continue;
-    }
-    const member = part.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/);
-    if (member) {
-      const obj = resolveObject(member[1]!, scope);
-      const prop = obj?.match(new RegExp(`\\b${member[2]}\\s*:\\s*(?:${LITERAL})`));
-      if (!prop) return null;
-      out.push(prop[1] ?? prop[2] ?? prop[3] ?? '');
-      continue;
-    }
-    if (/^[A-Za-z_$][\w$]*$/.test(part)) {
-      const value = resolveName(part, scope);
-      if (value === null) return null;
-      out.push(value);
-      continue;
-    }
-    return null;
-  }
-  return out.join(' ');
 }
 
 export interface HeadingScan {
@@ -162,6 +90,8 @@ export function deadHeadingUtilities(
       if (value === null) scan.unresolved.push(`${file} <${tag}> [class]="${bound[1]}"`);
       else classes.push(value);
     }
+    // AECI-2083: a `[class.text-xl]="…"` binding can add the class, so it counts.
+    classes.push(...conditionalClasses(attrs!));
     const dead = classes
       .join(' ')
       .split(/\s+/)
@@ -169,25 +99,6 @@ export function deadHeadingUtilities(
     if (dead.length) scan.found.push(`${file}:${line} <${tag}> ${dead.join(' ')}`);
   }
   return scan;
-}
-
-/** A component's sources, and a reader for the files it imports by relative path. */
-function scopeFor(path: string, src: string): Scope {
-  // An external template binds names its component class defines.
-  const companion = path.endsWith('.html') ? safeRead(path.replace(/\.html$/, '.ts')) : '';
-  const sources = [src, companion];
-  return {
-    sources,
-    importFile: (name) => {
-      for (const s of sources) {
-        const imp = s.match(
-          new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.[^']+)'`),
-        );
-        if (imp) return safeRead(join(dirname(path), `${imp[1]}.ts`));
-      }
-      return '';
-    },
-  };
 }
 
 /**
@@ -252,5 +163,77 @@ describe('public h1, h2 and h3 carry no utility the heading rule overrides (AECI
     ]);
     expect(scan.unresolved).toEqual(['x.html <h1> [class]="titleClass()"']);
     expect(scan.scanned).toBe(8);
+  });
+});
+
+/** The scan of one portal or admin file, comments aside (AECI-2083). */
+function portalAdminHeadingScan(rel: string, src: string): HeadingScan {
+  return deadHeadingUtilities(rel, stripComments(src), scopeFor(join(APP_DIR, rel), src));
+}
+
+/** Headings with a dead utility in one portal or admin file (AECI-2083). */
+export function portalAdminHeadingCount(rel: string, src: string): number {
+  return portalAdminHeadingScan(rel, src).found.length;
+}
+
+/**
+ * Portal and admin heading bindings the guard cannot read, each with its reason
+ * (AECI-2083). A new one fails until it is named here. Empty today.
+ */
+const PORTAL_ADMIN_UNREADABLE: Record<string, string> = {};
+
+/*
+ * AECI-1729: the portal and admin slices emptied the shrink-only allowlist, so the
+ * cleanup slice deleted `guard-allowlists/heading-utilities.txt`. The portal and the
+ * console now hold the public rule: no exceptions.
+ */
+describe('portal and admin headings carry no dead utility (AECI-2083, AECI-1729)', () => {
+  const files = portalAdminSources();
+  const counts = countPerFile(files, portalAdminHeadingCount);
+
+  it('finds none in the portal or the console (no exceptions)', () => {
+    expect([...counts]).toEqual([]);
+  });
+
+  it('reads both folders, so it cannot pass on an empty scan', () => {
+    const perFolder = filesByFolder(files);
+    expect(perFolder['admin']).toBeGreaterThan(MIN_FILES.admin);
+    expect(perFolder['vendor']).toBeGreaterThan(MIN_FILES.vendor);
+  });
+
+  it('reads every class binding on a portal or admin heading, or names it', () => {
+    const unresolved = files.flatMap(
+      (rel) => portalAdminHeadingScan(rel, readSource(rel)).unresolved,
+    );
+    expect(checkUnreadable(unresolved, PORTAL_ADMIN_UNREADABLE)).toEqual([]);
+  });
+
+  it('counts each heading with a dead utility, and skips comments', () => {
+    const src = [
+      `<h2 class="font-display text-xl font-semibold">A</h2>`,
+      `<h3 class="mt-2">B</h3>`,
+      `<h3 class="text-sm">C</h3>`,
+      `<h3 [class.font-bold]="strong">D</h3>`,
+      `<!-- <h2 class="text-xl">a comment</h2> -->`,
+    ].join('\n');
+    expect(portalAdminHeadingCount('vendor/x.html', src)).toBe(3);
+  });
+
+  it('counts a new offender, so the no-exceptions check fails on it', () => {
+    const rel = 'vendor/x.html';
+    expect([...countSource(portalAdminHeadingCount, rel, `<h2 class="text-xl">A</h2>`)]).toEqual([
+      [rel, 1],
+    ]);
+    expect([...countSource(portalAdminHeadingCount, rel, `<h2>A</h2>`)]).toEqual([]);
+  });
+
+  it('fails on an unreadable binding that is not named, and on a stale name', () => {
+    const scan = portalAdminHeadingScan('vendor/x.html', `<h2 [class]="titleClass()">A</h2>`);
+    expect(checkUnreadable(scan.unresolved, {})).toEqual([
+      'vendor/x.html <h2> [class]="titleClass()": unreadable, name it with a reason',
+    ]);
+    expect(checkUnreadable([], { 'vendor/x.html <h2> [class]="t()"': 'why' })).toEqual([
+      'vendor/x.html <h2> [class]="t()": no longer unreadable, delete its entry',
+    ]);
   });
 });

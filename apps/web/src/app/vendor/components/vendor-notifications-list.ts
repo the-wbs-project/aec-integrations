@@ -21,6 +21,9 @@ import {
   type ThreadClosedReason,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
@@ -78,11 +81,23 @@ import {
  */
 @Component({
   selector: 'aec-vendor-notifications-list',
-  imports: [DatePipe, RouterLink],
+  imports: [AecButton, AecCard, AecIcon, DatePipe, RouterLink],
   styles: [':host { display: block; }'],
   template: `
-    <details class="rounded-(--radius-md) border border-(--border-default) px-4 py-3">
-      <summary class="cursor-pointer text-sm font-medium text-(--text-primary)">
+    <!-- AECI-1812: the archive disclosure is the shared white card. The summary is
+         a full-width 44px row with a focus ring of its own. -->
+    <details aecCard [class]="'group/archive p-0'">
+      <summary
+        class="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 rounded-card px-6 py-4 text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
+      >
+        <!-- The marker is drawn, so it turns with the open state. -->
+        <aec-icon
+          name="chevron-right"
+          decorative
+          [size]="4"
+          class="shrink-0 text-(--text-secondary) transition-transform group-open/archive:rotate-90 motion-reduce:transition-none"
+          [mirrorRtl]="true"
+        />
         {{ summaryLabel() }}
         <!--
           The whole of the "new" affordance (§6.2): a count, on the line that is
@@ -98,9 +113,12 @@ import {
         }
       </summary>
 
-      <div class="mt-3 space-y-3" [attr.aria-busy]="loading() ? 'true' : null">
+      <div
+        class="space-y-4 border-t border-(--border-default) px-6 pt-4 pb-6"
+        [attr.aria-busy]="loading() ? 'true' : null"
+      >
         <p
-          class="max-w-prose text-xs text-(--text-secondary)"
+          class="max-w-prose text-t-13 leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.attest.notify.framing.overrides"
         >
           What we noted in the last 90 days: our reminders, updates on change requests, what owners
@@ -126,8 +144,10 @@ import {
               Could not load your notifications.
             </p>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="retryClass"
               (click)="reload()"
               i18n="@@vendor.attest.notify.retry"
             >
@@ -139,16 +159,18 @@ import {
             No notifications in the last 90 days.
           </p>
         } @else {
-          <ul class="m-0 list-none space-y-3 p-0">
+          <ul class="m-0 list-none divide-y divide-(--border-default) p-0">
             @for (notification of visible(); track notification.id) {
-              <li class="border-t border-(--border-default) pt-3 first:border-t-0 first:pt-0">
-                <p class="font-label text-sm text-(--text-primary)">
+              <li class="py-4 first:pt-0 last:pb-0">
+                <p class="text-sm font-semibold break-words text-(--text-primary)">
                   {{ titleFor(notification) }}
                 </p>
                 @if (noteFor(notification); as note) {
-                  <p class="mt-0.5 max-w-prose text-xs text-(--text-primary)">{{ note }}</p>
+                  <p class="mt-1 max-w-prose text-t-13 break-words text-(--text-primary)">
+                    {{ note }}
+                  </p>
                 }
-                <p class="mt-0.5 text-xs text-(--text-secondary)">
+                <p class="mt-1 text-t-13 text-(--text-secondary)">
                   @for (part of detailParts(notification); track $index) {
                     <span>{{ part }}</span>
                     <span aria-hidden="true"> · </span>
@@ -159,7 +181,7 @@ import {
                   <a
                     [routerLink]="link"
                     fragment="change-requests"
-                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    [class]="linkClass + ' me-3'"
                     data-testid="notification-page-link"
                     i18n="@@vendor.claimAdded.notify.answer"
                     >Answer it on the integration page</a
@@ -168,7 +190,7 @@ import {
                 @if (threadLink(notification); as link) {
                   <a
                     [routerLink]="link"
-                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    [class]="linkClass + ' me-3'"
                     data-testid="notification-thread-link"
                     i18n="@@vendor.thread.closedNotify.read"
                     >Read the conversation</a
@@ -177,7 +199,7 @@ import {
                 @if (reviewsLink(notification); as link) {
                   <a
                     [routerLink]="link"
-                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    [class]="linkClass + ' me-3'"
                     data-testid="notification-reviews-link"
                     i18n="@@vendor.reviews.notify.open"
                     >Open the product's reviews</a
@@ -187,17 +209,14 @@ import {
                   <a
                     [routerLink]="link.path"
                     [queryParams]="link.queryParams"
-                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    [class]="linkClass + ' me-3'"
                     data-testid="notification-request-link"
                     i18n="@@vendor.productRequest.notify.add"
                     >Add your integration</a
                   >
                 }
                 @if (pairPath(notification); as path) {
-                  <a
-                    [routerLink]="path"
-                    class="mt-1 inline-block text-xs font-medium text-(--accent-primary) underline"
-                    i18n="@@vendor.attest.notify.viewPair"
+                  <a [routerLink]="path" [class]="linkClass" i18n="@@vendor.attest.notify.viewPair"
                     >View the integration page</a
                   >
                 }
@@ -278,8 +297,9 @@ export class VendorNotificationsList {
     return $localize`:@@vendor.attest.notify.new:${count}:count: new`;
   });
 
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** A row's follow-up link: the standalone link role at 13px, Forest, underlined. */
+  protected readonly linkClass =
+    'mt-1 inline-block rounded-mark text-t-13 font-semibold text-(--accent-primary) underline underline-offset-2 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 
   /** `false` where the list renders without a route of its own (the single-page
    *  concept), so the page link resolves from the portal root. */

@@ -17,6 +17,8 @@ import {
 
 import {
   BillingLicensesTable,
+  licenseGrantStatusKey,
+  licenseReleaseStatusKey,
   toBillingLicenseRow,
   type BillingLicenseRowContext,
 } from './billing-licenses-table';
@@ -754,5 +756,80 @@ describe('toBillingLicenseRow', () => {
     expect(toBillingLicenseRow(makeLicense({ source: 'barter' }), 'en-US').sourceLabel).toBe(
       'barter',
     );
+  });
+});
+
+describe('BillingLicensesTable on the console recipe (AECI-2124)', () => {
+  it('puts each section on a flat console panel under the host stack', () => {
+    const { el } = mount(makeBilling());
+    expect(el.className).toContain('grid');
+    const panels = el.querySelectorAll('section');
+    expect(panels.length).toBeGreaterThan(0);
+    for (const panel of panels) {
+      expect(panel.className).toContain('rounded-panel');
+      expect(panel.className).toContain('border');
+      expect(panel.className).not.toContain('shadow');
+      // A panel heading is a bare h3: the global heading size, no utilities.
+      const heading = panel.querySelector('h3')!;
+      expect(heading.className).not.toMatch(/text-|font-|uppercase|tracking/);
+    }
+  });
+
+  it('draws every table in a labelled scroll region named by its caption', () => {
+    const { el } = mount(makeBilling());
+    const regions = el.querySelectorAll('[role="region"]');
+    expect(regions.length).toBeGreaterThan(0);
+    for (const region of regions) {
+      expect(region.getAttribute('tabindex')).toBe('0');
+      const caption = el.querySelector(`[id="${region.getAttribute('aria-labelledby')}"]`)!;
+      expect(caption.tagName).toBe('CAPTION');
+    }
+  });
+
+  it('shows the status as dense chips: live, ended and cancels at term end', () => {
+    const { el } = mount(
+      makeBilling({
+        licenses: [
+          makeLicense({ cancel_at_term_end: true, cancel_reason: 'vendor-banned' }),
+          makeLicense({
+            id: '00000000-0000-4000-8000-000000000002',
+            live: false,
+            ended_at: '2026-10-30T00:00:00.000Z',
+            end_reason: 'lapsed',
+          }),
+        ],
+      }),
+    );
+    const rows = el.querySelectorAll('[data-testid="billing-license-row"]');
+    const live = rows[0]!.querySelector('[data-testid="billing-license-status"]')!;
+    expect(live.tagName).toBe('AEC-CHIP');
+    expect(live.textContent?.trim()).toBe('Live');
+    expect(rows[0]!.querySelector('[data-testid="billing-license-cancel"]')!.tagName).toBe(
+      'AEC-CHIP',
+    );
+    expect(
+      rows[1]!.querySelector('[data-testid="billing-license-status"]')!.textContent?.trim(),
+    ).toContain('Ended');
+  });
+
+  it('marks a banned owner seat with a chip', () => {
+    const { el } = mount(makeBilling());
+    const chip = el.querySelector(
+      'section[aria-labelledby="admin-vendor-billing-account"] aec-chip',
+    );
+    expect(chip?.textContent?.trim()).toBe('Banned');
+  });
+});
+
+describe('the Billing status keys (AECI-2124)', () => {
+  it('maps every grant and release status to a console key', () => {
+    expect(licenseGrantStatusKey('pending_acceptance')).toBe('waitingForAcceptance');
+    expect(licenseGrantStatusKey('accepted')).toBe('accepted');
+    expect(licenseGrantStatusKey('withdrawn')).toBe('withdrawn');
+    expect(licenseGrantStatusKey('expired')).toBe('expiredNeverAccepted');
+    expect(licenseGrantStatusKey('something_new')).toBe('unknown');
+    expect(licenseReleaseStatusKey('open')).toBe('open');
+    expect(licenseReleaseStatusKey('approved')).toBe('approved');
+    expect(licenseReleaseStatusKey('declined')).toBe('declined');
   });
 });

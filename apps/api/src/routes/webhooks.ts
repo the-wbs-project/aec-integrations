@@ -63,6 +63,7 @@ import {
 } from '../lib/audit';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { verifyLinearSignature } from '../lib/linear-webhook-auth';
+import { restoredWorkflowId } from '../lib/workflow-restore';
 import {
   classifyEvent,
   isHandledEventType,
@@ -169,7 +170,10 @@ export function createLinearWebhookHandler(
     const { db } = writeDb(c, dbFor);
 
     // 4. Resolve the vendor request behind this Linear issue. The instance's
-    //    linear_issue_id is Linear's issue node id (= data.id). Unknown → no-op.
+    //    linear_issue_id is Linear's issue node id (= data.id). The request row
+    //    carries the same id, and is the fallback when the instance is gone: the
+    //    legal retention prune deletes a workflow four years after its last action
+    //    (AECI-1913), and the batch below re-creates it. Unknown → no-op.
     const workflow = await db.query.workflowInstances.findFirst({
       columns: { id: true, entityId: true },
       where: and(
@@ -177,13 +181,18 @@ export function createLinearWebhookHandler(
         inArray(workflowInstances.workflowType, ['vendor_claim', 'correction_request']),
       ),
     });
-    if (!workflow) return ack(false, 'unknown issue');
 
     const request = await db.query.vendorRequests.findFirst({
       columns: { id: true, status: true, kind: true },
-      where: eq(vendorRequests.id, workflow.entityId),
+      where: workflow
+        ? eq(vendorRequests.id, workflow.entityId)
+        : eq(vendorRequests.linearIssueId, payload.data.id),
     });
-    if (!request) return ack(false, 'request not found'); // defensive: orphaned instance
+    if (!request) return ack(false, workflow ? 'request not found' : 'unknown issue');
+    // A deterministic id (`lib/workflow-restore.ts`): two concurrent deliveries that both
+    // find no instance collide on the primary key, the second batch fails whole, and
+    // Linear redelivers it against the restored row. A random id would let both commit.
+    const workflowId = workflow?.id ?? restoredWorkflowId('request', request.id);
 
     const currentStatus = request.status as VendorRequestStatus;
     if (currentStatus === targetStatus) return ack(false, 'already in sync');
@@ -218,7 +227,7 @@ export function createLinearWebhookHandler(
       linear_url: payload.url,
     };
     const workflowEntry: WorkflowTransitionEntry = {
-      workflowId: workflow.id,
+      workflowId,
       fromState: currentStatus,
       toState: targetStatus,
       actorId: null,
@@ -235,6 +244,11 @@ export function createLinearWebhookHandler(
       metadata,
     };
 
+    const instanceState = {
+      currentState: targetStatus,
+      completedAt: isTerminal ? now : null,
+      finalOutcome: isTerminal ? (TERMINAL_OUTCOME[targetStatus] ?? null) : null,
+    };
     const stmts: BatchStmt[] = [
       db
         .update(vendorRequests)
@@ -250,18 +264,22 @@ export function createLinearWebhookHandler(
           linearIssueUrl: payload.url,
         })
         .where(eq(vendorRequests.id, request.id)),
-      db
-        .update(workflowInstances)
-        // Mirror the request: clear completedAt/finalOutcome on a reverse
-        // transition so the instance never reads as terminal while active — and
-        // so a reopened instance reappears in `workflow_instances_state_idx`
-        // (the `WHERE completed_at IS NULL` partial index reconciliation scans).
-        .set({
-          currentState: targetStatus,
-          completedAt: isTerminal ? now : null,
-          finalOutcome: isTerminal ? (TERMINAL_OUTCOME[targetStatus] ?? null) : null,
-        })
-        .where(eq(workflowInstances.id, workflow.id)),
+      workflow
+        ? db
+            .update(workflowInstances)
+            // Mirror the request: clear completedAt/finalOutcome on a reverse
+            // transition so the instance never reads as terminal while active — and
+            // so a reopened instance reappears in `workflow_instances_state_idx`
+            // (the `WHERE completed_at IS NULL` partial index reconciliation scans).
+            .set(instanceState)
+            .where(eq(workflowInstances.id, workflowId))
+        : db.insert(workflowInstances).values({
+            id: workflowId,
+            workflowType: request.kind === 'claim' ? 'vendor_claim' : 'correction_request',
+            entityId: request.id,
+            linearIssueId: payload.data.id,
+            ...instanceState,
+          }),
       workflowTransitionInsert(db, workflowEntry),
       auditInsert(db, auditEntry),
     ];

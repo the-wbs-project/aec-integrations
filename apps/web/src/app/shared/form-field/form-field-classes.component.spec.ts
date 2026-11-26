@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { SUSPENSION_INPUT } from '../../admin/vendors/vendor-suspension-model';
 import {
   CHOICE_CARD_CLASS,
   CHOICE_INPUT_CLASS,
@@ -34,10 +33,6 @@ describe('FIELD_INPUT_CLASS', () => {
   it('draws the 3px focus ring at a 3px offset', () => {
     expect(tokens).toContain('focus-visible:outline-3');
     expect(tokens).toContain('focus-visible:outline-offset-3');
-  });
-
-  it('is the one recipe the suspension inputs use', () => {
-    expect(SUSPENSION_INPUT).toContain(FIELD_INPUT_CLASS);
   });
 });
 
@@ -101,7 +96,7 @@ describe('form-field error recipe', () => {
 
   it('a choice card draws its border through the unlayered class', () => {
     expect(classes(CHOICE_CARD_CLASS)).toContain('aec-choice-card');
-    // A border-colour utility never applies: the unlayered `*` rule wins.
+    // A border-colour utility would lose to the unlayered class, so none is set.
     expect(CHOICE_CARD_CLASS).not.toMatch(/\bborder-\(--/);
   });
 

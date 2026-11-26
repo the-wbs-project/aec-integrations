@@ -39,7 +39,9 @@
          border it uses an unlayered helper class (.aec-pill-*), which is the same
          escape hatch .aec-nav-tab already uses. The ported component needs the
          same treatment or its pills render grey. See the FINDINGS block at the
-         bottom of this file.
+         bottom of this file. (Superseded 2026-11-24: AECI-2088 moved the app's
+         rule into @layer base, so border-colour utilities apply in the app. This
+         mock-up keeps its unlayered copy as a record.)
       4. No string here carries an i18n id. Every visible string needs a
          @@vendor.overview.* id at port time.
     -->
@@ -1571,8 +1573,8 @@
          This mock-up works around it with unlayered helper classes
          (.aec-pill-affirm / .aec-pill-conflict / .aec-pill-attention /
          .aec-rule-strong), which is the same escape hatch .aec-nav-tab uses.
-         The real fix is moving the `*` rule into `@layer base`, which is an
-         app-wide visual change and wants its own issue. Whichever concept wins,
+         The real fix is moving the `*` rule into `@layer base`. AECI-2088 did
+         that on 2026-11-24, so in the app the utilities above now apply. Whichever concept wins,
          its status pills need either the helper classes or that fix, or the
          conflict pill ships grey and the design loses its only red.
 

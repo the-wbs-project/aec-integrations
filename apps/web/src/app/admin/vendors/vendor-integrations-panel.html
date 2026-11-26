@@ -1,133 +1,122 @@
 @if (loading()) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.integrations.loading">
+<p [class]="statusLineClass" class="mt-4" i18n="@@admin.vendors.integrations.loading">
   Loading this vendor's integrations…
 </p>
 } @else if (failed()) {
-<div
-  role="alert"
-  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
->
-  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.integrations.error">
+<div role="alert" [class]="loadFailedClass" class="mt-4">
+  <p [class]="failedTextClass" i18n="@@admin.vendors.integrations.error">
     We couldn't load this vendor's integrations.
   </p>
   <button
+    aecButton
+    variant="secondary"
     type="button"
     (click)="load()"
-    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     i18n="@@admin.vendors.integrations.retry"
   >
     Try again
   </button>
 </div>
 } @else if (rows().length === 0) {
-<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.integrations.empty">
+<p [class]="t.empty" class="mt-4" i18n="@@admin.vendors.integrations.empty">
   This vendor holds no integrations. An integration is listed here once the vendor claims it or adds
   it from its vendor account.
 </p>
 } @else {
-<div class="mt-4 overflow-x-auto">
-  <table class="w-full min-w-[44rem] border-collapse text-sm">
-    <caption class="sr-only" i18n="@@admin.vendors.integrations.caption">
+<!-- AECI-2112: the console table recipe (mock-up 14). One tbody per integration, so
+     the row and its retire or restore form stay one group. -->
+<div
+  [class]="t.region"
+  class="mt-4"
+  role="region"
+  tabindex="0"
+  aria-labelledby="admin-vendor-integrations-caption"
+>
+  <table [class]="t.table" class="min-w-[48rem]">
+    <caption
+      id="admin-vendor-integrations-caption"
+      [class]="t.caption"
+      i18n="@@admin.vendors.integrations.caption"
+    >
       Integrations this vendor holds, by name
     </caption>
     <thead>
-      <tr class="border-b border-(--border-strong)">
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.integrations.col.integration"
-        >
+      <tr>
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.integrations.col.integration">
           Integration
         </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.integrations.col.status"
-        >
-          Status
-        </th>
-        <th
-          scope="col"
-          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.integrations.col.updated"
-        >
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.integrations.col.status">Status</th>
+        <th scope="col" [class]="t.head" i18n="@@admin.vendors.integrations.col.updated">
           Record updated
         </th>
-        <th
-          scope="col"
-          class="py-2 text-end font-bold text-(--text-secondary)"
-          i18n="@@admin.vendors.integrations.col.actions"
-        >
+        <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.integrations.col.actions">
           Actions
         </th>
       </tr>
     </thead>
+    @for (row of rows(); track row.id) {
     <tbody>
-      @for (row of rows(); track row.id) {
-      <tr class="border-b border-(--border-default) align-top">
-        <th scope="row" class="py-2.5 pe-4 text-start font-normal">
-          <span class="block font-medium text-(--text-primary)"
-            >{{ row.name ?? pairLabel(row) }}</span
-          >
-          <span class="mt-0.5 block text-xs text-(--text-secondary)">{{ pairLabel(row) }}</span>
+      <tr [class]="formFor()?.id === row.id ? t.rowOpen : t.row">
+        <th scope="row" [class]="t.rowHead">
+          {{ row.name ?? pairLabel(row) }}
+          <span [class]="t.sub">{{ pairLabel(row) }}</span>
           @if (row.connector; as connector) {
           <span
-            class="mt-0.5 block text-xs text-(--text-secondary)"
+            [class]="t.sub"
             data-testid="admin-integration-via"
             i18n="@@admin.vendors.integrations.via"
             >Delivered through {{ connector.name }}</span
           >
           } @if (row.origin === 'vendor') {
-          <span
-            class="mt-0.5 block text-xs text-(--text-secondary)"
-            i18n="@@admin.vendors.integrations.origin.vendor"
+          <span [class]="t.sub" i18n="@@admin.vendors.integrations.origin.vendor"
             >Added by the vendor</span
           >
           }
         </th>
-        <td class="py-2.5 pe-4">
-          <span class="font-medium text-(--text-primary)">{{ statusLabel(row) }}</span>
+        <td [class]="t.cell">
+          <aec-chip density="dense" [tone]="statusTone(row)">{{ statusLabel(row) }}</aec-chip>
           @if (row.retired_at) {
-          <span class="mt-0.5 block text-xs text-(--text-secondary)"
+          <span [class]="t.sub" class="mt-1"
             >{{ row.retired_at | date: 'mediumDate' : 'UTC' }}</span
           >
           }
         </td>
-        <td class="py-2.5 pe-4 text-(--text-secondary)">
+        <td [class]="t.nowrap" class="text-(--text-secondary)">
           {{ row.updated_at | date: 'mediumDate' : 'UTC' }}
         </td>
-        <td class="py-2.5 text-end">
-          <div class="flex flex-wrap items-center justify-end gap-2">
+        <td [class]="t.act">
+          <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 py-1">
             @if (row.pair_path && !row.retired_at) {
-            <a
-              [href]="row.pair_path"
-              target="_blank"
-              rel="noopener"
-              class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
+            <a [href]="row.pair_path" target="_blank" rel="noopener" [class]="linkClass">
               <span i18n="@@admin.vendors.integrations.view">View page</span>
               <aec-new-tab-icon />
             </a>
             } @if (!row.retired_at) {
+            <!-- The opener is a secondary button. The retire confirm is danger: a retire closes
+                 other companies' open requests and row threads, and Restore reopens none. -->
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
               [id]="triggerId(row)"
               [attr.aria-expanded]="isFormOpen(row, 'retire')"
               [attr.aria-controls]="formId(row, 'form')"
               (click)="openForm(row, 'retire')"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@admin.vendors.integrations.retire"
             >
               Retire
             </button>
             } @else if (row.retired_by === 'aeci') {
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
               [id]="triggerId(row)"
               [attr.aria-expanded]="isFormOpen(row, 'restore')"
               [attr.aria-controls]="formId(row, 'form')"
               (click)="openForm(row, 'restore')"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@admin.vendors.integrations.restore"
             >
               Restore
@@ -136,7 +125,7 @@
             <span
               [id]="triggerId(row)"
               tabindex="-1"
-              class="text-xs text-(--text-secondary)"
+              class="whitespace-normal text-t-13 text-(--text-secondary)"
               i18n="@@admin.vendors.integrations.ownerRestores"
               >Only the owner can restore it</span
             >
@@ -145,149 +134,168 @@
         </td>
       </tr>
       @if (formFor()?.id === row.id) {
-      <tr class="border-b border-(--border-default)">
-        <td colspan="4" class="pb-4">
-          <form
-            method="dialog"
-            [id]="formId(row, 'form')"
-            [attr.aria-labelledby]="formId(row, 'title')"
-            (aecSubmit)="submit(row, formFor()!.mode)"
-            class="rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
-            novalidate
-          >
-            @if (formFor()!.mode === 'retire') {
-            <p
-              [id]="formId(row, 'title')"
-              class="text-sm font-semibold text-(--text-primary)"
-              i18n="@@admin.vendors.integrations.retire.title"
+      <tr [class]="t.detailRow">
+        <td colspan="4" [class]="t.detailCell">
+          <div [class]="t.detailInner">
+            <form
+              method="dialog"
+              [id]="formId(row, 'form')"
+              [attr.aria-labelledby]="formId(row, 'title')"
+              (aecSubmit)="submit(row, formFor()!.mode)"
+              (keydown.escape)="onEscape(row)"
+              [class]="formClass"
+              novalidate
             >
-              Retire this integration as AEC Integrations?
-            </p>
-            @if (row.connector; as connector) {
-            <p
-              class="mt-1 max-w-prose text-sm text-(--text-secondary)"
-              data-testid="admin-retire-body-connector"
-              i18n="@@admin.vendors.integrations.retire.bodyConnector"
-            >
-              It leaves the public site and search, and stops counting on both products and on {{
-              connector.name }}. Nothing is deleted. The owner and the vendors at both ends are told
-              that AEC Integrations retired it. Open contests on it close as withdrawn. The owner
-              cannot restore it. Only AEC Integrations can.
-            </p>
-            } @else {
-            <p
-              class="mt-1 max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.retire.body"
-            >
-              It leaves the public site and search, and stops counting on both products. Nothing is
-              deleted. The owner and the vendors at both ends are told that AEC Integrations retired
-              it. Open contests on it close as withdrawn. The owner cannot restore it. Only AEC
-              Integrations can.
-            </p>
-            } } @else {
-            <p
-              [id]="formId(row, 'title')"
-              class="text-sm font-semibold text-(--text-primary)"
-              i18n="@@admin.vendors.integrations.restore.title"
-            >
-              Restore this integration?
-            </p>
-            <p
-              class="mt-1 max-w-prose text-sm text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.restore.body"
-            >
-              It returns to the public site as it was. The owner and the vendors at both ends are
-              told. Contests closed by the retire stay closed.
-            </p>
-            }
-            <label
-              [attr.for]="formId(row, 'reason')"
-              class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.reason.vendorLabel"
-            >
-              Reason shown to the vendor (required)
-            </label>
-            <p
-              [id]="formId(row, 'reason-help')"
-              class="mt-1 text-xs text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.reason.vendorHelp"
-            >
-              The owner reads this in its portal messages. The vendors at both ends are told without
-              it. It is recorded in the audit trail with your name.
-            </p>
-            <textarea
-              #reasonInput
-              [id]="formId(row, 'reason')"
-              rows="3"
-              [attr.maxlength]="reasonMax"
-              required
-              [attr.aria-describedby]="
-                formError() ? formId(row, 'reason-help') + ' ' + formId(row, 'error') : formId(row, 'reason-help')
-              "
-              [attr.aria-invalid]="formError() ? 'true' : null"
-              [value]="reason()"
-              (input)="onReasonInput($event)"
-              class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ></textarea>
-            <label
-              [attr.for]="formId(row, 'note')"
-              class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.note.label"
-            >
-              Internal note (optional, never shown to the vendor)
-            </label>
-            <textarea
-              [id]="formId(row, 'note')"
-              rows="2"
-              [attr.maxlength]="reasonMax"
-              [value]="internalNote()"
-              (input)="onNoteInput($event)"
-              class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            ></textarea>
-            @if (formError(); as message) {
-            <p
-              [id]="formId(row, 'error')"
-              role="alert"
-              class="mt-2 text-sm font-medium text-(--text-primary)"
-            >
-              {{ message }}
-            </p>
-            }
-            <div class="mt-3 flex flex-wrap gap-3">
-              <button
-                type="submit"
-                [disabled]="pending()"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (formFor()!.mode === 'retire') { @if (pending()) {
-                <span i18n="@@admin.vendors.integrations.retiring">Retiring…</span>
+              @if (formFor()!.mode === 'retire') {
+              <div class="grid gap-2">
+                <p
+                  [id]="formId(row, 'title')"
+                  class="text-t-16 font-semibold text-(--text-primary)"
+                  i18n="@@admin.vendors.integrations.retire.title"
+                >
+                  Retire this integration as AEC Integrations?
+                </p>
+                @if (row.connector; as connector) {
+                <p
+                  [class]="captionClass"
+                  class="max-w-prose"
+                  data-testid="admin-retire-body-connector"
+                  i18n="@@admin.vendors.integrations.retire.bodyConnector"
+                >
+                  It leaves the public site and search, and stops counting on both products and on
+                  {{ connector.name }}. Nothing is deleted. The owner and the vendors at both ends
+                  are told that AEC Integrations retired it. Open contests on it close as withdrawn.
+                  The owner cannot restore it. Only AEC Integrations can.
+                </p>
                 } @else {
-                <span i18n="@@admin.vendors.integrations.retire.confirm">Retire integration</span>
-                } } @else { @if (pending()) {
-                <span i18n="@@admin.vendors.integrations.restoring">Restoring…</span>
-                } @else {
-                <span i18n="@@admin.vendors.integrations.restore.confirm">Restore integration</span>
-                } }
-              </button>
-              <button
-                type="button"
-                [disabled]="pending()"
-                (click)="closeForm(row)"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.vendors.integrations.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+                <p
+                  [class]="captionClass"
+                  class="max-w-prose"
+                  i18n="@@admin.vendors.integrations.retire.body"
+                >
+                  It leaves the public site and search, and stops counting on both products. Nothing
+                  is deleted. The owner and the vendors at both ends are told that AEC Integrations
+                  retired it. Open contests on it close as withdrawn. The owner cannot restore it.
+                  Only AEC Integrations can.
+                </p>
+                }
+              </div>
+              } @else {
+              <div class="grid gap-2">
+                <p
+                  [id]="formId(row, 'title')"
+                  class="text-t-16 font-semibold text-(--text-primary)"
+                  i18n="@@admin.vendors.integrations.restore.title"
+                >
+                  Restore this integration?
+                </p>
+                <p
+                  [class]="captionClass"
+                  class="max-w-prose"
+                  i18n="@@admin.vendors.integrations.restore.body"
+                >
+                  It returns to the public site as it was. The owner and the vendors at both ends
+                  are told. Contests closed by the retire stay closed.
+                </p>
+              </div>
+              }
+              <div [class]="fieldClass">
+                <label
+                  [attr.for]="formId(row, 'reason')"
+                  [class]="labelClass"
+                  i18n="@@admin.vendors.integrations.reason.vendorLabel"
+                >
+                  Reason shown to the vendor (required)
+                </label>
+                <p
+                  [id]="formId(row, 'reason-help')"
+                  [class]="hintClass"
+                  i18n="@@admin.vendors.integrations.reason.vendorHelp"
+                >
+                  The owner reads this in its portal messages. The vendors at both ends are told
+                  without it. It is recorded in the audit trail with your name.
+                </p>
+                <textarea
+                  #reasonInput
+                  [id]="formId(row, 'reason')"
+                  rows="3"
+                  [attr.maxlength]="reasonMax"
+                  required
+                  [attr.aria-describedby]="
+                    formError() ? formId(row, 'reason-help') + ' ' + formId(row, 'error') : formId(row, 'reason-help')
+                  "
+                  [attr.aria-invalid]="formError() ? 'true' : null"
+                  [value]="reason()"
+                  (input)="onReasonInput($event)"
+                  [class]="inputClass"
+                  class="min-h-24 resize-y"
+                ></textarea>
+              </div>
+              <div [class]="fieldClass">
+                <label
+                  [attr.for]="formId(row, 'note')"
+                  [class]="labelClass"
+                  i18n="@@admin.vendors.integrations.note.label"
+                >
+                  Internal note (optional, never shown to the vendor)
+                </label>
+                <textarea
+                  [id]="formId(row, 'note')"
+                  rows="2"
+                  [attr.maxlength]="reasonMax"
+                  [value]="internalNote()"
+                  (input)="onNoteInput($event)"
+                  [class]="inputClass"
+                  class="min-h-20 resize-y"
+                ></textarea>
+              </div>
+              @if (formError(); as message) {
+              <p [id]="formId(row, 'error')" tabindex="-1" role="alert" [class]="failedClass">
+                {{ message }}
+              </p>
+              }
+              <div [class]="actionsClass">
+                <button
+                  aecButton
+                  compact
+                  type="submit"
+                  [variant]="formFor()!.mode === 'retire' ? 'danger' : 'primary'"
+                  [disabled]="pending()"
+                >
+                  @if (formFor()!.mode === 'retire') { @if (pending()) {
+                  <span i18n="@@admin.vendors.integrations.retiring">Retiring…</span>
+                  } @else {
+                  <span i18n="@@admin.vendors.integrations.retire.confirm">Retire integration</span>
+                  } } @else { @if (pending()) {
+                  <span i18n="@@admin.vendors.integrations.restoring">Restoring…</span>
+                  } @else {
+                  <span i18n="@@admin.vendors.integrations.restore.confirm"
+                    >Restore integration</span
+                  >
+                  } }
+                </button>
+                <button
+                  aecButton
+                  variant="ghost"
+                  type="button"
+                  [disabled]="pending()"
+                  (click)="closeForm(row)"
+                  i18n="@@admin.vendors.integrations.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </td>
       </tr>
-      } }
+      }
     </tbody>
+    }
   </table>
 </div>
 @if (truncated()) {
-<p class="mt-2 text-xs text-(--text-secondary)" i18n="@@admin.vendors.integrations.truncated">
+<p [class]="captionClass" class="mt-2" i18n="@@admin.vendors.integrations.truncated">
   Showing the first {{ perPage }} of {{ total() }} integrations, by name.
 </p>
 } }

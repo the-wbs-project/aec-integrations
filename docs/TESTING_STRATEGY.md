@@ -228,6 +228,7 @@ Alongside them, per issue: the second-seat no-op matrix against the in-memory D1
 | `apps/web/src/design-tokens.guard.spec.ts` | unit | Every token the source names exists in `styles.css`. Its source half also stops `font-display` beside a small size (the serif floor) |
 | `apps/web/src/design-tokens.hex.guard.spec.ts` | unit | Every colour token renders the hex its comment documents (AECI-1747) |
 | `apps/web/src/chip.guard.spec.ts`, `field-recipe-css.guard.spec.ts`, `pair-diff-edge.guard.spec.ts` | unit | The one chip recipe, the shared field recipe and the pair page's diff edge, read from `styles.css` |
+| `apps/web/src/border-color-layer.guard.spec.ts`, with its rendered half in `e2e/border-color-utility.spec.ts` | unit, e2e | No border colour (or `border` shorthand) on a universal selector outside a cascade layer, so border-colour utilities apply. The default `--border-default` sits in `@layer base`. The e2e reads a utility's computed colour on `/preview/vendor-detail` (AECI-2088) |
 | `apps/web/src/prose.guard.spec.ts` | unit | The one prose style reads only type ramp tokens (AECI-1804) |
 | `apps/web/src/font-files.guard.spec.ts` | unit | Each self-hosted font file's bytes, because `/fonts/*` is cached for a year (AECI-1892) |
 | `apps/web/src/app/legal/legal-heading-ids.spec.ts` | unit | The heading ids on `/legal/*` and `/methodology` change no word of the page |
@@ -238,6 +239,8 @@ Alongside them, per issue: the second-seat no-op matrix against the in-memory D1
 | `apps/web/e2e/first-paint.spec.ts`, `font-loading.spec.ts` | e2e | First paint matches final paint, and fallback fonts take the same space (`ANGULAR_STYLE_GUIDE.md` §20b) |
 | `apps/web/e2e/hydration-class-recipe.spec.ts` | e2e | Nothing resolves an `aecButton` or `aecCard` style while hydration has it without its recipe (AECI-1937) |
 | `apps/web/e2e/forms-early-input.spec.ts` | e2e | Typed text survives hydration, and no tick does (§14.3) |
+| `apps/web/src/heading-utilities.guard.spec.ts`, `field-label.guard.spec.ts` (portal and admin blocks), `radius-utilities.guard.spec.ts`, `inline-icon-svg.guard.spec.ts`, `native-button.guard.spec.ts` | unit | Under `vendor/` and `admin/`, dead heading utilities are held at zero with no allowlist since AECI-1729, and labels off the Label role and inline icon `<svg>` since AECI-2132. Each file's count of old radius utilities and buttons without `aecButton` only goes down (AECI-2083). One allowlist per remaining guard in `src/guard-allowlists/`, rules in `shrink-only.harness.ts`. A new file starts at zero, a stale line fails, and an unreadable `[class]` binding fails until it is named |
+| `apps/web/e2e/preview-admin-axe.spec.ts` | e2e | axe (WCAG 2.2 AA) on every `/preview/admin-*` route at 1440 and 390, against a shrink-only per-route allowlist (AECI-2083, §8.2) |
 
 The on-page ordering firewall in the table above is the redesign's legal guard.
 
@@ -670,6 +673,13 @@ Run axe on:
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
   specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
+- `/preview/admin-*` — **every admin preview route, at 1440 and 390**, in
+  `preview-admin-axe.spec.ts` (AECI-2083), with the WCAG 2.2 AA tags. The console is
+  behind the SSR admin gate, so the previews (the real admin components over a fake API,
+  no session) are where it is axe-scanned. Today's violations are recorded per route in
+  `e2e/preview-admin-axe.allowlist.txt`. The list only shrinks: a rule not listed fails,
+  and a listed rule that no longer fails on its route fails too, so the slice that fixed
+  it deletes the line. A new `/preview/admin-*` route fails until it is added to the spec.
 - `/preview/vendor-dashboard` — the **portal header, breadcrumb and tab row**, in
   `preview-vendor-portal-nav.spec.ts` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4, §6.11).
   One axe run in **vendor context** and one in **product context**, because §6.11
@@ -688,13 +698,9 @@ Run axe on:
     `<p role="status">` fed by `VendorPortalAnnouncer`
     (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
     paint on every section, not just after the integrations read. It is declared
-    **once per dashboard concept**:
-    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` (Concept A, what the
-    portal renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts`
-    (Concept B, preview-only — it composes the same integrations section, which
-    announces through the channel and declares no region of its own, so without
-    it every attestation write on Concept B is silent). Only one concept ever
-    renders at a time, so they cannot race. Two consequences for this run: the
+    **once**, in `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts`, the shell
+    the portal and the preview render. (A second, preview-only single-page concept
+    declared one too. AECI-1809 deleted it.) Two consequences for this run: the
     axe pass must be **re-run after the hoist** (a region moving is exactly the
     kind of change that invalidates a prior pass), and any assertion about it
     should be made on the shell rather than on the section body. Since the

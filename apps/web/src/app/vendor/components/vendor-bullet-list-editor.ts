@@ -10,7 +10,9 @@ import {
 } from '@angular/core';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { FIELD_ERROR_CLASS, FIELD_INPUT_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 
 /** One bullet in a draft list. `id` is a client-only key so a row keeps its DOM
  *  node (and its focus) across a reorder; it never reaches the wire. */
@@ -58,6 +60,7 @@ export function newBullet(text = ''): BulletDraft {
  */
 @Component({
   selector: 'aec-vendor-bullet-list-editor',
+  imports: [AecButton, AecIcon],
   template: `
     <div class="space-y-2">
       @if (bullets().length > 0) {
@@ -67,92 +70,69 @@ export function newBullet(text = ''): BulletDraft {
             track bullet.id;
             let i = $index, first = $first, last = $last
           ) {
-            <li class="flex items-start gap-2">
-              <span
-                aria-hidden="true"
-                class="mt-2.5 size-1.5 shrink-0 rounded-full bg-(--text-secondary)"
-              ></span>
-              <div class="min-w-0 flex-1">
-                <label [for]="inputId(bullet.id)" class="sr-only">{{ bulletLabel(i) }}</label>
-                <input
-                  type="text"
-                  [id]="inputId(bullet.id)"
-                  [value]="bullet.text"
-                  [readOnly]="disabled()"
-                  [attr.aria-invalid]="tooLong(bullet) ? 'true' : null"
-                  [attr.aria-describedby]="tooLong(bullet) ? inputId(bullet.id) + '-error' : null"
-                  [class]="inputClass()"
-                  (input)="onInput(bullet.id, $event)"
-                  (keydown.enter)="onEnter($event, last)"
-                />
-                @if (tooLong(bullet)) {
-                  <p [id]="inputId(bullet.id) + '-error'" [class]="'mt-1 ' + errorClass">
-                    {{ tooLongMessage(bullet) }}
-                  </p>
-                }
+            <!-- AECI-1810: the row controls are 44px aecButtons. Below about 420px they
+                 wrap under the point, so the text box keeps a usable width. -->
+            <li class="flex flex-wrap items-start gap-2">
+              <div class="flex min-w-56 flex-1 items-start gap-2">
+                <span
+                  aria-hidden="true"
+                  class="mt-4 size-2 shrink-0 rounded-pill bg-(--text-secondary)"
+                ></span>
+                <div class="min-w-0 flex-1">
+                  <label [for]="inputId(bullet.id)" class="sr-only">{{ bulletLabel(i) }}</label>
+                  <input
+                    type="text"
+                    [id]="inputId(bullet.id)"
+                    [value]="bullet.text"
+                    [readOnly]="disabled()"
+                    [attr.aria-invalid]="tooLong(bullet) ? 'true' : null"
+                    [attr.aria-describedby]="tooLong(bullet) ? inputId(bullet.id) + '-error' : null"
+                    [class]="inputClass"
+                    (input)="onInput(bullet.id, $event)"
+                    (keydown.enter)="onEnter($event, last)"
+                  />
+                  @if (tooLong(bullet)) {
+                    <p [id]="inputId(bullet.id) + '-error'" [class]="'mt-1 ' + errorClass">
+                      {{ tooLongMessage(bullet) }}
+                    </p>
+                  }
+                </div>
               </div>
               @if (!disabled()) {
-                <div class="flex shrink-0 items-center gap-1">
+                <div class="ms-auto flex shrink-0 items-center gap-1">
                   <button
+                    aecButton
+                    variant="secondary"
+                    iconOnly
                     type="button"
                     [attr.data-action]="'up-' + bullet.id"
-                    [class]="iconButtonClass"
                     [disabled]="first"
                     [attr.aria-label]="moveUpLabel(i)"
                     (click)="move(i, -1)"
                   >
-                    <svg
-                      aria-hidden="true"
-                      class="size-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="m18 15-6-6-6 6" />
-                    </svg>
+                    <aec-icon name="chevron-up" decorative [size]="4" />
                   </button>
                   <button
+                    aecButton
+                    variant="secondary"
+                    iconOnly
                     type="button"
                     [attr.data-action]="'down-' + bullet.id"
-                    [class]="iconButtonClass"
                     [disabled]="last"
                     [attr.aria-label]="moveDownLabel(i)"
                     (click)="move(i, 1)"
                   >
-                    <svg
-                      aria-hidden="true"
-                      class="size-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
+                    <aec-icon name="chevron-down" decorative [size]="4" />
                   </button>
                   <button
+                    aecButton
+                    variant="secondary"
+                    iconOnly
                     type="button"
-                    [class]="iconButtonClass"
                     [attr.aria-label]="removeLabel(i)"
                     (click)="remove(i)"
                   >
-                    <svg
-                      aria-hidden="true"
-                      class="size-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M18 6 6 18M6 6l12 12" />
-                    </svg>
+                    <aec-icon name="x" decorative [size]="4" />
                   </button>
                 </div>
               }
@@ -164,24 +144,15 @@ export function newBullet(text = ''): BulletDraft {
       @if (!disabled()) {
         <div class="flex flex-wrap items-center gap-3">
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
             data-action="add"
-            [class]="addButtonClass"
             [disabled]="atCap()"
             (click)="add()"
           >
-            <svg
-              aria-hidden="true"
-              class="size-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+            <aec-icon name="plus" decorative [size]="4" />
             <span>{{ addLabel() }}</span>
           </button>
           <span class="text-xs text-(--text-secondary)">{{ counter() }}</span>
@@ -211,17 +182,12 @@ export class VendorBulletListEditor {
 
   readonly bulletsChange = output<readonly BulletDraft[]>();
 
-  protected readonly iconButtonClass =
-    'inline-flex size-8 cursor-pointer items-center justify-center rounded-(--radius-sm) border border-(--border-default) text-(--text-secondary) transition-colors hover:border-(--border-strong) hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-40';
-  protected readonly addButtonClass =
-    'inline-flex cursor-pointer items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  private readonly inputBase =
-    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly inputClass = computed(() =>
-    this.disabled()
-      ? `${this.inputBase} bg-(--surface-sunken)`
-      : `${this.inputBase} bg-(--surface-base)`,
-  );
+  /**
+   * AECI-1810: the shared field recipe. A read-only list (the plan does not cover
+   * the points) sits on the sunken surface: the `read-only:` variant sorts after the
+   * recipe's `bg-(--surface-base)`, so it wins whenever the input is read-only.
+   */
+  protected readonly inputClass = `${FIELD_INPUT_CLASS} read-only:bg-(--surface-sunken)`;
 
   protected readonly atCap = computed(() => this.bullets().length >= this.maxBullets());
   protected readonly counter = computed(

@@ -517,7 +517,40 @@ describe('SystemStatus — cron liveness (AC 3)', () => {
 
     const row = cronRow(el, 'algolia-drift');
     expect(row.textContent).toContain('Failed');
-    expect(row.querySelector('.text-\\(--status-error\\)')).not.toBeNull();
+    // AECI-1813: the outcome is a chip on the console's critical tone, the one red.
+    expect(row.querySelector('.aec-chip[data-tone="critical"]')?.textContent?.trim()).toBe(
+      'Failed',
+    );
+  });
+
+  it('puts each outcome and state on the shared status tones', async () => {
+    const system = makeSystem({
+      crons: [
+        makeCron({
+          job: 'algolia-drift',
+          schedule: '0 7 * * *',
+          source: 'job_runs',
+          last_run_at: '2026-08-13T07:00:00.000Z',
+          last_outcome: 'ok',
+          duration_ms: 10,
+          run_state: 'complete',
+        }),
+        makeCron({ job: 'metrics-snapshot', schedule: '15 0 * * *' }),
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+    const tone = (job: string) =>
+      cronRow(el, job).querySelector('.aec-chip')?.getAttribute('data-tone');
+    expect(tone('algolia-drift')).toBe('positive');
+    expect(tone('metrics-snapshot')).toBe('quiet');
+  });
+
+  it('renders the cron table on the console recipe: a labelled scroll region', async () => {
+    const { el } = await setup(makeApiMock(makeSystem()));
+    const region = el.querySelector('table')!.closest('[role="region"]')!;
+    expect(region.getAttribute('tabindex')).toBe('0');
+    const caption = el.querySelector(`#${region.getAttribute('aria-labelledby')}`);
+    expect(caption?.tagName).toBe('CAPTION');
   });
 
   it('renders an unfinished run as in flight — not as "Recorded", and never as a success', async () => {

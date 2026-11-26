@@ -34,6 +34,11 @@ import {
   type CatalogueMappingSaved,
 } from './vendor-connector-mapping-form';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { Chip } from '../../shared/chip/chip';
+import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../../shared/form-field/form-field-classes';
+import { PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
 
@@ -75,11 +80,11 @@ function domId(value: string): string {
  */
 @Component({
   selector: 'aec-vendor-connector-catalogue',
-  imports: [AecFormSubmit, AecSelect, VendorConnectorMappingForm],
+  imports: [AecButton, AecCard, AecFormSubmit, AecSelect, Chip, VendorConnectorMappingForm],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-catalogue-heading" data-catalogue>
-      <div class="max-w-[52ch] space-y-2">
+      <div class="max-w-[30rem] space-y-2">
         <h2 id="vendor-catalogue-heading" class="m-0">
           <!-- The size lives on the span: styles.css sizes h2 outside any cascade
                layer, so a text utility on the h2 itself is dead. -->
@@ -98,8 +103,10 @@ function domId(value: string): string {
             Could not load this catalog.
           </p>
           <button
+            aecButton
+            variant="secondary"
+            compact
             type="button"
-            [class]="secondaryButtonClass"
             (click)="reload()"
             i18n="@@vendor.catalogue.retry"
           >
@@ -127,7 +134,7 @@ function domId(value: string): string {
 
         @if (c.managed_by === 'review') {
           <p
-            class="mt-4 max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-3 text-sm leading-relaxed text-(--text-primary)"
+            [class]="noticeClass + ' mt-4 max-w-[52ch] text-sm leading-relaxed'"
             data-catalogue-review-managed
             i18n="@@vendor.catalogue.reviewManaged"
           >
@@ -150,7 +157,7 @@ function domId(value: string): string {
             id="vendor-catalogue-alert"
             tabindex="-1"
             role="alert"
-            class="mt-4 max-w-[52ch] rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="mt-4 max-w-[52ch] rounded-panel border border-(--border-strong) bg-(--surface-base) px-6 py-4 text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             data-catalogue-alert
           >
             {{ listAlert() }}
@@ -167,8 +174,10 @@ function domId(value: string): string {
               >Could not refresh the list. It shows what was loaded last.</span
             >
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryButtonClass"
               (click)="reload()"
               i18n="@@vendor.catalogue.retry"
             >
@@ -179,13 +188,15 @@ function domId(value: string): string {
 
         @if (stale()) {
           <div
-            class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 rounded-(--radius-md) bg-(--surface-sunken) px-4 py-3 text-sm text-(--text-primary)"
+            class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 rounded-panel bg-(--surface-sunken) px-6 py-4 text-sm text-(--text-primary)"
             data-catalogue-stale
           >
             <span i18n="@@vendor.catalogue.stale">This catalog changed elsewhere.</span>
             <button
+              aecButton
+              variant="secondary"
+              compact
               type="button"
-              [class]="secondaryButtonClass"
               (click)="discardAndReload()"
               i18n="@@vendor.catalogue.stale.reload"
             >
@@ -201,14 +212,14 @@ function domId(value: string): string {
           [attr.aria-label]="filterLabel"
           (aecSubmit)="applySearch()"
         >
-          <div class="min-w-0 sm:w-72">
+          <div class="min-w-0 space-y-2 sm:w-80">
             <label
               for="vendor-catalogue-search"
               [class]="labelClass"
               i18n="@@vendor.catalogue.search"
               >Find a listing</label
             >
-            <div class="mt-1 flex gap-2">
+            <div class="flex gap-2">
               <input
                 id="vendor-catalogue-search"
                 type="search"
@@ -218,8 +229,10 @@ function domId(value: string): string {
                 (input)="searchDraft.set(inputValue($event))"
               />
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="submit"
-                [class]="secondaryButtonClass"
                 i18n="@@vendor.catalogue.search.submit"
               >
                 Search
@@ -240,20 +253,19 @@ function domId(value: string): string {
         </form>
 
         @if (listings().length === 0) {
-          <p
-            class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm text-(--text-primary)"
-            data-catalogue-empty
-          >
+          <p aecCard class="mt-6 p-6 text-sm text-(--text-primary)" data-catalogue-empty>
             {{ emptyMessage() }}
           </p>
         } @else {
+          <!-- AECI-1811: one card, the listings divided by hairlines. -->
           <ul
-            class="m-0 mt-6 list-none divide-y divide-(--border-default) rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-0"
+            aecCard
+            class="m-0 mt-6 list-none divide-y divide-(--border-default) p-0"
             [attr.aria-busy]="refreshing() ? 'true' : null"
             data-catalogue-list
           >
             @for (listing of listings(); track listing.id) {
-              <li class="px-4 py-4 sm:px-5" data-listing [attr.data-listing-id]="listing.id">
+              <li class="px-6 py-4" data-listing [attr.data-listing-id]="listing.id">
                 <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <h3 class="m-0 min-w-0">
                     <!-- Body face at 16px, on the span: the h3 element rule is
@@ -269,7 +281,7 @@ function domId(value: string): string {
                       [href]="listing.url"
                       target="_blank"
                       rel="noopener nofollow"
-                      class="inline-flex min-h-6 items-center text-sm text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="inline-flex min-h-6 items-center rounded-mark text-sm text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                       ><span i18n="@@vendor.catalogue.viewListing">View listing</span
                       ><span class="sr-only">{{ newTabSuffix(listing) }}</span></a
                     >
@@ -284,21 +296,21 @@ function domId(value: string): string {
                     @for (m of listing.mappings; track m.id) {
                       <li data-mapping [attr.data-mapping-id]="m.id">
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                          <p class="m-0 text-sm font-medium text-(--text-primary)">
+                          <p class="m-0 text-sm font-semibold text-(--text-primary)">
                             {{ summary(m) }}
                           </p>
                           @if (m.publishable) {
-                            <span
-                              class="inline-flex items-center rounded-full bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-                              i18n="@@vendor.catalogue.publishable"
-                              >Counts toward reach</span
+                            <aec-chip density="dense" i18n="@@vendor.catalogue.publishable"
+                              >Counts toward reach</aec-chip
                             >
                           }
                           @if (editable() && editingId() !== m.id) {
                             <button
+                              aecButton
+                              variant="secondary"
+                              compact
                               type="button"
                               [id]="editButtonId(m)"
-                              [class]="editButtonClass"
                               [disabled]="editingId() !== null"
                               (click)="openEdit(m)"
                             >
@@ -319,7 +331,7 @@ function domId(value: string): string {
                               [href]="m.evidence_url"
                               target="_blank"
                               rel="noopener nofollow"
-                              class="text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                              class="rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                               ><span i18n="@@vendor.catalogue.evidence">Evidence</span
                               ><span class="sr-only">{{ newTabSuffix(listing) }}</span></a
                             >
@@ -349,8 +361,10 @@ function domId(value: string): string {
               [attr.aria-label]="pagingLabel"
             >
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="secondaryButtonClass"
                 [disabled]="page() <= 1 || editingId() !== null"
                 (click)="goToPage(page() - 1)"
                 i18n="@@vendor.catalogue.page.previous"
@@ -359,8 +373,10 @@ function domId(value: string): string {
               </button>
               <span class="text-(--text-secondary)" data-catalogue-page>{{ pageLabel() }}</span>
               <button
+                aecButton
+                variant="secondary"
+                compact
                 type="button"
-                [class]="secondaryButtonClass"
                 [disabled]="page() >= pageCount() || editingId() !== null"
                 (click)="goToPage(page() + 1)"
                 i18n="@@vendor.catalogue.page.next"
@@ -372,7 +388,7 @@ function domId(value: string): string {
         }
       } @else {
         <p
-          class="mt-6 max-w-[52ch] rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+          [class]="noticeClass + ' mt-6 max-w-[52ch] text-sm leading-relaxed'"
           data-catalogue-none
           i18n="@@vendor.catalogue.none"
         >
@@ -651,15 +667,8 @@ export class VendorConnectorCatalogue {
     }
   }
 
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** Disabled is a surface swap, never opacity (DESIGN.md, AECI-982). */
-  protected readonly secondaryButtonClass =
-    'inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
-  /** A real button with a 32px target, never the admin's bare underlined link
-   *  (AECI-1079's 24px floor). */
-  protected readonly editButtonClass =
-    'inline-flex min-h-8 items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:bg-(--surface-sunken) disabled:text-(--text-secondary)';
+  // AECI-1811: the shared field recipe, and the portal notice for the two read-only states.
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly noticeClass = PORTAL_NOTICE_CLASS;
 }

@@ -216,9 +216,14 @@ async function click(fixture: { detectChanges(): void }, btn: HTMLButtonElement)
 
 /** The inbox's cards only. The charts above render legends as `<ul>`/`<li>`, so
  *  an unscoped `li` query walks into them. */
-function feedbackCards(root: HTMLElement): HTMLLIElement[] {
+/** A chart's svg. The filters' tick icon is an svg too, so a bare `svg` query
+ *  would find the pressed range button (AECI-2125). */
+const CHART_SVG = 'figure svg, aec-series-sparkline svg';
+
+function feedbackCards(root: HTMLElement): HTMLTableRowElement[] {
   const section = root.querySelector('[aria-labelledby="admin-audience-feedback-heading"]');
-  return [...(section?.querySelectorAll('li') ?? [])];
+  // AECI-2125: the inbox is a console table, one body row per submission.
+  return [...(section?.querySelectorAll<HTMLTableRowElement>('tbody tr') ?? [])];
 }
 
 describe('AdminAudience', () => {
@@ -239,7 +244,7 @@ describe('AdminAudience', () => {
 
     expect(el.textContent).toContain('Loading audience data');
     // No figure, no chart and no clock reading in the server render.
-    expect(el.querySelector('svg')).toBeNull();
+    expect(el.querySelector(CHART_SVG)).toBeNull();
     expect(el.textContent).not.toContain('Active subscribers');
   });
 
@@ -281,7 +286,7 @@ describe('AdminAudience', () => {
 
       // Every chart on the page falls through to its empty label. An SVG here
       // would mean an axis was drawn around a measurement nobody took.
-      expect(el.querySelector('svg')).toBeNull();
+      expect(el.querySelector(CHART_SVG)).toBeNull();
       expect(el.textContent).toContain('No subscribers yet.');
       expect(el.textContent).toContain('No signups in this window.');
     });

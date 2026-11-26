@@ -433,6 +433,78 @@ describe('read-only rows', () => {
     expect(el(fixture).querySelector('[role="group"]')).toBeNull();
   });
 
+  // A claim ends promote's upkeep of the row, its data rows included (§4.5.3), so
+  // the unclaimed sentences would contradict "AEC Integrations no longer updates it".
+  describe('connector-powered upkeep copy', () => {
+    const connector = VENDOR_INTEGRATIONS_FIXTURE.integrations[4]!;
+    const claimedAt = '2026-09-23T00:00:00.000Z';
+    const agave = { id: '00000000-0000-4000-8000-0000000052f9', name: 'Agave' };
+
+    async function render(integration: typeof connector) {
+      const api = makeApi([integration]);
+      await setup(api, integration);
+      return mount(IntegrationSharedData, integration);
+    }
+
+    it('unclaimed: AEC Integrations keeps the rows, in all three places', async () => {
+      const fixture = await render({ ...connector, claimed_at: null });
+      expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
+        'AEC Integrations keeps these up to date. They run through Agave ERP Sync, so neither company answers for them.',
+      );
+      expect(text(fixture)).toContain('AEC Integrations keeps this list up to date.');
+      expect(text(fixture)).toContain(
+        'AEC Integrations checks it. Neither company answers for it.',
+      );
+      expect(text(fixture)).not.toContain('stopped updating');
+      expect(text(fixture)).not.toContain('no longer updates');
+    });
+
+    it('claimed by another company: names the owner and makes no upkeep promise', async () => {
+      const fixture = await render({
+        ...connector,
+        is_owner: false,
+        owner: agave,
+        claimed_at: claimedAt,
+      });
+      expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
+        'AEC Integrations stopped updating these when Agave claimed this integration. They run through Agave ERP Sync, so neither product vendor can confirm them.',
+      );
+      expect(text(fixture)).toContain(
+        'AEC Integrations stopped updating this list when the integration was claimed.',
+      );
+      expect(text(fixture)).toContain(
+        'AEC Integrations no longer updates it. Neither product vendor can confirm it.',
+      );
+      expect(text(fixture)).not.toContain('keeps these up to date');
+      expect(text(fixture)).not.toContain('keeps this list up to date');
+      expect(text(fixture)).not.toContain('AEC Integrations checks it');
+    });
+
+    it('claimed by the caller: says your company', async () => {
+      const fixture = await render({
+        ...connector,
+        is_owner: true,
+        owner: agave,
+        claimed_at: claimedAt,
+      });
+      expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
+        'AEC Integrations stopped updating these when your company claimed this integration. They run through Agave ERP Sync, so neither product vendor can confirm them.',
+      );
+    });
+
+    it('claimed with no owner on the wire: names nobody', async () => {
+      const fixture = await render({
+        ...connector,
+        is_owner: false,
+        owner: null,
+        claimed_at: claimedAt,
+      });
+      expect(el(fixture).querySelector(testid('connector-note'))!.textContent!.trim()).toBe(
+        'AEC Integrations stopped updating these when this integration was claimed. They run through Agave ERP Sync, so neither product vendor can confirm them.',
+      );
+    });
+  });
+
   it('without access, every answer is disabled and the access sentence shows', async () => {
     const api = makeApi([PROCORE]);
     await setup(api, PROCORE, VENDOR_ME_UNVERIFIED_FIXTURE);
@@ -602,7 +674,9 @@ describe('a submitted change (AECI-1246)', () => {
     expect(cell.getAttribute('colspan')).toBe('4');
     expect(cell.id).toBe('change-denied-docs');
     expect(cell.getAttribute('tabindex')).toBe('-1');
-    expect(cell.classList).toContain('id-change-box');
+    // Attached to the row above: a 3px Forest edge on the sunken fill (AECI-1811).
+    expect(cell.classList).toContain('border-s-3');
+    expect(cell.classList).toContain('border-(--accent-primary)');
     expect(box.textContent).toContain('You submitted a change');
     expect(box.textContent).toContain('Documents: To Procore becomes Both ways');
     expect(box.textContent).toContain('Your reason: They go both ways.');

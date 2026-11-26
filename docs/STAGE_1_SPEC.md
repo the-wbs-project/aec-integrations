@@ -286,7 +286,7 @@ There is no separate marketing page: the app home **is** the marketing page. It 
 
 One page on `DetailLayout`'s band shell (`shell="bands"`), in this order:
 
-1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the category hub with a pair finder under it (ruling R3, AECI-1787), A to Z by category name.
+1. **Hero** (`product-hero.ts`, Forest): the breadcrumb, the mark and the name at Display, the vendor, the two ratings, and two equal actions, "Visit website" and "Write a review". An unclaimed listing shows the "Unclaimed · not affiliated with or endorsed by this vendor" note. On the right, the integrations wheel (AECI-2018, which replaced ruling R3's category hub and pair finder): "All integrations" and then one slide per category, the products A to Z, dots past what fits (`DESIGN.md` §5 "The hero diagram").
 2. **Facts card** (`product-facts-card.ts`): one elevated card pulled up over the hero's lower edge. It holds the integration count as a figure, the vendor, the categories, the resources, and the "Claim Vendor" and "Suggest a correction" buttons (AECI-1779, AECI-1925).
 3. **Section nav** (`aec-section-nav`), sticky, when the page has two sections or more. It carries no "Unclaimed" tag: the ruling 41 trial tag was removed on 2026-11-23 (AECI-2012). The hero keeps the Unclaimed note.
 4. **About** (`#about`), the page's one Bone band: the description and "Who it is for" (AECI-1780).
@@ -2212,7 +2212,7 @@ Each workflow type has a documented state machine. **It is documentation, not en
 When a workflow has a `linear_issue_id`, state changes flow both ways:
 
 - **Site → Linear:** Worker calls Linear GraphQL API on transition (status update, comment append)
-- **Linear → Site:** Linear webhook posts to `/api/webhooks/linear` on issue state change; Worker writes a `workflow_transitions` entry with `actor_type='workflow'` and metadata referencing the Linear action
+- **Linear → Site:** Linear webhook posts to `/api/webhooks/linear` on issue state change; Worker writes a `workflow_transitions` entry with `actor_type='workflow'` and metadata referencing the Linear action. When the instance is gone (the legal retention prune, §26.6), the webhook finds the request by its own `linear_issue_id` and re-creates the instance in the same batch (AECI-1913)
 
 This ensures the audit trail is complete regardless of where the action originated.
 
@@ -2279,7 +2279,14 @@ Use `logBatchToPosthog` (`apps/api/src/posthog.ts`) for any caller with N relate
 - **One audit row per run.** The deletes and one `retention.pruned` row commit in one `db.batch` (§26.1, ADR 0022). A run that deletes nothing writes no row.
 - **No R2 archive.** The deletion is the promise, so nothing is copied out first. D1 Time Travel can restore about 30 days, so a row pruned beyond that is gone for good.
 
-**`workflow_instances` and `workflow_transitions`: indefinite.** They are small and hold no personal data beyond actor ids, which erasure nulls. Their retention is a named follow-up of AECI-1638. No prune touches them.
+**`workflow_instances` and `workflow_transitions`: four years after the action (AECI-1913, ruling 51).** They record who moved a request and when, so they are part of the audit record the Privacy Policy keeps "for four years after the action". The legal retention prune deletes them with the same cutoff and the same holds as `audit_log`.
+
+- **A transition** goes once its `created_at` is past the cutoff. Each transition is one action, so an old one goes while its instance lives on.
+- **An instance** goes once its latest action is past the cutoff. Its latest action is the latest of `initiated_at`, `completed_at` and its newest transition. This holds whether or not it completed, because a `reviewer_ban` instance is reused for every ban and unban and never completes. The instance of a request still `open` or `in_review` is kept while it names no actor (`initiated_by` is NULL, as on every request instance), because the reconciliation sweep retries a stuck request only through it. Its transitions still go. No other instance is kept. Writers re-create a missing instance in the batch that records its transition. The Linear webhook finds the request by its own `linear_issue_id`, and contest writers relink a new instance to the contest: a vendor or AECi decision, a retire or promote move that closes it, the reroute to AECi, the seat hand-back, and a protest reply or decision. These webhook and contest restores use a deterministic id (`restored-<kind>-<entity id>`), so a concurrent second restore collides on the primary key and its batch fails whole. Other workflow writers use their existing find-or-create logic.
+- **The foreign keys do the rest.** Deleting an instance cascades its transitions. `integration_field_challenges.workflow_id` and `.protest_workflow_id` go to NULL, and the run record counts those contests as `contestLinksCleared`.
+- **Litigation hold.** A global hold pauses the run. A vendor hold keeps that company's instances and their transitions, by the workflow ties in `DATABASE_SCHEMA.md` §8.4 "Whose row it is, for a hold".
+- **Nothing is kept longer.** No acceptance record names a workflow row, so the kept-longer rule has nothing to apply to.
+- **One audit row per run**, the same `retention.pruned` row as above. The workflow tables are not chained, so it carries counts and no ids.
 
 ### 26.7 Access control
 

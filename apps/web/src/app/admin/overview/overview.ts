@@ -8,10 +8,14 @@ import type {
   VersionResponse,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
 import { AdminNotes } from '../admin-notes';
 import { AdminPanelApi } from '../admin-panel-api';
 import type { StackedBarPoint } from '../charts/chart-geometry';
 import { StackedBarChart } from '../charts/stacked-bar-chart';
+import { CONSOLE_LABEL_CLASS, CONSOLE_PANEL_CLASS } from '../console/console-table';
 import { RankedBarList, type RankedRow } from './ranked-bar-list';
 import { StatTile, type StatTileDelta } from './stat-tile';
 import { StatusStrip } from './status-strip';
@@ -22,6 +26,7 @@ import {
   classDeltaReason,
   trafficClassLabel,
 } from './traffic-classes';
+import { CONSOLE_FIGURE_CLASS } from '../console/console-detail';
 
 /**
  * Metrics whose 30-day trend the `/overview` bundle does NOT carry, fetched in a
@@ -72,6 +77,8 @@ const SPARKLINE_METRICS = ['traffic.unique_visitors', 'accounts.sign_ins_new'] a
   selector: 'aec-admin-overview',
   imports: [
     DatePipe,
+    AecButton,
+    AecIcon,
     AdminNotes,
     StackedBarChart,
     RankedBarList,
@@ -83,6 +90,12 @@ const SPARKLINE_METRICS = ['traffic.unique_visitors', 'accounts.sign_ins_new'] a
 })
 export class AdminOverview {
   private readonly api = inject(AdminPanelApi);
+
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  /** A catalog total: 24px at 600 in the display face, tabular figures. */
+  protected readonly totalClass = CONSOLE_FIGURE_CLASS;
 
   protected readonly overview = signal<AdminOverviewResponse | null>(null);
   protected readonly loading = signal(true);

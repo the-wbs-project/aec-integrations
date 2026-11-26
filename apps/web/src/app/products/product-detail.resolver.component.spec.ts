@@ -181,7 +181,7 @@ registerDetailResolverSuite<ProductDetail>({
   // Powered edges (Addendum B) tag BOTH endpoints — this product is the
   // connector, so neither endpoint is "self".
   expectedEmbedded: [
-    { type: 'vendor', slug: 'procore' },
+    { type: 'vendor', slug: 'procore', lead: true }, // AECI-2025: its logo renders in the facts card
     { type: 'integration', id: 'int-a' },
     { type: 'product', slug: 'b' }, // target of integrations_as_source[0]
     { type: 'integration', id: 'int-v' },
@@ -329,6 +329,68 @@ describe('productDetailResolver — product-specific', () => {
       { type: 'integration', id: 'int-conv-a' },
       { type: 'product', slug: 'aquifer' },
     ]);
+  });
+
+  it('adds no cache tag when a Convention-A edge is also in the raw powered list (AECI-2051)', async () => {
+    // §13.4(2): on the connector's own page the API sends the edge in an endpoint
+    // bucket AND in `integrations_as_connector`. The powered walk then pushes the
+    // integration, the partner and the page product again. `buildCacheTags` keeps a
+    // set, and the page product is already the response's own entity tag, so the
+    // header is the same as it was with the edge in the endpoint bucket alone.
+    const self = { id: 's5', name: 'Procore', slug: 'procore', logo_url: null };
+    const adp = { id: 's6', name: 'ADP', slug: 'adp-workforce-now', logo_url: null };
+    const powered = {
+      id: 'int-conv-a',
+      name: 'ADP ↔ Procore',
+      mechanism_kind: 'iPaaS' as const,
+      mechanism_name: null,
+      direction: null,
+      source: adp,
+      target: self,
+      via: null,
+      data_object_slugs: [],
+      created_at: '2024-01-01T00:00:00.000Z',
+      updated_at: '2024-01-01T00:00:00.000Z',
+    };
+    const endpointRow = {
+      ...powered,
+      context_direction: null,
+      powered_by_product: self,
+      data_objects: [],
+      partner_categories: [],
+      agreement: null,
+    };
+    const tagsFor = async (product: ProductDetail): Promise<string[]> => {
+      TestBed.resetTestingModule();
+      const ctx = createRequestContext(buildClient(async () => product));
+      const { run } = setup({
+        platform: 'server',
+        ctx,
+        responseInit: { status: 200 },
+        request: new Request('https://aecintegrations.com/products/procore'),
+        meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+      });
+      await run();
+      // The page's own entity tag, then every embedded one, as a set: what the header
+      // builder emits.
+      const tags = new Set(
+        [{ type: 'product', slug: 'procore' }, ...ctx.embedded].map((e) => JSON.stringify(e)),
+      );
+      return [...tags].sort();
+    };
+    const base = {
+      vendor: null,
+      product_role: 'connector' as const,
+      integrations_as_target: [endpointRow],
+    };
+
+    const withoutPowered = await tagsFor(buildProduct({ ...base, integrations_as_connector: [] }));
+    const withPowered = await tagsFor(
+      buildProduct({ ...base, integrations_as_connector: [powered] }),
+    );
+
+    expect(withPowered).toEqual(withoutPowered);
+    expect(withPowered).toHaveLength(3);
   });
 
   it("tags each row's partner vendor, whose name the row prints (AECI-1720)", async () => {

@@ -436,6 +436,10 @@ describe('SearchAutocomplete', () => {
     const label = host.querySelector('label[for="vp-search"]')!;
     expect(label.classList).not.toContain('sr-only');
     expect(label.textContent?.trim()).toBe('Your product or company');
+    // AECI-2003: a visible label defaults to the Label role, 13px at 600.
+    expect(label.classList).toContain('text-t-13');
+    expect(label.classList).toContain('font-semibold');
+    expect(label.classList).not.toContain('text-sm');
     const input = host.querySelector('input')!;
     expect(input.classList).toContain('h-11');
     expect(input.classList).not.toContain('h-9');

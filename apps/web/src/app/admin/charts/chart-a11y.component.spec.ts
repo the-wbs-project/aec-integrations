@@ -146,7 +146,9 @@ describe('chart accessibility contract (ADMIN_PANEL_SPEC §8)', () => {
         const el = setup(chart);
         const table = el.querySelector('table');
         expect(table, 'no data table').not.toBeNull();
-        expect(table!.classList.contains('sr-only')).toBe(true);
+        // The table itself, or a wrapper around it (the stacked bar chart, AECI-1813:
+        // a table never shrinks to sr-only's 1px box, so the wrapper clips it).
+        expect(table!.closest('.sr-only')).not.toBeNull();
         expect(readTable(table as HTMLTableElement)).toEqual(chart.expected);
       });
 
@@ -185,6 +187,45 @@ describe('chart accessibility contract (ADMIN_PANEL_SPEC §8)', () => {
       });
     });
   }
+});
+
+/**
+ * AECI-2125, the relief rule (`styles.css` `.aec-charts`): slots 3 to 5 sit below
+ * 3:1, so a line drawn in one of them carries its latest value as visible text in
+ * the legend, and colour alone never carries it (WCAG 1.4.1).
+ */
+describe('LineChart relief for the low-contrast slots', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function legendText(series: ChartSeries[]): string[] | null {
+    const el = setup({
+      ...CASES[0]!,
+      inputs: { ...CASES[0]!.inputs, series },
+    });
+    const legend = el.querySelector('aec-chart-legend');
+    if (!legend) return null;
+    return [...legend.querySelectorAll('li span:not([aria-hidden])')].map(
+      (s) => s.textContent?.trim() ?? '',
+    );
+  }
+
+  it('shows a lone slot-4 series in a legend with its latest value', () => {
+    expect(legendText([{ key: 'x', label: 'Signups', slot: 4, values: [3, 9, 1284] }])).toEqual([
+      'Signups',
+      '1,284',
+    ]);
+  });
+
+  it('keeps the lone slot-1 series legend-free, as before', () => {
+    expect(legendText([{ key: 'x', label: 'Signups', slot: 1, values: [3, 9, 12] }])).toBeNull();
+  });
+
+  it('puts the hidden data table inside an sr-only wrapper, so it cannot widen the page', () => {
+    const el = setup(CASES[0]!);
+    const table = el.querySelector('aec-chart-data-table table')!;
+    expect(table.classList.contains('sr-only')).toBe(false);
+    expect(table.parentElement!.classList.contains('sr-only')).toBe(true);
+  });
 });
 
 /**

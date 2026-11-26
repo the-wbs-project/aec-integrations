@@ -31,6 +31,10 @@ import { Component, computed, input, output } from '@angular/core';
 import type { AdminNote } from '@aeci/shared';
 
 import { AdminNotes } from '../admin-notes';
+import { CONSOLE_PANEL_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { AecButton } from '../../shared/button/button';
+
+let nextId = 0;
 
 /** Which bucket the rows are keyed by. Drives wording only. */
 export type AdditionsGranularity = 'day' | 'month';
@@ -46,87 +50,76 @@ export interface AdditionsRow {
 
 @Component({
   selector: 'aec-additions-table',
-  imports: [AdminNotes],
+  imports: [AdminNotes, AecButton],
   template: `
     <aec-admin-notes [notes]="notes()" />
 
     @if (loading()) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.loading">
+      <p class="mt-4 text-t-16 text-(--text-secondary)" i18n="@@admin.catalog.additions.loading">
         Loading additions…
       </p>
     } @else if (failed()) {
-      <div class="mt-4 space-y-3">
+      <div [class]="panelClass" class="mt-4">
         <p
-          class="text-sm font-medium text-(--text-primary)"
+          class="text-t-16 font-semibold text-(--text-primary)"
           role="alert"
           i18n="@@admin.catalog.additions.loadFailed"
         >
           We couldn't load the additions series.
         </p>
         <button
-          type="button"
+          aecButton
+          variant="secondary"
+          class="mt-4"
           (click)="retry.emit()"
-          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           i18n="@@admin.catalog.additions.retry"
         >
           Try again
         </button>
       </div>
     } @else if (empty()) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.emptyNet">
+      <p [class]="t.empty" class="mt-4" i18n="@@admin.catalog.additions.emptyNet">
         Nothing currently in the catalog was added in this window.
       </p>
     } @else {
-      <div class="mt-4 overflow-x-auto">
-        <table class="w-full min-w-[32rem] border-collapse text-sm">
-          <caption class="sr-only">
+      <div
+        [class]="t.region"
+        class="mt-4"
+        role="region"
+        tabindex="0"
+        [attr.aria-labelledby]="captionId"
+      >
+        <table [class]="t.table" class="min-w-[32rem]">
+          <caption [id]="captionId" [class]="t.caption">
             {{
               caption()
             }}
           </caption>
           <thead>
-            <tr class="border-b border-(--border-strong)">
-              <th
-                scope="col"
-                class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              >
-                {{ bucketHeading() }}
-              </th>
+            <tr>
+              <th scope="col" [class]="t.head">{{ bucketHeading() }}</th>
               @for (label of seriesLabels(); track label) {
-                <th
-                  scope="col"
-                  class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                >
-                  {{ label }}
-                </th>
+                <th scope="col" [class]="t.headNum">{{ label }}</th>
               }
             </tr>
           </thead>
           <tbody>
             @for (row of rows(); track row.bucket) {
-              <tr class="border-b border-(--border-default)">
-                <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
-                  {{ row.bucket }}
-                </th>
+              <tr [class]="t.row">
+                <th scope="row" [class]="bucketClass">{{ row.bucket }}</th>
                 @for (v of row.values; track $index) {
-                  <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">{{ v }}</td>
+                  <td [class]="t.num">{{ v }}</td>
                 }
               </tr>
             }
           </tbody>
           <tfoot>
-            <tr class="border-t-2 border-(--border-strong)">
-              <th
-                scope="row"
-                class="py-2 pe-4 text-start font-bold text-(--text-primary)"
-                i18n="@@admin.catalog.additions.totalNet"
-              >
+            <tr>
+              <th scope="row" [class]="footHeadClass" i18n="@@admin.catalog.additions.totalNet">
                 In catalog from this window
               </th>
               @for (t of totals(); track $index) {
-                <td class="py-2 ps-4 text-end font-bold tabular-nums text-(--text-primary)">
-                  {{ t }}
-                </td>
+                <td [class]="footNumClass">{{ t }}</td>
               }
             </tr>
           </tfoot>
@@ -145,6 +138,19 @@ export class AdditionsTable {
   readonly loading = input.required<boolean>();
   readonly failed = input.required<boolean>();
   readonly retry = output<void>();
+
+  /** The console recipe (AECI-2125). */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  /** The bucket is a date key: never wrapped, tabular. */
+  protected readonly bucketClass = `${CONSOLE_TABLE.rowHead} whitespace-nowrap tabular-nums`;
+  /** The footer row sits under a strong rule and reads at 600, as before. */
+  protected readonly footHeadClass =
+    'px-3 py-2 text-start font-semibold text-(--text-primary) border-t-2 border-(--border-strong)';
+  protected readonly footNumClass =
+    'px-3 py-2 text-end font-semibold tabular-nums lining-nums whitespace-nowrap text-(--text-primary) border-t-2 border-(--border-strong)';
+  /** Both tabs render this table, so each caption needs its own id. */
+  protected readonly captionId = `admin-catalog-additions-caption-${nextId++}`;
 
   /** Column totals, so the table has a footer an operator can read at a glance. */
   protected readonly totals = computed<readonly number[]>(() => {

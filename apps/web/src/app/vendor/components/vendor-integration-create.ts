@@ -47,21 +47,37 @@ import {
   type ProductComboboxSearch,
 } from '../../shared/product-combobox/product-combobox';
 import {
-  ICON_BUTTON,
-  ID_STYLES,
-  ROW_ACTION,
-} from '../integration-detail/integration-detail-styles';
+  PORTAL_FIELDSET_CLASS,
+  PORTAL_FIELD_CLASS,
+  PORTAL_FORM_CLASS,
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_LEGEND_CLASS,
+  PORTAL_SAVE_BAR_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+  PORTAL_SAVE_STATUS_CLASS,
+} from '../shared/portal-form';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { editFieldLabel } from './vendor-contest-labels';
-import { VendorDocsLink } from './vendor-docs-link';
+import { STANDALONE_LINK_CLASS, VendorDocsLink } from './vendor-docs-link';
 import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { claimErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
 import { isReplayedEvent } from '../../core/event-replay';
-import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+  FIELD_OPTIONAL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 
 /**
  * Render the form open on first paint. Provided ONLY by the dev preview
@@ -181,6 +197,10 @@ function emptyDraft(): Draft {
 @Component({
   selector: 'aec-vendor-integration-create',
   imports: [
+    AecButton,
+    AecCard,
+    AecIcon,
+    KeepClearOfSaveBar,
     LogoOrInitial,
     NewTabIcon,
     NgTemplateOutlet,
@@ -188,24 +208,25 @@ function emptyDraft(): Draft {
     RouterLink,
     VendorDocsLink,
   ],
-  styles: [ID_STYLES],
+  styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="integration-create">
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <button
           #trigger
+          aecButton
+          variant="secondary"
           type="button"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="formId"
           (click)="toggle()"
-          [class]="triggerClass"
           data-testid="add-integration"
           i18n="@@vendor.integrationCreate.trigger"
         >
           Add an integration
         </button>
         @if (!open()) {
-          <p class="text-xs text-(--text-secondary)" i18n="@@vendor.integrationCreate.teaser">
+          <p class="text-sm text-(--text-secondary)" i18n="@@vendor.integrationCreate.teaser">
             List an integration your company offers that is not on record yet.
           </p>
         }
@@ -215,31 +236,21 @@ function emptyDraft(): Draft {
       @if (result(); as created) {
         <!-- AECI-1953: one compact success block. A check, the title, one action row,
              and a close button in the corner. The claim receipt uses the same layout. -->
-        <div class="id-card max-w-3xl py-3 ps-4 pe-2" data-testid="create-result">
+        <div aecCard class="max-w-3xl py-4 ps-6 pe-2" data-testid="create-result">
           <div class="flex items-start gap-3">
-            <svg
-              class="mt-0.5 h-5 w-5 shrink-0 text-(--accent-primary)"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path d="m9 12 2 2 4-4" />
-            </svg>
-            <div class="min-w-0 flex-1 space-y-1.5">
+            <span class="mt-1 flex shrink-0 text-(--accent-primary)">
+              <aec-icon name="check-circle" decorative />
+            </span>
+            <div class="min-w-0 flex-1 space-y-1">
               <p
                 #resultHeading
                 tabindex="-1"
-                class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="mt-1 text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 data-testid="create-result-title"
               >
                 {{ resultTitle(created) }}
               </p>
-              <div class="flex flex-wrap items-center gap-x-1 gap-y-1">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
                 @if (linkTo(created.id, created.own.slug); as link) {
                   <a
                     [routerLink]="link"
@@ -262,29 +273,20 @@ function emptyDraft(): Draft {
               </div>
             </div>
             <button
+              aecButton
+              variant="ghost"
+              iconOnly
               type="button"
-              [class]="iconButtonClass"
               aria-label="Dismiss"
               i18n-aria-label="@@vendor.integrationCreate.done.dismiss"
               (click)="dismissResult()"
               data-testid="create-result-dismiss"
             >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <aec-icon name="x" decorative [size]="4" />
             </button>
           </div>
           @if (created.duplicates.length > 0) {
-            <div class="mt-3 space-y-2 pe-2 ps-8">
+            <div class="mt-3 space-y-2 pe-4 ps-8">
               <p
                 class="max-w-prose text-sm text-(--text-secondary)"
                 i18n="@@vendor.integrationCreate.done.lateDupes"
@@ -314,23 +316,26 @@ function emptyDraft(): Draft {
       }
 
       @if (open()) {
+        <!-- AECI-1811: the panel is a portal form card (vendor/shared/portal-form.ts). -->
         <div
+          aecCard
+          phoneFlush
           [id]="formId"
           role="group"
           aria-labelledby="vendor-create-title"
-          class="max-w-3xl space-y-6 rounded-(--radius-md) border border-(--border-default) p-5"
+          class="max-w-4xl space-y-6 p-6 md:p-8"
           data-testid="create-panel"
         >
           <div class="max-w-prose space-y-1">
             <p
               id="vendor-create-title"
-              class="text-sm font-semibold text-(--text-primary)"
+              class="font-display text-t-20 font-semibold text-(--text-primary)"
               i18n="@@vendor.integrationCreate.title"
             >
               Add an integration
             </p>
             <p
-              class="max-w-prose text-xs text-(--text-secondary)"
+              class="max-w-prose text-sm text-(--text-secondary)"
               i18n="@@vendor.integrationCreate.intro"
             >
               Your company will own this integration. It goes live on the public integration page as
@@ -344,15 +349,16 @@ function emptyDraft(): Draft {
               <p
                 #focusTarget
                 tabindex="-1"
-                class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="text-sm font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 i18n="@@vendor.productRequest.receipt.title"
               >
                 We have your request.
               </p>
               <p class="text-sm text-(--text-secondary)">{{ receiptBody(sent.name) }}</p>
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryButtonClass"
                 (click)="startOver()"
                 data-testid="product-request-again"
                 i18n="@@vendor.productRequest.receipt.again"
@@ -363,79 +369,90 @@ function emptyDraft(): Draft {
           } @else if (mode() === 'request') {
             <!-- AECI-1377: the request form swaps in for step 1. -->
             <form
+              aecKeepClearOfSaveBar
               method="dialog"
-              class="space-y-4"
+              [class]="formClass"
               novalidate
               (submit)="onRequestSubmit($event)"
               aria-labelledby="vendor-request-title"
               data-testid="product-request-form"
             >
-              <div class="max-w-prose space-y-1">
+              <div class="mb-6 max-w-prose space-y-1">
                 <p
                   #focusTarget
                   id="vendor-request-title"
                   tabindex="-1"
-                  class="text-sm font-semibold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  [class]="stepTitleClass"
                   i18n="@@vendor.productRequest.title"
                 >
                   Ask us to add the other product
                 </p>
-                <p class="text-xs text-(--text-secondary)" i18n="@@vendor.productRequest.intro">
+                <p class="text-sm text-(--text-secondary)" i18n="@@vendor.productRequest.intro">
                   Tell us which product it is. We will add it to the catalog or tell you why not.
                   Once it is listed, you add the integration yourself.
                 </p>
               </div>
 
-              @for (field of requestFields; track field) {
-                <div class="max-w-2xl space-y-2">
-                  <label [for]="requestFieldId(field)" [class]="labelClass">
-                    {{ requestFieldLabel(field) }}
-                    @if (field === 'website' || field === 'body') {
-                      <span class="font-normal tracking-normal normal-case">{{
-                        optionalLabel
-                      }}</span>
+              <div [class]="gridClass">
+                @for (field of requestFields; track field) {
+                  <div [class]="field === 'body' ? fieldClass + ' ' + spanClass : fieldClass">
+                    <label [for]="requestFieldId(field)" [class]="labelClass">
+                      {{ requestFieldLabel(field) }}
+                      @if (field === 'website' || field === 'body') {
+                        <span [class]="optionalClass">{{ optionalLabel }}</span>
+                      }
+                    </label>
+                    @if (field === 'body') {
+                      <textarea
+                        [id]="requestFieldId(field)"
+                        rows="3"
+                        [attr.maxlength]="requestMax(field)"
+                        [value]="requestDraft()[field]"
+                        (input)="onRequestInput(field, inputValue($event))"
+                        [class]="inputClass"
+                      ></textarea>
+                    } @else {
+                      <input
+                        [id]="requestFieldId(field)"
+                        [type]="field === 'website' ? 'url' : 'text'"
+                        [attr.inputmode]="field === 'website' ? 'url' : null"
+                        [attr.placeholder]="field === 'website' ? 'https://' : null"
+                        [attr.maxlength]="requestMax(field)"
+                        [value]="requestDraft()[field]"
+                        (input)="onRequestInput(field, inputValue($event))"
+                        [attr.aria-invalid]="requestError(field) ? 'true' : null"
+                        [attr.aria-describedby]="
+                          requestError(field) ? requestFieldId(field) + '-error' : null
+                        "
+                        [attr.aria-required]="field === 'name' || field === 'maker' ? 'true' : null"
+                        [class]="inputClass"
+                      />
                     }
-                  </label>
-                  @if (field === 'body') {
-                    <textarea
-                      [id]="requestFieldId(field)"
-                      rows="3"
-                      [attr.maxlength]="requestMax(field)"
-                      [value]="requestDraft()[field]"
-                      (input)="onRequestInput(field, inputValue($event))"
-                      [class]="inputClass"
-                    ></textarea>
-                  } @else {
-                    <input
-                      [id]="requestFieldId(field)"
-                      [type]="field === 'website' ? 'url' : 'text'"
-                      [attr.inputmode]="field === 'website' ? 'url' : null"
-                      [attr.placeholder]="field === 'website' ? 'https://' : null"
-                      [attr.maxlength]="requestMax(field)"
-                      [value]="requestDraft()[field]"
-                      (input)="onRequestInput(field, inputValue($event))"
-                      [attr.aria-invalid]="requestError(field) ? 'true' : null"
-                      [attr.aria-describedby]="
-                        requestError(field) ? requestFieldId(field) + '-error' : null
-                      "
-                      [attr.aria-required]="field === 'name' || field === 'maker' ? 'true' : null"
-                      [class]="inputClass"
-                    />
-                  }
-                  @if (requestError(field); as message) {
-                    <p [id]="requestFieldId(field) + '-error'" role="alert" [class]="errorClass">
+                    @if (requestError(field); as message) {
+                      <p [id]="requestFieldId(field) + '-error'" role="alert" [class]="errorClass">
+                        {{ message }}
+                      </p>
+                    }
+                  </div>
+                }
+              </div>
+
+              <div [class]="saveBarClass">
+                <div [class]="saveStatusClass">
+                  @if (requestNotice(); as message) {
+                    <p
+                      role="alert"
+                      class="font-semibold text-(--text-primary)"
+                      data-testid="product-request-notice"
+                    >
                       {{ message }}
                     </p>
                   }
                 </div>
-              }
-
-              <div
-                class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4"
-              >
                 <button
+                  aecButton
                   type="submit"
-                  [class]="primaryButtonClass"
+                  [class]="saveButtonClass"
                   [disabled]="requestSaving()"
                   data-testid="product-request-submit"
                 >
@@ -446,8 +463,10 @@ function emptyDraft(): Draft {
                   }
                 </button>
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
-                  [class]="secondaryButtonClass"
+                  [class]="saveButtonClass"
                   [disabled]="requestSaving()"
                   (click)="backToSearch()"
                   data-testid="product-request-back"
@@ -456,21 +475,12 @@ function emptyDraft(): Draft {
                   Back to search
                 </button>
               </div>
-
-              @if (requestNotice(); as message) {
-                <p
-                  role="alert"
-                  class="text-sm font-medium text-(--text-primary)"
-                  data-testid="product-request-notice"
-                >
-                  {{ message }}
-                </p>
-              }
             </form>
           } @else if (counterpart(); as chosen) {
             <form
+              aecKeepClearOfSaveBar
               method="dialog"
-              class="space-y-6"
+              [class]="formClass"
               novalidate
               (submit)="onSubmit($event)"
               aria-labelledby="vendor-create-step"
@@ -480,7 +490,7 @@ function emptyDraft(): Draft {
                 #focusTarget
                 id="vendor-create-step"
                 tabindex="-1"
-                class="space-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="mb-8 space-y-1 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 data-testid="create-step"
               >
                 <span [class]="stepCountClass" i18n="@@vendor.integrationCreate.step2.count"
@@ -492,201 +502,201 @@ function emptyDraft(): Draft {
                 >
               </p>
 
-              <fieldset class="space-y-4">
+              <fieldset [class]="fieldsetClass">
                 <legend [class]="legendClass" i18n="@@vendor.integrationCreate.group.products">
                   The two products
                 </legend>
-                <ng-container [ngTemplateOutlet]="ownProductBox" />
+                <div [class]="gridClass">
+                  <ng-container [ngTemplateOutlet]="ownProductBox" />
 
-                <div class="max-w-2xl space-y-2">
-                  <p [class]="labelClass" i18n="@@vendor.integrationCreate.counterpart.label">
-                    The other product
-                  </p>
-                  <div
-                    class="flex max-w-sm items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
-                    data-testid="create-counterpart"
-                  >
-                    <aec-logo-or-initial
-                      [claimStatus]="'stored'"
-                      [src]="chosen.logo_url ?? null"
-                      [name]="chosen.name"
-                      size="sm"
-                    />
-                    <span class="flex min-w-0 flex-1 flex-col">
-                      <span class="truncate text-sm font-medium text-(--text-primary)">{{
-                        chosen.name
-                      }}</span>
-                      @if (chosen.vendor; as vendor) {
-                        <span class="truncate text-xs text-(--text-secondary)">{{
-                          vendor.name
+                  <div [class]="fieldClass">
+                    <p [class]="labelClass" i18n="@@vendor.integrationCreate.counterpart.label">
+                      The other product
+                    </p>
+                    <div [class]="productBoxClass" data-testid="create-counterpart">
+                      <aec-logo-or-initial
+                        [claimStatus]="'stored'"
+                        [src]="chosen.logo_url ?? null"
+                        [name]="chosen.name"
+                        size="sm"
+                      />
+                      <span class="flex min-w-0 flex-1 flex-col">
+                        <span class="truncate text-sm font-semibold text-(--text-primary)">{{
+                          chosen.name
                         }}</span>
-                      }
-                    </span>
-                    <button
-                      type="button"
-                      [class]="secondaryButtonClass"
-                      [attr.aria-label]="changeCounterpartLabel(chosen.name)"
-                      [disabled]="saving() || claimingId() !== null"
-                      (click)="onChangeCounterpart()"
-                      data-testid="create-change-counterpart"
-                      i18n="@@vendor.integrationCreate.counterpart.change"
-                    >
-                      Change
-                    </button>
-                  </div>
-                </div>
-
-                @if (check().state === 'loading') {
-                  <p
-                    class="max-w-prose text-sm text-(--text-secondary)"
-                    data-testid="create-dupes-loading"
-                    i18n="@@vendor.integrationCreate.dupes.loading"
-                  >
-                    Checking for integrations already on record…
-                  </p>
-                } @else if (duplicates().length > 0) {
-                  <!-- AECI-1953: the create's own strong matches, before the create. -->
-                  <div
-                    class="id-card max-w-2xl"
-                    role="group"
-                    aria-labelledby="vendor-create-dupes-title vendor-create-dupes-count"
-                    data-testid="create-dupes"
-                  >
-                    <div class="px-4 py-3">
-                      <div class="flex flex-wrap items-baseline justify-between gap-x-3">
-                        <p
-                          id="vendor-create-dupes-title"
-                          class="text-sm font-semibold text-(--text-primary)"
-                          data-testid="create-dupes-title"
-                          i18n="@@vendor.integrationCreate.dupes.heading"
-                        >
-                          Already on record for these two products
-                        </p>
-                        <span
-                          id="vendor-create-dupes-count"
-                          class="text-sm text-(--text-secondary) tabular-nums"
-                          data-testid="create-dupes-count"
-                          >{{ duplicatesCount() }}</span
-                        >
-                      </div>
-                      <p
-                        class="mt-0.5 max-w-prose text-sm text-(--text-secondary)"
-                        i18n="@@vendor.integrationCreate.dupes.help"
+                        @if (chosen.vendor; as vendor) {
+                          <span class="truncate text-xs text-(--text-secondary)">{{
+                            vendor.name
+                          }}</span>
+                        }
+                      </span>
+                      <button
+                        aecButton
+                        variant="secondary"
+                        compact
+                        type="button"
+                        [attr.aria-label]="changeCounterpartLabel(chosen.name)"
+                        [disabled]="saving() || claimingId() !== null"
+                        (click)="onChangeCounterpart()"
+                        data-testid="create-change-counterpart"
+                        i18n="@@vendor.integrationCreate.counterpart.change"
                       >
-                        If one of them is yours, use it instead of adding a copy.
-                      </p>
+                        Change
+                      </button>
                     </div>
-                    <ul
-                      class="m-0 list-none divide-y divide-(--border-default) border-t border-(--border-default) p-0"
-                    >
-                      @for (dup of duplicates(); track dup.id) {
-                        <ng-container
-                          [ngTemplateOutlet]="duplicateRow"
-                          [ngTemplateOutletContext]="{
-                            $implicit: dup,
-                            receipt: false,
-                            ownSlug: ownSlug(),
-                          }"
-                        />
-                      }
-                    </ul>
                   </div>
-                }
+
+                  @if (check().state === 'loading') {
+                    <p
+                      [class]="'max-w-prose text-sm text-(--text-secondary) ' + spanClass"
+                      data-testid="create-dupes-loading"
+                      i18n="@@vendor.integrationCreate.dupes.loading"
+                    >
+                      Checking for integrations already on record…
+                    </p>
+                  } @else if (duplicates().length > 0) {
+                    <!-- AECI-1953: the create's own strong matches, before the create. -->
+                    <div
+                      [class]="dupesClass"
+                      role="group"
+                      aria-labelledby="vendor-create-dupes-title vendor-create-dupes-count"
+                      data-testid="create-dupes"
+                    >
+                      <div class="px-4 py-3">
+                        <div class="flex flex-wrap items-baseline justify-between gap-x-3">
+                          <p
+                            id="vendor-create-dupes-title"
+                            class="text-sm font-semibold text-(--text-primary)"
+                            data-testid="create-dupes-title"
+                            i18n="@@vendor.integrationCreate.dupes.heading"
+                          >
+                            Already on record for these two products
+                          </p>
+                          <span
+                            id="vendor-create-dupes-count"
+                            class="text-sm text-(--text-secondary) tabular-nums"
+                            data-testid="create-dupes-count"
+                            >{{ duplicatesCount() }}</span
+                          >
+                        </div>
+                        <p
+                          class="mt-1 max-w-prose text-sm text-(--text-secondary)"
+                          i18n="@@vendor.integrationCreate.dupes.help"
+                        >
+                          If one of them is yours, use it instead of adding a copy.
+                        </p>
+                      </div>
+                      <ul
+                        class="m-0 list-none divide-y divide-(--border-default) border-t border-(--border-default) p-0"
+                      >
+                        @for (dup of duplicates(); track dup.id) {
+                          <ng-container
+                            [ngTemplateOutlet]="duplicateRow"
+                            [ngTemplateOutletContext]="{
+                              $implicit: dup,
+                              receipt: false,
+                              ownSlug: ownSlug(),
+                            }"
+                          />
+                        }
+                      </ul>
+                    </div>
+                  }
+                </div>
               </fieldset>
 
               @for (group of groups; track group.key) {
-                <fieldset class="space-y-4">
+                <fieldset [class]="fieldsetClass">
                   <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
-                  @for (field of group.fields; track field) {
-                    <div class="max-w-2xl space-y-2">
-                      <label [for]="fieldId(field)" [class]="labelClass">
-                        {{ fieldLabel(field) }}
-                        @if (!required(field)) {
-                          <span class="font-normal tracking-normal normal-case">{{
-                            optionalLabel
-                          }}</span>
-                        }
-                      </label>
-                      @if (field === 'description') {
-                        <textarea
-                          [id]="fieldId(field)"
-                          rows="3"
-                          [attr.maxlength]="maxLength(field)"
-                          [value]="draft()[field]"
-                          (input)="onInput(field, inputValue($event))"
-                          [attr.aria-invalid]="showError(field) ? 'true' : null"
-                          [attr.aria-describedby]="
-                            showError(field) ? fieldId(field) + '-error' : null
-                          "
-                          [class]="inputClass"
-                        ></textarea>
-                      } @else if (field === 'mechanism_kind' || field === 'direction') {
-                        <div class="relative max-w-sm">
-                          <select
+                  <div [class]="gridClass">
+                    @for (field of group.fields; track field) {
+                      <div
+                        [class]="
+                          field === 'description' ? fieldClass + ' ' + spanClass : fieldClass
+                        "
+                      >
+                        <label [for]="fieldId(field)" [class]="labelClass">
+                          {{ fieldLabel(field) }}
+                          @if (!required(field)) {
+                            <span [class]="optionalClass">{{ optionalLabel }}</span>
+                          }
+                        </label>
+                        @if (field === 'description') {
+                          <textarea
                             [id]="fieldId(field)"
-                            (change)="onInput(field, selectValue($event))"
+                            rows="3"
+                            [attr.maxlength]="maxLength(field)"
+                            [value]="draft()[field]"
+                            (input)="onInput(field, inputValue($event))"
                             [attr.aria-invalid]="showError(field) ? 'true' : null"
                             [attr.aria-describedby]="
                               showError(field) ? fieldId(field) + '-error' : null
                             "
-                            [class]="selectClass"
-                          >
-                            @if (draft()[field] === '') {
-                              <option value="" disabled selected>{{ choosePlaceholder }}</option>
-                            }
-                            @for (option of optionsFor(field); track option.value) {
-                              <option
-                                [value]="option.value"
-                                [selected]="option.value === draft()[field]"
-                              >
-                                {{ option.label }}
-                              </option>
-                            }
-                          </select>
-                          <svg
-                            class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="m6 9 6 6 6-6" />
-                          </svg>
-                        </div>
-                      } @else {
-                        <input
-                          [id]="fieldId(field)"
-                          [type]="isUrl(field) ? 'url' : 'text'"
-                          [attr.inputmode]="isUrl(field) ? 'url' : null"
-                          [attr.maxlength]="maxLength(field)"
-                          [value]="draft()[field]"
-                          (input)="onInput(field, inputValue($event))"
-                          [attr.aria-invalid]="showError(field) ? 'true' : null"
-                          [attr.aria-describedby]="
-                            showError(field) ? fieldId(field) + '-error' : null
-                          "
-                          [class]="inputClass"
-                        />
-                      }
-                      @if (showError(field)) {
-                        <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
-                          {{ errorFor(field) }}
-                        </p>
-                      }
-                    </div>
-                  }
+                            [class]="inputClass"
+                          ></textarea>
+                        } @else if (field === 'mechanism_kind' || field === 'direction') {
+                          <div class="relative">
+                            <select
+                              [id]="fieldId(field)"
+                              (change)="onInput(field, selectValue($event))"
+                              [attr.aria-invalid]="showError(field) ? 'true' : null"
+                              [attr.aria-describedby]="
+                                showError(field) ? fieldId(field) + '-error' : null
+                              "
+                              [class]="selectClass"
+                            >
+                              @if (draft()[field] === '') {
+                                <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                              }
+                              @for (option of optionsFor(field); track option.value) {
+                                <option
+                                  [value]="option.value"
+                                  [selected]="option.value === draft()[field]"
+                                >
+                                  {{ option.label }}
+                                </option>
+                              }
+                            </select>
+                            <span [class]="selectChevronClass">
+                              <aec-icon name="chevron-down" decorative [size]="4" />
+                            </span>
+                          </div>
+                        } @else {
+                          <input
+                            [id]="fieldId(field)"
+                            [type]="isUrl(field) ? 'url' : 'text'"
+                            [attr.inputmode]="isUrl(field) ? 'url' : null"
+                            [attr.maxlength]="maxLength(field)"
+                            [value]="draft()[field]"
+                            (input)="onInput(field, inputValue($event))"
+                            [attr.aria-invalid]="showError(field) ? 'true' : null"
+                            [attr.aria-describedby]="
+                              showError(field) ? fieldId(field) + '-error' : null
+                            "
+                            [class]="inputClass"
+                          />
+                        }
+                        @if (showError(field)) {
+                          <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
+                            {{ errorFor(field) }}
+                          </p>
+                        }
+                      </div>
+                    }
+                  </div>
                 </fieldset>
               }
 
-              <div
-                class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4"
-              >
+              <div [class]="saveBarClass">
+                <div [class]="saveStatusClass">
+                  @if (saveNotice(); as message) {
+                    <p role="alert" class="font-semibold text-(--text-primary)">{{ message }}</p>
+                  }
+                </div>
                 <button
+                  aecButton
                   type="submit"
-                  [class]="primaryButtonClass"
+                  [class]="saveButtonClass"
                   [disabled]="saving()"
                   data-testid="create-submit"
                 >
@@ -697,8 +707,10 @@ function emptyDraft(): Draft {
                   }
                 </button>
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
-                  [class]="secondaryButtonClass"
+                  [class]="saveButtonClass"
                   [disabled]="saving()"
                   (click)="close()"
                   i18n="@@vendor.integrationCreate.cancel"
@@ -706,19 +718,15 @@ function emptyDraft(): Draft {
                   Cancel
                 </button>
               </div>
-
-              @if (saveNotice(); as message) {
-                <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
-              }
             </form>
           } @else {
             <!-- Step 1 of 2: the locked product and the search. Nothing else shows. -->
-            <div class="space-y-4" data-testid="create-step-find">
+            <div class="space-y-6" data-testid="create-step-find">
               <p
                 #focusTarget
                 id="vendor-create-step"
                 tabindex="-1"
-                class="space-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="space-y-1 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
                 data-testid="create-step"
               >
                 <span [class]="stepCountClass" i18n="@@vendor.integrationCreate.step1.count"
@@ -730,63 +738,67 @@ function emptyDraft(): Draft {
                 >
               </p>
 
-              <ng-container [ngTemplateOutlet]="ownProductBox" />
+              <div [class]="gridClass">
+                <ng-container [ngTemplateOutlet]="ownProductBox" />
 
-              <div class="max-w-2xl space-y-2">
-                <label
-                  for="vendor-create-search"
-                  [class]="labelClass"
-                  i18n="@@vendor.integrationCreate.search.label"
-                  >The other product</label
-                >
-                <aec-product-combobox
-                  class="max-w-sm"
-                  inputId="vendor-create-search"
-                  [search]="search"
-                  [exclude]="excluded()"
-                  [describedBy]="counterpartDescribedBy()"
-                  (picked)="onCounterpart($event)"
-                  (announce)="announcer.announce($event)"
-                  (queryChange)="onQuery($event)"
-                  (noMatch)="noMatchQuery.set($event)"
-                />
-                <p
-                  id="vendor-create-search-hint"
-                  class="max-w-prose text-xs text-(--text-secondary)"
-                  i18n="@@vendor.integrationCreate.search.hint"
-                >
-                  Search the published catalog by product name, then choose one result.
-                </p>
-                <!-- Below the input and outside the popup, so a keyboard can reach it:
-                     focus stays in the input while the popup is open (AECI-1377). -->
-                <div class="space-y-1 pt-1">
-                  @if (noMatchShown()) {
-                    <p
-                      id="vendor-create-no-match"
-                      class="max-w-prose text-sm text-(--text-primary)"
-                      data-testid="create-no-match"
-                    >
-                      {{ noMatchLine() }}
-                    </p>
-                  }
-                  <button
-                    type="button"
-                    [class]="textButtonClass"
-                    (click)="askUs()"
-                    data-testid="create-ask-us"
-                    i18n="@@vendor.productRequest.ask"
+                <div [class]="fieldClass">
+                  <label
+                    for="vendor-create-search"
+                    [class]="labelClass"
+                    i18n="@@vendor.integrationCreate.search.label"
+                    >The other product</label
                   >
-                    Can't find it? Ask us to add it
-                  </button>
+                  <aec-product-combobox
+                    inputId="vendor-create-search"
+                    [search]="search"
+                    [exclude]="excluded()"
+                    [describedBy]="counterpartDescribedBy()"
+                    (picked)="onCounterpart($event)"
+                    (announce)="announcer.announce($event)"
+                    (queryChange)="onQuery($event)"
+                    (noMatch)="noMatchQuery.set($event)"
+                  />
+                  <p
+                    id="vendor-create-search-hint"
+                    [class]="hintClass"
+                    i18n="@@vendor.integrationCreate.search.hint"
+                  >
+                    Search the published catalog by product name, then choose one result.
+                  </p>
+                  <!-- Below the input and outside the popup, so a keyboard can reach it:
+                       focus stays in the input while the popup is open (AECI-1377). -->
+                  <div class="space-y-1">
+                    @if (noMatchShown()) {
+                      <p
+                        id="vendor-create-no-match"
+                        class="max-w-prose text-sm text-(--text-primary)"
+                        data-testid="create-no-match"
+                      >
+                        {{ noMatchLine() }}
+                      </p>
+                    }
+                    <button
+                      aecButton
+                      variant="ghost"
+                      type="button"
+                      class="-ms-4"
+                      (click)="askUs()"
+                      data-testid="create-ask-us"
+                      i18n="@@vendor.productRequest.ask"
+                    >
+                      Can't find it? Ask us to add it
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div
-                class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4"
+                class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-6"
               >
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
-                  [class]="secondaryButtonClass"
                   (click)="close()"
                   data-testid="create-cancel"
                   i18n="@@vendor.integrationCreate.cancel"
@@ -804,11 +816,11 @@ function emptyDraft(): Draft {
            receipt offers links only, so a claim there goes through the row's page.
            The receipt passes the own slug it was built with, never the live form's. -->
       <ng-template #duplicateRow let-dup let-receipt="receipt" let-rowOwnSlug="ownSlug">
-        <li [class]="receipt ? 'py-2.5' : 'px-4 py-3'" [attr.data-duplicate]="dup.id">
-          <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+        <li [class]="receipt ? 'py-3' : 'px-4 py-3'" [attr.data-duplicate]="dup.id">
+          <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div class="min-w-0 flex-1 basis-48">
               <p
-                class="text-sm font-medium break-words text-(--text-primary)"
+                class="text-sm font-semibold break-words text-(--text-primary)"
                 data-testid="create-dupe-name"
               >
                 {{ duplicateName(dup) }}
@@ -832,8 +844,10 @@ function emptyDraft(): Draft {
                   }
                   @if (!receipt) {
                     <button
+                      aecButton
+                      variant="secondary"
+                      compact
                       type="button"
-                      [class]="rowActionClass"
                       [disabled]="claimingId() !== null"
                       [attr.aria-label]="claimAria(dup)"
                       (click)="onClaimDuplicate(dup)"
@@ -892,7 +906,7 @@ function emptyDraft(): Draft {
             @if (notice.id === dup.id) {
               <p
                 role="alert"
-                class="mt-2 max-w-prose text-xs font-medium text-(--text-primary)"
+                class="mt-2 max-w-prose text-sm font-semibold text-(--text-primary)"
                 data-testid="create-dupe-notice"
               >
                 {{ notice.message }}
@@ -903,7 +917,7 @@ function emptyDraft(): Draft {
       </ng-template>
 
       <ng-template #ownProductBox>
-        <div class="max-w-2xl space-y-2">
+        <div [class]="fieldClass">
           @if (contextProductId() !== null) {
             <!-- The tab already names the product. It is shown, never offered as a
                  choice, so an integration cannot land on the wrong product. The box
@@ -919,7 +933,7 @@ function emptyDraft(): Draft {
             <div
               role="group"
               aria-labelledby="vendor-create-own-label vendor-create-own-name"
-              class="flex max-w-sm items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2"
+              [class]="productBoxClass"
               data-testid="create-own-product"
             >
               @if (contextOwnProduct(); as own) {
@@ -931,13 +945,13 @@ function emptyDraft(): Draft {
                 />
                 <span
                   id="vendor-create-own-name"
-                  class="min-w-0 flex-1 truncate text-sm font-medium text-(--text-primary)"
+                  class="min-w-0 flex-1 truncate text-sm font-semibold text-(--text-primary)"
                   >{{ own.name }}</span
                 >
               } @else {
                 <span id="vendor-create-own-name" class="flex-1">
                   <span
-                    class="block h-4 w-40 motion-safe:animate-pulse rounded-(--radius-sm) bg-(--border-default)"
+                    class="block h-4 w-40 motion-safe:animate-pulse rounded-mark bg-(--border-default)"
                     aria-hidden="true"
                   ></span>
                   <span class="sr-only" i18n="@@vendor.integrationCreate.own.loading"
@@ -953,7 +967,7 @@ function emptyDraft(): Draft {
               i18n="@@vendor.integrationCreate.own.label"
               >Your product</label
             >
-            <div class="relative max-w-sm">
+            <div class="relative">
               <select
                 id="vendor-create-own"
                 (change)="onOwnProduct(selectValue($event))"
@@ -965,18 +979,9 @@ function emptyDraft(): Draft {
                   </option>
                 }
               </select>
-              <svg
-                class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+              <span [class]="selectChevronClass">
+                <aec-icon name="chevron-down" decorative [size]="4" />
+              </span>
             </div>
           }
         </div>
@@ -1716,34 +1721,43 @@ export class VendorIntegrationCreate implements OnInit {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
   }
 
-  protected readonly triggerClass =
-    'inline-flex items-center rounded-(--radius-md) border border-(--border-strong) px-4 py-2 text-sm font-semibold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly selectClass =
-    'w-full cursor-pointer appearance-none rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) py-2 pe-9 ps-3 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly legendClass = 'mb-3 text-sm font-semibold text-(--text-primary)';
-  protected readonly labelClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly stepCountClass =
-    'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
-  protected readonly stepTitleClass = 'block text-base font-semibold text-(--text-primary)';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  // AECI-1811: the portal form layout (`vendor/shared/portal-form.ts`) and the shared
+  // field recipe (`shared/form-field/form-field-classes.ts`).
+  protected readonly formClass = PORTAL_FORM_CLASS;
+  protected readonly fieldsetClass = PORTAL_FIELDSET_CLASS;
+  protected readonly legendClass = PORTAL_LEGEND_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly spanClass = PORTAL_FORM_SPAN_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  protected readonly saveBarClass = PORTAL_SAVE_BAR_CLASS;
+  protected readonly saveStatusClass = PORTAL_SAVE_STATUS_CLASS;
+  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly optionalClass = FIELD_OPTIONAL_CLASS;
+  protected readonly hintClass = `max-w-prose ${FIELD_HINT_CLASS}`;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly selectClass = `${FIELD_INPUT_CLASS} cursor-pointer appearance-none pe-12`;
+  protected readonly selectChevronClass =
+    'pointer-events-none absolute end-4 top-1/2 flex -translate-y-1/2 text-(--text-secondary)';
   protected readonly errorClass = `max-w-prose ${FIELD_ERROR_CLASS}`;
-  protected readonly primaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  protected readonly secondaryButtonClass =
-    'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
-  /** The portal's row action ("Claim to edit", "Request a change"). */
-  protected readonly rowActionClass = `${ROW_ACTION} cursor-pointer`;
+  /** "Step 1 of 2": the overline role. */
+  protected readonly stepCountClass = 'aec-overline block text-(--text-secondary)';
+  protected readonly stepTitleClass =
+    'block font-display text-t-20 font-semibold text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  /** A product shown in a box (the tab's own, or the chosen one): 44px, the control radius. */
+  protected readonly productBoxClass =
+    'flex min-h-11 items-center gap-3 rounded-control bg-(--surface-sunken) px-4 py-2';
+  /** The likely duplicates: a bordered panel across both columns, no card in a card. */
+  protected readonly dupesClass = `rounded-panel border border-(--border-default) ${PORTAL_FORM_SPAN_CLASS}`;
+  /** A row's link ("Open it", "Open your integration"): Forest, the role radius. It
+   *  was the detail page's `ROW_ACTION`, retired with its buttons (AECI-1811 part 2). */
+  protected readonly rowActionClass =
+    'inline-flex min-h-6 cursor-pointer items-center rounded-mark text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
   /** A row's second, quieter link: the same shape as the row action, out of accent. */
   protected readonly quietActionClass =
-    'inline-flex min-h-6 items-center rounded-(--radius-sm) text-sm font-medium text-(--text-secondary) underline-offset-4 hover:text-(--text-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly iconButtonClass = ICON_BUTTON;
-  protected readonly textButtonClass =
-    'cursor-pointer rounded-(--radius-sm) text-sm font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  /** DESIGN.md's standalone link (the `aec-view-public-link` spelling). */
-  protected readonly publicLinkClass =
-    'inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'inline-flex min-h-6 items-center rounded-mark text-sm font-semibold text-(--text-secondary) underline-offset-4 hover:text-(--text-primary) hover:underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
+  /** DESIGN.md's standalone link, as `aec-view-public-link` draws it (14px at 600). */
+  protected readonly publicLinkClass = STANDALONE_LINK_CLASS;
 }
 
 /** The refusals `POST /api/vendor/product-requests` can answer (AECI-1377). */

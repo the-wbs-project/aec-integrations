@@ -12,6 +12,9 @@ import {
 
 import type { EvidencedPairContestTarget, VendorProductConnector } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { AecCard } from '../../shared/card/card';
+import { AecIcon } from '../../shared/icon/icon';
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorApi } from '../vendor-api';
 
@@ -51,7 +54,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  */
 @Component({
   selector: 'aec-vendor-product-connectors',
-  imports: [LogoOrInitial, VendorContestForm],
+  imports: [AecButton, AecCard, AecIcon, LogoOrInitial, VendorContestForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -61,8 +64,10 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
           Could not load the connectors that reach this product.
         </p>
         <button
+          aecButton
+          variant="secondary"
+          compact
           type="button"
-          [class]="retryClass"
           (click)="retry()"
           i18n="@@vendor.connectors.retry"
         >
@@ -81,19 +86,17 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               >Connectors</span
             >
           </h2>
-          <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
+          <p class="max-w-[30rem] text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
             Integration platforms that list this product. AEC Integrations maintains this list from
             each platform's published catalog, so it is read-only here.
           </p>
         </div>
 
-        <ul class="m-0 list-none space-y-4 p-0">
+        <!-- AECI-1811: one card, a connector per row, divided by hairlines. -->
+        <ul aecCard class="m-0 list-none divide-y divide-(--border-default) overflow-hidden p-0">
           @for (group of connectors(); track group.connector.id) {
-            <li
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised)"
-              data-connector
-            >
-              <div class="flex items-center gap-3 px-4 py-3">
+            <li data-connector>
+              <div class="flex items-center gap-3 px-6 py-4">
                 <aec-logo-or-initial
                   [claimStatus]="'stored'"
                   [src]="group.connector.logo_url"
@@ -109,7 +112,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               </div>
 
               @if (group.delivered.length > 0) {
-                <div class="border-t border-(--border-default) px-4 py-3" data-tier="delivered">
+                <div class="border-t border-(--border-default) px-6 py-4" data-tier="delivered">
                   <p
                     class="aec-overline text-(--text-secondary)"
                     i18n="@@vendor.connectors.delivered.label"
@@ -117,7 +120,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                     Delivered
                   </p>
                   <p
-                    class="mt-1 max-w-prose text-sm text-(--text-secondary)"
+                    class="mt-2 max-w-prose text-sm text-(--text-secondary)"
                     i18n="@@vendor.connectors.delivered.explain"
                   >
                     {{ group.connector.name }} ships a listing that connects this product with:
@@ -128,12 +131,9 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                     }
                   </ul>
                   @for (target of contestable(group); track target.id) {
-                    <div
-                      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)"
-                      data-contest-target
-                    >
+                    <div class="mt-4" data-contest-target>
                       <p
-                        class="px-5 pt-3 text-sm text-(--text-secondary)"
+                        class="pb-2 text-sm text-(--text-secondary)"
                         i18n="@@vendor.connectors.contest.intro"
                       >
                         {{ target.other_product.name }}, through {{ group.connector.name }}. Offered
@@ -148,19 +148,11 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
               @if (group.reachable.length > 0) {
                 <details class="group border-t border-(--border-default)" data-tier="reachable">
                   <summary
-                    class="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2 px-4 py-3 text-sm text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
+                    class="flex min-h-11 cursor-pointer list-none flex-wrap items-baseline gap-x-2 px-6 py-3 text-sm text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-(--accent-primary) [&::-webkit-details-marker]:hidden"
                   >
-                    <svg
-                      aria-hidden="true"
-                      class="h-3.5 w-3.5 shrink-0 self-center text-(--text-secondary) transition-transform group-open:rotate-90"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="m9 6 6 6-6 6" /></svg
+                    <span
+                      class="flex shrink-0 self-center text-(--text-secondary) transition-transform group-open:rotate-90 rtl:-scale-x-100"
+                      ><aec-icon name="chevron-right" decorative [size]="3.5" /></span
                     ><span
                       class="aec-overline text-(--text-secondary)"
                       i18n="@@vendor.connectors.reachable.label"
@@ -173,7 +165,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                       }</span
                     >&ngsp;<span class="text-(--text-secondary)">{{ asOfLabel(group) }}</span>
                   </summary>
-                  <div class="px-4 pb-4">
+                  <div class="px-6 pb-6">
                     <p
                       class="max-w-prose text-sm text-(--text-secondary)"
                       i18n="@@vendor.connectors.reachable.explain"
@@ -214,9 +206,6 @@ export class VendorProductConnectors {
    *  SSR. The effect below waits on this, then re-runs on every product switch,
    *  which is a same-route navigation that keeps this component alive. */
   private readonly rendered = signal(false);
-
-  protected readonly retryClass =
-    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
     afterNextRender(() => this.rendered.set(true));

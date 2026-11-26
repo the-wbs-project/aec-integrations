@@ -30,9 +30,9 @@ import {
   type VendorLegalPending,
 } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { cardClass } from '../../shared/card/card';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   CHOICE_INPUT_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
@@ -46,6 +46,12 @@ import { VendorLegalAcceptanceState } from '../vendor-legal-acceptance-state';
 import { isReplayedEvent } from '../../core/event-replay';
 import { AecEarlyInput } from '../../shared/form-field/early-input';
 import { AecConsentBox } from '../../shared/form-field/consent-box';
+import { PORTAL_FIELD_CLASS, PORTAL_FORM_GRID_CLASS } from '../shared/portal-form';
+import {
+  AecPortalNotice,
+  PORTAL_NOTICE_BODY_CLASS,
+  PORTAL_NOTICE_CLASS,
+} from '../shared/portal-notice';
 
 const SUPPORT_EMAIL = 'support@aecintegrations.com';
 
@@ -156,38 +162,37 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
  */
 @Component({
   selector: 'aec-vendor-legal-acceptance',
-  imports: [FormField, AecEarlyInput, AecConsentBox],
+  imports: [FormField, AecEarlyInput, AecConsentBox, AecButton],
   host: { class: 'block' },
   template: `
     @let it = item();
+    <!--
+      AECI-1809 (mock-up 13): restyled only, every word as section 6.24 has it. Required
+      mode is two white cards, the screen and the aside. Optional mode is the portal's
+      calm notice in the banner slot.
+    -->
     <section
       [attr.aria-labelledby]="id('heading')"
-      [class]="
-        it.mode === 'required'
-          ? 'mt-6 border-t border-(--border-default) pt-8'
-          : 'mb-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5 md:p-6'
-      "
+      [class]="it.mode === 'required' ? 'block' : noticeClass"
       data-testid="legal-accept"
       [attr.data-mode]="it.mode"
     >
-      <div
-        [class]="
-          it.mode === 'required'
-            ? 'grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
-            : 'grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
-        "
-      >
-        <div class="min-w-0">
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start lg:gap-8">
+        <div [class]="it.mode === 'required' ? mainCardClass : 'min-w-0'">
           <h2
             [id]="id('heading')"
             tabindex="-1"
-            class="font-display text-2xl font-semibold tracking-tight text-(--text-primary) focus-visible:outline-none"
+            class="focus-visible:outline-none"
             data-testid="legal-accept-heading"
           >
             {{ headingLabel() }}
           </h2>
 
-          <div class="mt-3 max-w-prose space-y-3 text-base text-(--text-secondary)">
+          <!-- Inside the notice the lead holds about 80 characters a line (32rem). -->
+          <div
+            class="mt-3 space-y-3 text-(--text-secondary)"
+            [class]="it.mode === 'required' ? 'max-w-[42rem]' : 'max-w-[32rem]'"
+          >
             @if (it.mode === 'required') {
               @if (canAccept()) {
                 <p i18n="@@vendor.legalAccept.required.lead">
@@ -220,14 +225,15 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
           </div>
 
           @if (it.summary.length > 0) {
-            <h3
-              class="mt-6 font-label text-sm font-semibold text-(--text-primary)"
-              i18n="@@vendor.legalAccept.changes"
-            >
-              What changes
+            <!-- The size sits on an inner span: a size utility on the h3 is dead
+                 (the Unlayered-Heading Rule). -->
+            <h3 class="mt-6">
+              <span class="font-body text-t-16 leading-[1.5]" i18n="@@vendor.legalAccept.changes"
+                >What changes</span
+              >
             </h3>
             <ul
-              class="mt-2 max-w-prose list-disc space-y-1 ps-5 text-sm text-(--text-primary)"
+              class="mt-2 max-w-[42rem] list-disc space-y-1 ps-5 text-t-14 leading-[1.6] text-(--text-primary)"
               data-testid="legal-accept-summary"
             >
               @for (line of it.summary; track $index) {
@@ -236,7 +242,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             </ul>
           }
 
-          <p class="mt-5 text-sm">
+          <p class="mt-4">
             <a
               [href]="it.page_path"
               target="_blank"
@@ -254,11 +260,11 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             <form
               method="dialog"
               novalidate
-              class="mt-6 max-w-xl space-y-5"
+              class="mt-6 max-w-[42rem] space-y-6"
               (submit)="accept($event)"
             >
               @if (askName()) {
-                <div class="space-y-1.5 sm:max-w-[calc(50%-0.625rem)]">
+                <div [class]="fieldClass + ' md:max-w-[calc(50%-1rem)]'">
                   <label
                     [attr.for]="id('name')"
                     [class]="labelClass"
@@ -297,8 +303,8 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                   }
                 </div>
               }
-              <div class="grid gap-5 sm:grid-cols-2">
-                <div class="space-y-1.5">
+              <div [class]="gridClass">
+                <div [class]="fieldClass">
                   <label
                     [attr.for]="id('title')"
                     [class]="labelClass"
@@ -336,7 +342,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                     </p>
                   }
                 </div>
-                <div class="space-y-1.5">
+                <div [class]="fieldClass">
                   <label
                     [attr.for]="id('legal-name')"
                     [class]="labelClass"
@@ -378,7 +384,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                 </div>
               </div>
 
-              <div class="space-y-1.5">
+              <div class="space-y-2">
                 <div class="flex items-start gap-3">
                   <input
                     [id]="id('accept')"
@@ -387,12 +393,12 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                     [formField]="form.accepted"
                     [attr.aria-invalid]="acceptError() ? 'true' : null"
                     [attr.aria-describedby]="acceptError() ? id('accept-error') : null"
-                    [class]="choiceInputClass + ' mt-0.5'"
+                    [class]="choiceInputClass + ' mt-1'"
                     data-testid="legal-accept-box"
                   />
                   <label
                     [attr.for]="id('accept')"
-                    class="text-sm leading-relaxed text-(--text-primary)"
+                    class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)"
                     data-testid="legal-accept-label"
                   >
                     @if (it.document === 'vendor_terms') {
@@ -429,8 +435,8 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
 
               <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <button
+                  aecButton
                   type="submit"
-                  [class]="primaryClass"
                   [disabled]="form().invalid() || busy()"
                   [attr.aria-busy]="busy()"
                   data-testid="legal-accept-submit"
@@ -443,8 +449,9 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                 </button>
                 @if (it.mode === 'optional') {
                   <button
+                    aecButton
+                    variant="secondary"
                     type="button"
-                    [class]="secondaryClass"
                     data-testid="legal-accept-dismiss"
                     (click)="dismiss()"
                     i18n="@@vendor.legalAccept.notNow"
@@ -460,7 +467,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
               }
             </form>
           } @else {
-            <div class="mt-6 space-y-3 text-sm text-(--text-primary)">
+            <div class="mt-6 space-y-3 text-t-14 leading-[1.6] text-(--text-primary)">
               @if (ownerNames().length > 0) {
                 <p data-testid="legal-accept-owners">{{ ownersLabel() }}</p>
               } @else {
@@ -470,8 +477,9 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
                 </p>
               }
               <button
+                aecButton
+                variant="secondary"
                 type="button"
-                [class]="secondaryClass"
                 [disabled]="checking()"
                 [attr.aria-busy]="checking()"
                 data-testid="legal-accept-check"
@@ -493,17 +501,13 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
         </div>
 
         @if (it.mode === 'required') {
-          <div
-            class="self-start rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-          >
-            <h3
-              [id]="id('aside')"
-              class="text-base font-bold text-(--text-primary)"
-              i18n="@@vendor.legalAccept.aside.heading"
-            >
+          <div [class]="asideCardClass">
+            <h3 [id]="id('aside')" i18n="@@vendor.legalAccept.aside.heading">
               What happens when an owner accepts
             </h3>
-            <ul class="mt-3 list-disc space-y-2 ps-5 text-sm text-(--text-secondary)">
+            <ul
+              class="mt-3 list-disc space-y-2 ps-5 text-t-14 leading-[1.6] text-(--text-secondary)"
+            >
               <li i18n="@@vendor.legalAccept.aside.opens">
                 The portal opens for every seat at {{ companyName() }}.
               </li>
@@ -518,13 +522,18 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             @if (canAccept() && stripeBilling()) {
               <!-- The Stripe portal route passes a blocked company (allowTermsPending), so an
                    owner can still manage or cancel billing without accepting first. -->
-              <div class="mt-5 border-t border-(--border-default) pt-4">
-                <p class="text-sm text-(--text-secondary)" i18n="@@vendor.legalAccept.billing.body">
+              <div class="mt-6 border-t pt-4">
+                <p
+                  class="text-t-14 text-(--text-secondary)"
+                  i18n="@@vendor.legalAccept.billing.body"
+                >
                   You can still manage or cancel your billing.
                 </p>
                 <button
+                  aecButton
+                  variant="secondary"
                   type="button"
-                  [class]="secondaryClass + ' mt-3'"
+                  class="mt-3"
                   [disabled]="portalBusy()"
                   [attr.aria-busy]="portalBusy()"
                   data-testid="legal-accept-billing"
@@ -554,7 +563,7 @@ export function legalDocumentTitle(document: VendorLegalPending['document']): st
             }
           </div>
         } @else {
-          <div class="text-sm text-(--text-secondary)">
+          <div class="max-w-[32rem] text-t-14 leading-[1.6] text-(--text-secondary)">
             <p i18n="@@vendor.legalAccept.optional.record">
               We record your name and title, the company's legal name, the time and the version.
               Owner seats can see the record on the Billing tab.
@@ -771,10 +780,16 @@ export class VendorLegalAcceptance {
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
+  protected readonly gridClass = PORTAL_FORM_GRID_CLASS;
+  protected readonly fieldClass = PORTAL_FIELD_CLASS;
+  /** Optional mode: the portal's calm notice, in the banner slot. */
+  protected readonly noticeClass = `block ${PORTAL_NOTICE_CLASS}`;
+  /** Required mode: the screen is a white card (a form card, so frameless on a phone)
+   *  and the aside a second one beside it from `lg`. */
+  protected readonly mainCardClass = `${cardClass({ phoneFlush: true })} min-w-0 p-6 md:p-8`;
+  protected readonly asideCardClass = `${cardClass()} p-6`;
   protected readonly linkClass =
-    'font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    'rounded-mark font-semibold text-(--accent-primary) underline underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)';
 }
 
 /**
@@ -784,24 +799,25 @@ export class VendorLegalAcceptance {
  */
 @Component({
   selector: 'aec-vendor-legal-accepted',
+  imports: [AecButton, AecPortalNotice],
   host: { class: 'block' },
   template: `
-    <div
-      class="mb-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-      data-testid="legal-accepted"
-    >
+    <!-- AECI-1809: the portal's calm notice, like every other portal banner. -->
+    <div aecPortalNotice data-testid="legal-accepted">
       <h2
         #heading
         tabindex="-1"
-        class="text-base font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         data-testid="legal-accepted-heading"
       >
         {{ headingLabel() }}
       </h2>
-      <p class="mt-2 text-sm text-(--text-secondary)">{{ bodyLabel() }}</p>
+      <p [class]="bodyClass + ' mt-2'">{{ bodyLabel() }}</p>
       <button
+        aecButton
+        variant="secondary"
         type="button"
-        class="mt-3 text-sm font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="mt-4"
         data-testid="legal-accepted-close"
         (click)="close()"
         i18n="@@vendor.legalAccepted.close"
@@ -819,6 +835,8 @@ export class VendorLegalAccepted {
   private readonly locale = inject(LOCALE_ID);
   private readonly heading = viewChild.required<ElementRef<HTMLElement>>('heading');
   private readonly doc = inject(DOCUMENT);
+
+  protected readonly bodyClass = PORTAL_NOTICE_BODY_CLASS;
 
   protected readonly headingLabel = computed(() => {
     const done = this.legal.confirmation();

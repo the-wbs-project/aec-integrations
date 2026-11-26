@@ -13,6 +13,8 @@ import { filter, map } from 'rxjs';
 import type { VendorMeResponse } from '@aeci/shared';
 
 import { RequestDrawer } from '../requests/request-drawer';
+import { AecBreadcrumb, type BreadcrumbItem } from '../shared/breadcrumb/breadcrumb';
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
@@ -25,6 +27,7 @@ import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 import { VendorProductEndedBanner } from './components/vendor-product-ended-banner';
 import { VendorListingHiddenBanner } from './components/vendor-listing-hidden-banner';
 import { planHasEnded } from './vendor-plan';
+import { PORTAL_HEADER_CLASS, PORTAL_WRAP_CLASS } from './shared/portal-layout';
 
 /**
  * Concept A — the vendor portal shell (AECI-522): a breadcrumb, a title, one
@@ -106,6 +109,8 @@ import { planHasEnded } from './vendor-plan';
   imports: [
     RouterLink,
     RouterOutlet,
+    AecBreadcrumb,
+    LogoOrInitial,
     VendorPortalNav,
     ViewPublicLink,
     RequestDrawer,
@@ -120,43 +125,17 @@ import { planHasEnded } from './vendor-plan';
     @let m = me();
     @let legalItem = legal?.current() ?? null;
     @let legalState = legal?.state() ?? null;
-    <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
-      <header class="pb-4">
+    <div [class]="wrapClass">
+      <!--
+        The portal header (AECI-1809, mock-up 13): plain white, on the page wrap. The
+        shared breadcrumb, then the title row: a 48px initial tile (or the logo), the
+        h1 at its global size, the open product's plan badge and "View public page".
+      -->
+      <header [class]="headerClass">
         <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <nav i18n-aria-label="@@vendor.breadcrumb.aria" aria-label="Breadcrumb">
-            <ol class="m-0 flex list-none flex-wrap items-center gap-2 p-0 text-sm">
-              <li>
-                <a routerLink="overview" [class]="crumbLinkClass" i18n="@@vendor.breadcrumb.vendor"
-                  >Vendor portal</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-              @if (product(); as p) {
-                <li>
-                  <a routerLink="overview" [class]="crumbLinkClass">{{ m.vendor.company_name }}</a>
-                </li>
-                <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-                <li>
-                  <a
-                    routerLink="products"
-                    [class]="crumbLinkClass"
-                    i18n="@@vendor.breadcrumb.products"
-                    >Products</a
-                  >
-                </li>
-                <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-                <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-                  {{ p.name }}
-                </li>
-              } @else {
-                <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
-                  {{ m.vendor.company_name }}
-                </li>
-              }
-            </ol>
-          </nav>
+          <aec-breadcrumb [items]="crumbs()" />
           @if (product()) {
-            <a routerLink="overview" [class]="crumbLinkClass">{{ backLabel() }}</a>
+            <a routerLink="overview" [class]="backLinkClass">{{ backLabel() }}</a>
           }
         </div>
         <!--
@@ -168,20 +147,26 @@ import { planHasEnded } from './vendor-plan';
           needs no destination-naming aria-label. The integrations tab is the
           case that does.
         -->
-        <div class="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+        <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <!-- Decorative: the h1 beside it names the company or product. -->
+          <aec-logo-or-initial
+            size="md"
+            [src]="product()?.logo_url ?? m.vendor.logo_url"
+            [name]="product()?.name ?? m.vendor.company_name"
+            [claimStatus]="'stored'"
+          />
           <!-- tabindex="-1": a script may move the focus here (AECI-1677, closing the
                acceptance confirmation), never the Tab key. -->
-          <h1
-            tabindex="-1"
-            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) focus-visible:outline-none md:text-4xl"
-          >
+          <h1 tabindex="-1" class="min-w-0 [overflow-wrap:anywhere] focus-visible:outline-none">
             {{ product()?.name ?? m.vendor.company_name }}
           </h1>
-          <aec-view-public-link [href]="publicHref()" />
-          <!-- AECI-1218: the open product's plan, read off the product (section 13.7). -->
-          @if (product(); as p) {
-            <aec-vendor-plan-badge [plan]="p.plan" />
-          }
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <!-- AECI-1218: the open product's plan, read off the product (section 13.7). -->
+            @if (product(); as p) {
+              <aec-vendor-plan-badge [plan]="p.plan" />
+            }
+            <aec-view-public-link [href]="publicHref()" />
+          </div>
         </div>
       </header>
 
@@ -292,7 +277,7 @@ import { planHasEnded } from './vendor-plan';
         treatment, because THAT path does navigate.
       -->
       <aec-request-drawer />
-    </section>
+    </div>
   `,
   styles: [':host { display: block; }'],
 })
@@ -366,9 +351,34 @@ export class VendorDashboardTabbed {
     () => $localize`:@@vendor.breadcrumb.back:← Back to ${this.me().vendor.company_name}:vendor:`,
   );
 
-  protected readonly crumbLinkClass =
-    'text-(--text-secondary) no-underline hover:text-(--accent-primary) ' +
-    'focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 ' +
+  /** The shared breadcrumb's trail (AECI-1809): `Vendor portal › Company`, or
+   *  `Vendor portal › Company › Products › Product` once a product is open. The links
+   *  are relative, so they resolve under the portal's route and the preview's alike. */
+  protected readonly crumbs = computed<readonly BreadcrumbItem[]>(() => {
+    const portal: BreadcrumbItem = {
+      label: $localize`:@@vendor.breadcrumb.vendor:Vendor portal`,
+      link: 'overview',
+    };
+    const company = this.me().vendor.company_name;
+    const p = this.product();
+    if (!p) return [portal, { label: company }];
+    return [
+      portal,
+      { label: company, link: 'overview' },
+      { label: $localize`:@@vendor.breadcrumb.products:Products`, link: 'products' },
+      { label: p.name },
+    ];
+  });
+
+  protected readonly wrapClass = PORTAL_WRAP_CLASS;
+  protected readonly headerClass = PORTAL_HEADER_CLASS;
+
+  /** "← Back to Company": the standalone link role (`DESIGN.md` §5), on the
+   *  breadcrumb's line. */
+  protected readonly backLinkClass =
+    'inline-flex min-h-11 items-center rounded-mark text-t-14 font-semibold text-(--text-secondary) ' +
+    'underline decoration-(--border-strong) underline-offset-4 transition-colors duration-base ' +
+    'ease-standard hover:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 ' +
     'focus-visible:outline-(--accent-primary)';
 
   /** The single live region's text (§6.3). Read-only here: the shell renders the

@@ -22,7 +22,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   imports: [RouterLink, IntegrationStat, LogoOrInitial],
   host: {
     // `border-b`: the hairline under each row, as on `tr[aec-product-card]`. The
-    // colour is the unlayered `*` rule's `--border-default`.
+    // colour is the `@layer base` default, `--border-default`.
     class:
       'border-b text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },

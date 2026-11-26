@@ -53,7 +53,9 @@ import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
  *
  * ── STYLING IS THE "STANDALONE LINK" ROLE, NOT A LOCAL CHOICE ──────────────
  * The class list below is the shipped spelling of `DESIGN.md`'s standalone-link
- * role. Quiet, secondary-coloured, underlined. It is deliberately NOT accent —
+ * role. Quiet, secondary-coloured, underlined. Since AECI-1809 (mock-up 13) it is
+ * the role's 14px at 600, on a 44px target with no side padding, so it lines up
+ * with the text beside it, and the 12px `text-xs` spelling is gone. It is deliberately NOT accent —
  * accent belongs to the one primary action on a surface ("Visit website"), and
  * AECI-980 pulled three other links off accent to restore that. Change it here
  * and in `DESIGN.md` together, never here alone.
@@ -70,10 +72,10 @@ import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
       target="_blank"
       rel="noopener"
       [attr.aria-label]="ariaLabel()"
-      class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5 text-xs
-        font-semibold text-(--text-secondary) underline decoration-(--border-strong)
-        underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2
-        focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="inline-flex min-h-11 items-center gap-2 rounded-mark text-t-14 font-semibold
+        text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4
+        transition-colors duration-base ease-standard hover:text-(--text-primary)
+        focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
       ><span i18n="@@shared.viewPublicLink.label">View public page</span> <aec-new-tab-icon
     /></a>
   `,

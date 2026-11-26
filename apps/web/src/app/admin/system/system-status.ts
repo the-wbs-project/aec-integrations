@@ -1,6 +1,8 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type {
@@ -12,6 +14,13 @@ import type {
 } from '@aeci/shared';
 
 import { AdminNotes } from '../admin-notes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_LABEL_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
+import { adminStatusTone } from '../console/status-tones';
 import { AdminSystemApi } from './admin-system-api';
 
 /** The sentinel both version endpoints return when `COMMIT_SHA` was never
@@ -64,11 +73,17 @@ const UNKNOWN_SHA = 'unknown';
  */
 @Component({
   selector: 'aec-system-status',
-  imports: [DatePipe, DecimalPipe, AdminNotes, NewTabIcon],
+  imports: [DatePipe, DecimalPipe, AecButton, Chip, AdminNotes, NewTabIcon],
   templateUrl: './system-status.html',
 })
 export class SystemStatus {
   private readonly api = inject(AdminSystemApi);
+
+  /** The console recipe (AECI-1813). This page is its first real use. */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
 
   protected readonly system = signal<AdminSystemResponse | null>(null);
   /** The SSR Worker's own build metadata. Null when its probe failed — rendered
@@ -227,6 +242,46 @@ export class SystemStatus {
         return $localize`:@@admin.system.cron.outcome.failed:Failed`;
       case 'skipped':
         return $localize`:@@admin.system.cron.outcome.skipped:Skipped`;
+    }
+  }
+
+  /** A check's chip tone, from the one status map (AECI-1813). */
+  protected checkTone(check: AdminDataQualityCheck): ConsoleChipTone {
+    switch (this.checkState(check)) {
+      case 'error':
+        return adminStatusTone('errored');
+      case 'skipped':
+        return adminStatusTone('skipped');
+      case 'findings':
+        return adminStatusTone('needsAttention');
+      case 'passing':
+        return adminStatusTone('passing');
+    }
+  }
+
+  /** A cron outcome's chip tone. */
+  protected cronOutcomeTone(outcome: 'ok' | 'failed' | 'skipped'): ConsoleChipTone {
+    switch (outcome) {
+      case 'ok':
+        return adminStatusTone('succeeded');
+      case 'failed':
+        return adminStatusTone('failed');
+      case 'skipped':
+        return adminStatusTone('skipped');
+    }
+  }
+
+  /** A cron row's chip tone when it has no stored outcome. */
+  protected cronStateTone(run: AdminCronRun): ConsoleChipTone {
+    switch (this.cronState(run)) {
+      case 'unknown':
+        return adminStatusTone('unknown');
+      case 'derived':
+        return adminStatusTone('inferred');
+      case 'in_flight':
+        return adminStatusTone('inFlight');
+      case 'recorded':
+        return adminStatusTone('recorded');
     }
   }
 

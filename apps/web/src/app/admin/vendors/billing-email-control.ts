@@ -13,9 +13,8 @@ import {
 
 import { AdminUpdateBillingEmailRequestSchema } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
 import {
-  BUTTON_PRIMARY_CLASS,
-  BUTTON_SECONDARY_CLASS,
   FIELD_ERROR_CLASS,
   FIELD_HINT_CLASS,
   FIELD_INPUT_CLASS,
@@ -42,6 +41,15 @@ import { isReplayedEvent } from '../../core/event-replay';
  * form's `role="alert"`. A bad address is caught here, against the request's shared
  * schema, before any request.
  *
+ * ── LOOK AND FOCUS (AECI-2124) ──────────────────────────────────────────────
+ * The value and a compact secondary Change fill the table's account row, as the
+ * console's inline control draws it. The form opens in the row: the field, its help,
+ * its error, a compact primary Save and a ghost Cancel. `AdminInlineControl` itself is
+ * not used, because this form keeps its own words ("Saving…", the field's own label
+ * and the Change button's name) and its native length cap. Change focuses the field.
+ * Cancel, Escape and a save return focus to Change. Escape does nothing while the save
+ * runs. A refused save focuses its message, because Save was disabled while it ran.
+ *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
  * No heading and no live region, like `GrantLicensesControl`: `VendorDetail` owns
  * the page's `role="status"` region and announces on {@link changed}.
@@ -50,11 +58,13 @@ import { isReplayedEvent } from '../../core/event-replay';
   selector: 'aec-billing-email-control',
   template: `
     @if (!editing()) {
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         @if (current(); as address) {
-          <span class="font-medium text-(--text-primary)" data-testid="billing-email-value">{{
-            address
-          }}</span>
+          <span
+            class="min-w-0 font-semibold text-(--text-primary) wrap-anywhere"
+            data-testid="billing-email-value"
+            >{{ address }}</span
+          >
         } @else {
           <span
             class="text-(--text-secondary)"
@@ -65,8 +75,10 @@ import { isReplayedEvent } from '../../core/event-replay';
         }
         <button
           #changeButton
+          aecButton
+          variant="secondary"
+          compact
           type="button"
-          [class]="secondaryClass"
           aria-label="Change billing email"
           i18n-aria-label="@@admin.vendors.billing.email.changeLabel"
           (click)="open()"
@@ -75,8 +87,15 @@ import { isReplayedEvent } from '../../core/event-replay';
         </button>
       </div>
     } @else {
-      <form method="dialog" class="space-y-3" (submit)="submit($event)" novalidate>
-        <div class="space-y-1.5">
+      <form
+        method="dialog"
+        class="grid max-w-[32rem] gap-2 pb-2"
+        [attr.aria-busy]="busy() ? 'true' : null"
+        (submit)="submit($event)"
+        (keydown.escape)="onEscape($event)"
+        novalidate
+      >
+        <div class="grid gap-2">
           <label
             class="sr-only"
             for="admin-billing-email-input"
@@ -108,24 +127,33 @@ import { isReplayedEvent } from '../../core/event-replay';
             seat. Leave it empty to remove the address.
           </p>
           @if (error(); as message) {
-            <p id="admin-billing-email-error" [class]="errorClass" role="alert">{{ message }}</p>
+            <p
+              #errorEl
+              id="admin-billing-email-error"
+              tabindex="-1"
+              [class]="errorClass"
+              role="alert"
+            >
+              {{ message }}
+            </p>
           }
         </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <button type="submit" [disabled]="busy()" [class]="primaryClass">
+        <div class="mt-2 flex flex-wrap items-center gap-3">
+          <button aecButton compact type="submit" [disabled]="busy()">
             @if (busy()) {
               <span i18n="@@admin.vendors.billing.email.saving">Saving…</span>
             } @else {
               <span i18n="@@admin.vendors.billing.email.save">Save</span>
             }
           </button>
-          <button type="button" [disabled]="busy()" [class]="secondaryClass" (click)="cancel()">
+          <button aecButton variant="ghost" type="button" [disabled]="busy()" (click)="cancel()">
             <span i18n="@@admin.vendors.billing.email.cancel">Cancel</span>
           </button>
         </div>
       </form>
     }
   `,
+  imports: [AecButton],
   styles: [':host { display: block; }'],
 })
 export class BillingEmailControl {
@@ -145,13 +173,12 @@ export class BillingEmailControl {
   protected readonly error = signal<string | null>(null);
 
   private readonly changeButton = viewChild<ElementRef<HTMLButtonElement>>('changeButton');
+  private readonly errorEl = viewChild<ElementRef<HTMLElement>>('errorEl');
   private readonly emailInput = viewChild<ElementRef<HTMLInputElement>>('emailInput');
 
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
-  protected readonly primaryClass = BUTTON_PRIMARY_CLASS;
-  protected readonly secondaryClass = BUTTON_SECONDARY_CLASS;
 
   protected open(): void {
     this.draft.set(this.current() ?? '');
@@ -162,6 +189,12 @@ export class BillingEmailControl {
 
   protected cancel(): void {
     this.close();
+  }
+
+  /** Escape is Cancel, except while the save runs: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.busy()) this.close();
   }
 
   protected onInput(event: Event): void {
@@ -189,6 +222,7 @@ export class BillingEmailControl {
       this.close();
     } catch (err) {
       this.error.set(adminBillingEmailErrorMessage(err));
+      afterNextRender(() => this.errorEl()?.nativeElement.focus(), { injector: this.injector });
     } finally {
       this.busy.set(false);
     }

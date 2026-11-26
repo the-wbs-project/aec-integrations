@@ -271,7 +271,8 @@ export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema
  * Product-detail embed of an edge the page product POWERS as the connector: the
  * rows in `ProductDetail.integrations_as_connector` (Stage 1.5 Addendum B). The
  * bare list item plus `data_object_slugs` only (AECI-1080). No
- * `context_direction`, because the page product is neither endpoint.
+ * `context_direction`: the powered view excludes edges where the page product is
+ * an endpoint, even though the raw payload includes them (AECI-2051).
  *
  * `data_object_slugs` means exactly what it means on `ProductIntegrationItem`:
  * the distinct objects the edge's claims cover, `[]` when it has none. The hub

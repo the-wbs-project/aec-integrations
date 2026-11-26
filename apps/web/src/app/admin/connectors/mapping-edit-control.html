@@ -1,9 +1,8 @@
+<!-- AECI-2125: the console language. A compact secondary opener, the field recipe,
+     and a primary "Save mapping": a saved mapping can be edited again, so it is not
+     a danger action. -->
 @if (!open()) {
-<button
-  type="button"
-  class="ms-1 cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-  (click)="openForm()"
->
+<button aecButton variant="secondary" compact (click)="openForm()">
   <span i18n="@@admin.connectors.mapping.edit">Edit</span>
   <span class="sr-only" i18n="@@admin.connectors.mapping.editFor">
     mapping for {{ listing() }}</span
@@ -13,7 +12,7 @@
 <form
   method="dialog"
   novalidate
-  class="mt-2 space-y-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-3"
+  class="mt-2 grid max-w-[32rem] gap-4 border-t border-(--border-default) pt-4"
   (aecSubmit)="submit()"
 >
   <aec-select
@@ -27,21 +26,21 @@
   />
 
   @if (namesProduct()) {
-  <div>
+  <div class="grid gap-2">
     <label
-      class="block text-xs font-bold text-(--text-secondary)"
+      [class]="labelClass"
       [attr.for]="idPrefix() + '-product'"
       i18n="@@admin.connectors.mapping.product.label"
     >
       Product
     </label>
     @if (product(); as p) {
-    <p class="mt-1 flex items-center gap-2 text-sm text-(--text-primary)">
+    <p class="flex flex-wrap items-center gap-2 text-t-16 text-(--text-primary)">
       <span data-chosen-product>{{ p.name }}</span>
       <button
         #changeButton
-        type="button"
-        class="cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        aecButton
+        variant="ghost"
         (click)="clearProduct()"
         i18n="@@admin.connectors.mapping.product.change"
       >
@@ -50,7 +49,6 @@
     </p>
     } @else {
     <aec-product-combobox
-      class="mt-1"
       [inputId]="idPrefix() + '-product'"
       [search]="search"
       i18n-placeholder="@@admin.connectors.mapping.product.placeholder"
@@ -72,9 +70,9 @@
     (changed)="onConfidenceChange($event)"
   />
 
-  <div>
+  <div class="grid gap-2">
     <label
-      class="block text-xs font-bold text-(--text-secondary)"
+      [class]="labelClass"
       [attr.for]="idPrefix() + '-evidence'"
       i18n="@@admin.connectors.mapping.evidence.label"
     >
@@ -85,7 +83,7 @@
       type="url"
       inputmode="url"
       maxlength="2048"
-      class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      [class]="inputClass"
       placeholder="https://"
       [value]="evidenceUrl()"
       (input)="onEvidenceInput($event)"
@@ -93,17 +91,13 @@
   </div>
 
   <!-- Said out loud: saving is what makes a matched row public on the reach line. -->
-  <p class="text-xs text-(--text-secondary)" i18n="@@admin.connectors.mapping.decider">
+  <p [class]="hintClass" i18n="@@admin.connectors.mapping.decider">
     Saving records AECi as the decider. A matched listing then counts toward the product's public
     reach.
   </p>
 
-  <div class="flex gap-2">
-    <button
-      type="submit"
-      class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      [disabled]="pending()"
-    >
+  <div class="flex flex-wrap gap-2">
+    <button aecButton type="submit" [disabled]="pending()">
       @if (pending()) {
       <span i18n="@@admin.connectors.mapping.working">Saving…</span>
       } @else {
@@ -111,8 +105,8 @@
       }
     </button>
     <button
-      type="button"
-      class="cursor-pointer px-3 py-2 text-sm text-(--text-secondary) underline disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      aecButton
+      variant="ghost"
       [disabled]="pending()"
       (click)="closeForm()"
       i18n="@@admin.connectors.mapping.cancel"
@@ -122,5 +116,5 @@
   </div>
 </form>
 } @if (failedMessage()) {
-<p class="mt-2 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+<p class="mt-2 text-t-14 font-semibold text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
 }

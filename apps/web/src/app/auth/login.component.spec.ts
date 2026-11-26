@@ -175,6 +175,10 @@ describe('LoginPage', () => {
     const { el } = await setup();
     const label = el.querySelector('label[for="login-email"]');
     expect(label, 'a real <label for="login-email"> must exist').not.toBeNull();
+    // AECI-2003: the Label role, 13px at 600 in secondary ink, not a 14px hand copy.
+    expect(label!.classList).toContain('text-t-13');
+    expect(label!.classList).toContain('text-(--text-secondary)');
+    expect(label!.classList).not.toContain('text-t-14');
     expect(el.querySelector('#login-email')).not.toBeNull();
     expect(el.textContent).toContain('Continue with Google');
     expect(el.querySelector('button[type="submit"]')?.textContent).toContain(

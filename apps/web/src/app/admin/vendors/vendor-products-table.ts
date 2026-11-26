@@ -15,9 +15,19 @@ import {
 
 import type { AdminVendorProductRow } from '@aeci/shared';
 
+import { AecButton } from '../../shared/button/button';
+import { Chip, type ConsoleChipTone } from '../../shared/chip/chip';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_TABLE } from '../console/console-table';
+import { adminStatusTone, type AdminStatusKey } from '../console/status-tones';
 import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
+import { STANDALONE_LINK_CLASS } from '../../vendor/components/vendor-docs-link';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * The Products tab on `/admin/vendors/:id` — the vendor's catalogue as a table
@@ -43,7 +53,7 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
  * vendor-level roll-up, which cannot say WHICH product is the connector), and
  * promotion status is the one field that explains a product missing from the
  * public site. There is no admin product detail page to link to, so the name
- * points at the public page in a new tab — same rule as View Page in Basics: an
+ * points at the public page in a new tab — same rule as View page in Basics: an
  * operator opens it to CHECK something, so navigating away is the wrong outcome.
  *
  * AECI-955 adds the narrow logo-only content edit exception (Stage 2.5 §11).
@@ -59,12 +69,72 @@ import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, ListingHideForm, NewTabIcon],
+  imports: [
+    AdminLogoEditor,
+    AdminPaginator,
+    AecButton,
+    Chip,
+    DatePipe,
+    DecimalPipe,
+    ListingHideForm,
+    NewTabIcon,
+  ],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {
   readonly announce = output<string>();
   protected readonly editingLogo = signal<string | null>(null);
+
+  // AECI-2112: the console table recipe (mock-up 14).
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly linkClass = STANDALONE_LINK_CLASS;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+
+  /** A console chip tone, by the console's word for the status. */
+  protected tone(key: AdminStatusKey): ConsoleChipTone {
+    return adminStatusTone(key);
+  }
+
+  /** A row with its logo editor or its listing form open takes the open fill. */
+  protected rowOpen(row: AdminVendorProductRow): boolean {
+    return this.editingLogo() === row.id || this.listingFormFor()?.id === row.id;
+  }
+
+  protected logoTriggerId(row: AdminVendorProductRow): string {
+    return `product-logo-trigger-${row.id}`;
+  }
+
+  /** The open editor is saving or removing a logo. Its close paths wait for it. */
+  protected readonly logoSaving = signal(false);
+
+  /**
+   * Edit logo opens the row's editor, or closes it. It never closes an editor whose
+   * save is in flight: the PATCH would still commit, but its `logoSaved` (the table
+   * reload) and its announcement would be lost with the editor (AECI-2112).
+   */
+  protected toggleLogo(row: AdminVendorProductRow): void {
+    if (this.editingLogo() === row.id) {
+      if (this.logoSaving()) return;
+      this.editingLogo.set(null);
+      return;
+    }
+    if (this.editingLogo() !== null && this.logoSaving()) return;
+    this.logoSaving.set(false);
+    this.editingLogo.set(row.id);
+  }
+
+  /** The editor asked to close (Escape, never mid-save): close it and give focus
+   *  back to Edit logo. */
+  protected closeLogo(row: AdminVendorProductRow): void {
+    if (this.editingLogo() !== row.id || this.logoSaving()) return;
+    this.editingLogo.set(null);
+    afterNextRender(() => this.document.getElementById(this.logoTriggerId(row))?.focus(), {
+      injector: this.injector,
+    });
+  }
 
   readonly rows = input.required<readonly AdminVendorProductRow[]>();
   readonly page = input.required<number>();

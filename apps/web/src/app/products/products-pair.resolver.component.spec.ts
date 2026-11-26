@@ -295,6 +295,37 @@ describe('productsPairResolver — server path', () => {
     );
   });
 
+  it('tags the connector of a connector-evidenced mechanism, which names it in via', async () => {
+    const meta = metaStub();
+    const base = pairFixture().mechanisms[0]!;
+    const ctx = createRequestContext(
+      apiClient(async () =>
+        pairFixture({
+          mechanisms: [
+            {
+              ...base,
+              built_by_vendor: null,
+              powered_by_product: null,
+              via: { id: 'p8', name: 'Agave ERP Sync', slug: 'agave-erp-sync', logo_url: null },
+            },
+          ],
+        }),
+      ),
+    );
+    const { run } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toContainEqual({ type: 'product', slug: 'agave-erp-sync' });
+  });
+
   it('returns null, sets 404, and applies not-found meta on NOT_FOUND', async () => {
     const meta = metaStub();
     const ctx = createRequestContext(

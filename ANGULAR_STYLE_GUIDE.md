@@ -606,6 +606,7 @@ Lint cannot read these, so a spec holds them. `docs/TESTING_STRATEGY.md` §3.6 l
 |---|---|
 | `apps/web/src/app/shared/form-field/early-input-coverage.spec.ts` | Every acceptance checkbox carries `aecConsent`, and every component binding a text field, select or radio imports `AecEarlyInput` (§13) |
 | `apps/web/e2e/serif-floor.spec.ts`, with its source half in `design-tokens.guard.spec.ts` | Source Serif never renders below 20px (`DESIGN.md` §3 "The Serif-Floor Rule") |
+| `apps/web/src/border-color-layer.guard.spec.ts` | The global `* { border-color }` default sits in `@layer base`, so a border-colour utility (`border-(--x)`, `divide-(--x)`) applies. An unlayered rule on `*` that sets a border colour fails it (AECI-2088) |
 | `apps/api/src/lib/on-page-ordering-firewall.spec.ts` and the web firewall specs | No on-page order reads an input a paid plan can change. A new `orderBy`, `.sort(` or `.toSorted(` on a public read path fails until it is registered, a tripwire that reads tokens, not meaning (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 8) |
 
 ### Template files (`**/*.html`)

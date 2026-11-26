@@ -1,117 +1,117 @@
+<!-- AECI-2102: the review queue is a console table (mock-up 14, ruled 2026-11-24). The
+     review text, its facts and the decision sit in the row's expanded detail. -->
 <section aria-labelledby="admin-reviews-heading">
-  <div class="flex flex-wrap items-end justify-between gap-4">
-    <h2
-      id="admin-reviews-heading"
-      class="text-lg font-bold text-(--text-primary)"
-      i18n="@@admin.reviews.heading"
-    >
-      Reviews
-    </h2>
+  <h2
+    id="admin-reviews-heading"
+    tabindex="-1"
+    class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.reviews.heading"
+  >
+    Reviews
+  </h2>
 
+  <div [class]="f.toolbar">
     <!-- AECI-1643: the status tabs, as on /admin/review-updates. -->
-    <div class="flex flex-wrap items-center gap-2">
-      <span
-        id="admin-reviews-status-label"
-        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@admin.reviews.filter.label"
+    <div [class]="f.group">
+      <span id="admin-reviews-status-label" [class]="f.label" i18n="@@admin.reviews.filter.label"
         >Status</span
       >
-      <div
-        role="group"
-        aria-labelledby="admin-reviews-status-label"
-        class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-      >
+      <div role="group" aria-labelledby="admin-reviews-status-label" [class]="f.seg">
         @for (opt of statusOptions; track opt.key) {
         <button
           type="button"
           (click)="setStatus(opt.key)"
           [attr.aria-pressed]="statusFilter() === opt.key"
-          class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+          [class]="f.option"
         >
-          {{ opt.label }}
+          @if (statusFilter() === opt.key) {
+          <aec-icon name="check" decorative [size]="4" />
+          } {{ opt.label }}
         </button>
         }
       </div>
     </div>
-  </div>
 
-  @if (!loading() && !loadFailed() && sortedReviews().length > 0) {
-  <div class="mt-4 flex flex-wrap items-center gap-2">
-    <span
-      id="admin-reviews-sort-label"
-      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@admin.reviews.sort.label"
-      >Sort by</span
-    >
-    <div
-      role="group"
-      aria-labelledby="admin-reviews-sort-label"
-      class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
-    >
-      @for (opt of sortOptions; track opt.key) {
-      <button
-        type="button"
-        (click)="setSort(opt.key)"
-        [attr.aria-pressed]="sortKey() === opt.key"
-        class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+    @if (!loading() && !loadFailed() && sortedReviews().length > 0) {
+    <div [class]="f.group">
+      <span id="admin-reviews-sort-label" [class]="f.label" i18n="@@admin.reviews.sort.label"
+        >Sort by</span
       >
-        {{ opt.label }}
-      </button>
-      }
-    </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div role="group" aria-labelledby="admin-reviews-sort-label" [class]="f.seg">
+          @for (opt of sortOptions; track opt.key) {
+          <button
+            type="button"
+            (click)="setSort(opt.key)"
+            [attr.aria-pressed]="sortKey() === opt.key"
+            [class]="f.option"
+          >
+            @if (sortKey() === opt.key) {
+            <aec-icon name="check" decorative [size]="4" />
+            } {{ opt.label }}
+          </button>
+          }
+        </div>
 
-    <!-- One-time explainer for the toxicity scale (the same legend the per-row
-           badges show), anchored next to the Sort-by → Toxicity control. -->
-    <button
-      #infoOrigin
-      type="button"
-      (mouseenter)="openLegend(infoOrigin)"
-      (mouseleave)="scheduleCloseLegend()"
-      (blur)="scheduleCloseLegend()"
-      (click)="toggleLegend(infoOrigin)"
-      (keydown.escape)="closeLegend()"
-      [attr.aria-expanded]="legendOrigin() === infoOrigin"
-      [attr.aria-describedby]="legendOrigin() === infoOrigin ? 'toxicity-legend' : null"
-      class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--border-default) text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      aria-label="About the toxicity score"
-      i18n-aria-label="@@admin.reviews.toxicity.aria.about"
-    >
-      <span aria-hidden="true" class="text-xs font-bold tabular-nums">i</span>
-    </button>
+        <!-- One-time explainer for the toxicity scale (the same legend the per-row
+             scores open), anchored next to the Sort-by → Toxicity control. -->
+        <button
+          #infoOrigin
+          aecButton
+          variant="ghost"
+          iconOnly
+          (mouseenter)="openLegend(infoOrigin)"
+          (mouseleave)="scheduleCloseLegend()"
+          (blur)="scheduleCloseLegend()"
+          (click)="toggleLegend(infoOrigin)"
+          (keydown.escape)="closeLegend()"
+          [attr.aria-expanded]="legendOrigin() === infoOrigin"
+          [attr.aria-describedby]="legendOrigin() === infoOrigin ? 'toxicity-legend' : null"
+          aria-label="About the toxicity score"
+          i18n-aria-label="@@admin.reviews.toxicity.aria.about"
+        >
+          <span class="inline-flex text-(--text-secondary)"
+            ><aec-icon name="info" decorative
+          /></span>
+        </button>
+      </div>
+    </div>
+    }
   </div>
-  }
 
   <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
-  <!-- AECI-218: advisory "consider a ban" banner — appears after a reviewer's 3rd+
-       rejection. The rejected row is already gone, so the banner (not the row) is
+  <!-- AECI-218: advisory "consider a ban" notice — appears after a reviewer's 3rd+
+       rejection. The rejected row is already gone, so the notice (not the row) is
        where the admin acts. -->
   @if (repeatOffenderPrompt(); as p) {
   <div
     role="status"
-    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) px-4 py-3"
+    [class]="noticeClass"
+    class="mt-6 flex flex-wrap items-center justify-between gap-4"
   >
-    <p class="text-sm text-(--text-primary)">
-      <span class="font-bold" i18n="@@admin.reviews.ban.prompt.lead">Consider a ban.</span>
+    <p>
+      <span class="font-semibold" i18n="@@admin.reviews.ban.prompt.lead">Consider a ban.</span>
       <span i18n="@@admin.reviews.ban.prompt.detail"
         >{{ p.reviewer_email ?? fallbackReviewerName }} now has {{ p.rejected_count }} rejected
         reviews.</span
       >
     </p>
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-3">
       <button
-        type="button"
+        aecButton
+        variant="secondary"
+        compact
         (click)="openBan()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.reviews.ban.prompt.ban"
       >
         Ban reviewer
       </button>
       <button
-        type="button"
+        aecButton
+        variant="ghost"
         (click)="dismissPrompt()"
-        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         i18n="@@admin.reviews.ban.prompt.dismiss"
       >
         Dismiss
@@ -119,478 +119,312 @@
     </div>
   </div>
   } @if (loading()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.loading">
+  <p class="mt-6 text-t-16 text-(--text-secondary)" i18n="@@admin.reviews.loading">
     Loading the moderation queue…
   </p>
   } @else if (loadFailed()) {
-  <div class="mt-8 space-y-3">
+  <div class="mt-6 space-y-4">
     <p
-      class="text-sm font-medium text-(--text-primary)"
+      class="text-t-16 font-semibold text-(--text-primary)"
       role="alert"
       i18n="@@admin.reviews.loadFailed"
     >
       We couldn't load the moderation queue. Your session may have expired.
     </p>
-    <button
-      type="button"
-      (click)="retry()"
-      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      i18n="@@admin.reviews.retry"
-    >
+    <button aecButton variant="secondary" (click)="retry()" i18n="@@admin.reviews.retry">
       Try again
     </button>
   </div>
   } @else if (sortedReviews().length === 0) { @if (statusFilter() === 'pending') {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.empty">
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.reviews.empty">
     No reviews are waiting for moderation.
   </p>
   } @else {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.emptyStatus">
+  <p [class]="t.empty" class="mt-6" i18n="@@admin.reviews.emptyStatus">
     No reviews have this status.
   </p>
   } } @else { @if (truncated()) { @if (statusFilter() === 'pending') {
-  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.reviews.cappedNote">
+  <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@admin.reviews.cappedNote">
     Showing the first {{ loadedCount() }} of {{ total() }} pending reviews. Moderate these to see
     the rest.
   </p>
   } @else {
-  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.reviews.cappedNoteStatus">
+  <p class="mt-6 text-t-14 text-(--text-secondary)" i18n="@@admin.reviews.cappedNoteStatus">
     Showing the first {{ loadedCount() }} of {{ total() }} reviews with this status.
   </p>
   } }
 
-  <ul role="list" class="mt-6 space-y-5">
-    @for (r of sortedReviews(); track r.id) {
-    <li>
-      <article
-        [attr.aria-labelledby]="'review-' + r.id + '-product'"
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
-      >
-        <!-- Header: product + toxicity flag -->
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            @if (r.status !== 'pending') {
-            <span
-              class="mb-2 inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-              data-testid="review-status"
-              >{{ statusLabel(r.status) }}</span
-            >
-            }
-            <h3
-              [id]="'review-' + r.id + '-product'"
-              class="text-base font-bold text-(--text-primary)"
-            >
-              <a
-                [routerLink]="['/products', r.product.slug]"
-                class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >{{ r.product.name }}</a
-              >
-            </h3>
-          </div>
-
-          @if (isHighToxicity(r.toxicity_score)) {
-          <button
-            #toxOrigin
-            type="button"
-            (mouseenter)="openLegend(toxOrigin)"
-            (mouseleave)="scheduleCloseLegend()"
-            (blur)="scheduleCloseLegend()"
-            (click)="toggleLegend(toxOrigin)"
-            (keydown.escape)="closeLegend()"
-            [attr.aria-label]="toxicityAriaLabel(r.toxicity_score)"
-            [attr.aria-expanded]="legendOrigin() === toxOrigin"
-            [attr.aria-describedby]="legendOrigin() === toxOrigin ? 'toxicity-legend' : null"
-            class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >
-            <span
-              class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.reviews.toxicity.label"
-              >Toxicity</span
-            >
-            <span>{{ r.toxicity_score }}</span>
-            <span i18n="@@admin.reviews.toxicity.high">· High</span>
-          </button>
+  <div
+    [class]="t.region"
+    class="mt-6"
+    role="region"
+    tabindex="0"
+    aria-labelledby="admin-reviews-caption"
+  >
+    <table [class]="t.table" class="min-w-[62rem]">
+      <caption id="admin-reviews-caption" [class]="t.caption" i18n="@@admin.reviews.heading">
+        Reviews
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" [class]="t.head">
+            <span class="sr-only" i18n="@@admin.reviews.col.details">Details</span>
+          </th>
+          <th scope="col" [class]="t.head" i18n="@@admin.reviews.sort.product">Product</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.reviews.meta.reviewer">Reviewer</th>
+          <th scope="col" [class]="t.headNum" i18n="@@admin.reviews.col.overall">Overall</th>
+          <th scope="col" [class]="t.headNum" i18n="@@admin.reviews.col.onboarding">Onboarding</th>
+          <th scope="col" [class]="t.headNum" i18n="@@admin.reviews.toxicity.label">Toxicity</th>
+          <th scope="col" [class]="t.head" i18n="@@admin.reviews.meta.submitted">Submitted</th>
+          @if (statusFilter() === 'pending') {
+          <th scope="col" [class]="t.headNum" i18n="@@admin.reviews.meta.queueAge">In queue</th>
           } @else {
-          <button
-            #toxOrigin
-            type="button"
-            (mouseenter)="openLegend(toxOrigin)"
-            (mouseleave)="scheduleCloseLegend()"
-            (blur)="scheduleCloseLegend()"
-            (click)="toggleLegend(toxOrigin)"
-            (keydown.escape)="closeLegend()"
-            [attr.aria-label]="toxicityAriaLabel(r.toxicity_score)"
-            [attr.aria-expanded]="legendOrigin() === toxOrigin"
-            [attr.aria-describedby]="legendOrigin() === toxOrigin ? 'toxicity-legend' : null"
-            class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >
-            <span
-              class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.reviews.toxicity.label"
-              >Toxicity</span
+          <th scope="col" [class]="t.head" i18n="@@admin.reviews.meta.decided">Decided</th>
+          }
+          <th scope="col" [class]="t.head" i18n="@@admin.reviews.filter.label">Status</th>
+        </tr>
+      </thead>
+      @for (r of pagedReviews(); track r.id) {
+      <tbody data-testid="review-record">
+        <tr [class]="isOpen(r.id) ? t.rowOpen : t.row" data-testid="review-row">
+          <td [class]="t.disclosure">
+            <aec-admin-disclosure-button
+              [expanded]="isOpen(r.id)"
+              [controls]="'review-' + r.id + '-detail'"
+              [label]="rowLabel(r)"
+              (toggled)="toggleRow(r.id)"
+            />
+          </td>
+          <th scope="row" [id]="'review-' + r.id + '-product'" [class]="t.rowHead">
+            <a [routerLink]="['/products', r.product.slug]" [class]="t.link"
+              >{{ r.product.name }}</a
             >
-            @if (r.toxicity_score === null) {
-            <span i18n="@@admin.reviews.toxicity.notScored">Not scored</span>
-            } @else {
-            <span>{{ r.toxicity_score }}</span>
+          </th>
+          <td [class]="t.nowrap">
+            @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
+            <span class="text-(--text-secondary)" i18n="@@admin.reviews.meta.anonymized"
+              >Anonymized</span
+            >
             }
-          </button>
-          }
-        </div>
-
-        <!-- Identity + timing -->
-        <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.reviews.meta.reviewer">Reviewer</dt>
-            <dd>
-              @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
-              <span i18n="@@admin.reviews.meta.anonymized">Anonymized</span>
-              }
-            </dd>
-          </div>
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.reviews.meta.submitted">Submitted</dt>
-            <dd>{{ r.created_at | date: 'medium' }}</dd>
-          </div>
-          @if (r.status === 'pending') {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.reviews.meta.queueAge">In queue</dt>
-            <dd>{{ queueAge(r.created_at) }}</dd>
-          </div>
-          } @else if (r.moderated_at) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.reviews.meta.decided">Decided</dt>
-            <dd>{{ r.moderated_at | date: 'medium' }}</dd>
-          </div>
-          } @if (r.removed_at) {
-          <div class="flex gap-1.5">
-            <dt class="font-bold" i18n="@@admin.reviews.meta.removed">Removed</dt>
-            <dd>{{ r.removed_at | date: 'medium' }}</dd>
-          </div>
-          }
-        </dl>
-
-        <!-- Ratings -->
-        <div class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-(--text-primary)">
-          <span i18n="@@admin.reviews.rating.overall">Overall {{ r.rating_overall }}/5</span>
-          <span i18n="@@admin.reviews.rating.onboarding"
-            >Onboarding {{ r.rating_onboarding }}/5</span
-          >
-        </div>
-
-        <!-- Content -->
-        <h4 class="mt-4 text-sm font-bold text-(--text-primary)">{{ r.title }}</h4>
-        <p class="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
-          {{ r.body }}
-        </p>
-
-        <!-- Secondary meta -->
-        <div
-          class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--text-secondary)"
-        >
-          @if (r.role_at_company) {
-          <span>{{ roleLabel(r.role_at_company) }}</span>
-          } @if (r.years_using !== null) {
-          <span i18n="@@admin.reviews.meta.years">{{ r.years_using }} yrs using</span>
-          } @if (r.would_recommend) {
-          <span>{{ recommendLabel(r.would_recommend) }}</span>
-          }
-        </div>
-
-        <!-- The reason the reviewer was given, on a decided review -->
-        @if (r.status === 'removed' && r.removal_reason) {
-        <div class="mt-4 border-t border-(--border-default) pt-4" data-testid="review-reason">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.reviews.reason.removed.heading"
-          >
-            Why it was removed
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ r.removal_reason }}
-          </p>
-        </div>
-        } @else if (r.status === 'rejected' && r.rejection_reason) {
-        <div class="mt-4 border-t border-(--border-default) pt-4" data-testid="review-reason">
-          <h4
-            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.reviews.reason.rejected.heading"
-          >
-            Why it was rejected
-          </h4>
-          <p
-            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
-          >
-            {{ r.rejection_reason }}
-          </p>
-        </div>
-        }
-
-        <!-- Actions, from the shared state machine (reviewDecisionsFor) -->
-        @if (decisionsFor(r).length > 0) {
-        <div class="mt-5 flex flex-wrap items-center gap-3">
-          @if (canApprove(r)) {
-          <button
-            type="button"
-            (click)="approve(r.id)"
-            [disabled]="pendingActionId() === r.id"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            @if (pendingActionId() === r.id) {
-            <span i18n="@@admin.reviews.approving">Working…</span>
-            } @else {
-            <span i18n="@@admin.reviews.approve">Approve</span>
-            }
-          </button>
-          } @if (canReject(r)) {
-          <button
-            type="button"
-            (click)="openReject(r.id)"
-            [disabled]="pendingActionId() === r.id || rejectingId() === r.id"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.reviews.reject"
-          >
-            Reject
-          </button>
-          } @if (canRemove(r)) {
-          <button
-            type="button"
-            (click)="openRemove(r.id)"
-            [disabled]="pendingActionId() === r.id || removingId() === r.id"
-            [attr.aria-describedby]="'review-' + r.id + '-remove-help'"
-            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            i18n="@@admin.reviews.remove"
-          >
-            Remove from the page
-          </button>
-          }
-        </div>
-        @if (canRemove(r)) {
-        <p
-          [id]="'review-' + r.id + '-remove-help'"
-          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
-          i18n="@@admin.reviews.remove.help"
-        >
-          Removing takes the review off the product page and its ratings out of the averages. It is
-          final. No email is sent. The reviewer sees your reason on their account page.
-        </p>
-        } }
-
-        <!-- AECI-1643: remove form (required reason, then a deliberate confirm) -->
-        @if (removingId() === r.id) {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirmRemove(r.id)"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-          data-testid="remove-form"
-        >
-          <label
-            [attr.for]="'remove-reason-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.reviews.remove.label"
-          >
-            Why you are removing it (required)
-          </label>
-          <p
-            [id]="'remove-reason-' + r.id + '-help'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.reviews.remove.reasonHelp"
-          >
-            Shown to the reviewer on their account page. Name the guideline the review breaks.
-          </p>
-          <textarea
-            [id]="'remove-reason-' + r.id"
-            rows="3"
-            [attr.maxlength]="reasonMax"
-            required
-            [attr.aria-invalid]="removeReasonMissing() ? 'true' : null"
-            [attr.aria-describedby]="'remove-reason-' + r.id + '-help' + (removeReasonMissing() ? ' remove-reason-' + r.id + '-error' : '')"
-            [value]="removeText()"
-            [readOnly]="removeConfirming()"
-            (input)="onRemoveInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) read-only:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          @if (removeReasonMissing()) {
-          <p
-            [id]="'remove-reason-' + r.id + '-error'"
-            role="alert"
-            class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.reviews.remove.missing"
-          >
-            Write a reason before you confirm.
-          </p>
-          } @if (removeConfirming()) {
-          <!--
-            Removal is final, so it takes a second, deliberate step. Focus lands on
-            this group, which is named and described by its own text, so the warning
-            is heard before any button.
-          -->
-          <div
-            [id]="'remove-confirm-' + r.id"
-            role="group"
-            tabindex="-1"
-            [attr.aria-labelledby]="'remove-confirm-' + r.id + '-title'"
-            [attr.aria-describedby]="'remove-confirm-' + r.id + '-body'"
-            class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            data-testid="remove-confirm"
-          >
-            <p
-              [id]="'remove-confirm-' + r.id + '-title'"
-              class="text-sm font-bold text-(--text-primary)"
-              i18n="@@admin.reviews.removeConfirm.title"
-            >
-              Remove this review permanently?
-            </p>
-            <p
-              [id]="'remove-confirm-' + r.id + '-body'"
-              class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-primary)"
-              i18n="@@admin.reviews.removeConfirm.body"
-            >
-              Removal is final. The review comes off the product page with its vendor replies and
-              updates, and its ratings stop counting in the product's averages. The reviewer cannot
-              post a new review of this product. Nobody can undo it from this screen.
-            </p>
-            <div class="mt-3 flex flex-wrap gap-3">
-              <button
-                type="submit"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (pendingActionId() === r.id) {
-                <span i18n="@@admin.reviews.removing">Removing…</span>
-                } @else {
-                <span i18n="@@admin.reviews.removeConfirm.confirm">Remove permanently</span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="editRemoveReason(r.id)"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.reviews.removeConfirm.edit"
-              >
-                Edit the reason
-              </button>
-              <button
-                type="button"
-                (click)="closeRemove()"
-                [disabled]="pendingActionId() === r.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.reviews.remove.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-          } @else {
-          <div class="flex flex-wrap gap-3 pt-1">
+          </td>
+          <td [class]="t.num">{{ r.rating_overall }}/5</td>
+          <td [class]="t.num">{{ r.rating_onboarding }}/5</td>
+          <td [class]="t.num">
+            <!-- The score opens the shared toxicity legend, as the card badge did. -->
             <button
-              type="submit"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.reviews.remove.continue"
+              #toxOrigin
+              aecButton
+              variant="ghost"
+              compact
+              class="-me-4"
+              (mouseenter)="openLegend(toxOrigin)"
+              (mouseleave)="scheduleCloseLegend()"
+              (blur)="scheduleCloseLegend()"
+              (click)="toggleLegend(toxOrigin)"
+              (keydown.escape)="closeLegend()"
+              [attr.aria-label]="toxicityAriaLabel(r.toxicity_score)"
+              [attr.aria-expanded]="legendOrigin() === toxOrigin"
+              [attr.aria-describedby]="legendOrigin() === toxOrigin ? 'toxicity-legend' : null"
             >
-              Continue to removal
-            </button>
-            <button
-              type="button"
-              (click)="closeRemove()"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.reviews.remove.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-          }
-        </form>
-        }
-
-        <!-- Reject form (required reason) -->
-        @if (rejectingId() === r.id) {
-        <form
-          method="dialog"
-          novalidate
-          (aecSubmit)="confirmReject(r.id)"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
-        >
-          <label
-            [attr.for]="'reject-reason-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.reviews.reject.label"
-          >
-            Reason for rejection
-          </label>
-          <textarea
-            [id]="'reject-reason-' + r.id"
-            rows="3"
-            [formField]="rejectForm.rejection_reason"
-            [attr.aria-invalid]="
-                    rejectForm.rejection_reason().touched() && rejectForm.rejection_reason().invalid()
-                      ? 'true'
-                      : null
-                  "
-            [attr.aria-describedby]="
-                    rejectForm.rejection_reason().touched() &&
-                    rejectForm.rejection_reason().getError('standardSchema')
-                      ? 'reject-reason-' + r.id + '-error'
-                      : null
-                  "
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
-          @if ( rejectForm.rejection_reason().touched() &&
-          rejectForm.rejection_reason().getError('standardSchema') ) {
-          <p
-            [id]="'reject-reason-' + r.id + '-error'"
-            [class]="errorClass"
-            role="alert"
-            i18n="@@admin.reviews.reject.error"
-          >
-            Enter a reason between 1 and 500 characters so the reviewer understands the decision.
-          </p>
-          }
-          <div class="flex flex-wrap gap-3 pt-1">
-            <button
-              type="submit"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (pendingActionId() === r.id) {
-              <span i18n="@@admin.reviews.rejecting">Rejecting…</span>
+              @if (isHighToxicity(r.toxicity_score)) {
+              <aec-chip density="dense" [tone]="tone('toxicityHigh')"
+                >{{ r.toxicity_score }}
+                <span i18n="@@admin.reviews.toxicity.high">· High</span></aec-chip
+              >
+              } @else if (r.toxicity_score === null) {
+              <aec-chip density="dense" [tone]="tone('notScored')"
+                ><span i18n="@@admin.reviews.toxicity.notScored">Not scored</span></aec-chip
+              >
               } @else {
-              <span i18n="@@admin.reviews.reject.confirm">Confirm rejection</span>
+              <span class="tabular-nums">{{ r.toxicity_score }}</span>
               }
             </button>
-            <button
-              type="button"
-              (click)="cancelReject()"
-              [disabled]="pendingActionId() === r.id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.reviews.reject.cancel"
+          </td>
+          <td [class]="t.nowrap">{{ r.created_at | date: 'medium' }}</td>
+          @if (r.status === 'pending') {
+          <td [class]="t.num">{{ queueAge(r.created_at) }}</td>
+          } @else {
+          <td [class]="t.nowrap">
+            @if (r.moderated_at) { {{ r.moderated_at | date: 'medium' }} } @else {
+            <!-- DESIGN.md: an absent value is an aria-hidden en dash beside hidden words. -->
+            <span aria-hidden="true">–</span
+            ><span class="sr-only" i18n="@@admin.reviewUpdates.meta.reviewerUnknown"
+              >Not available</span
             >
-              Cancel
-            </button>
-          </div>
-        </form>
-        } @if (failedAction()?.id === r.id) {
-        <p
-          class="mt-3 text-sm font-medium text-(--text-primary)"
-          role="alert"
-          i18n="@@admin.reviews.action.failed"
+            }
+          </td>
+          }
+          <td [class]="t.cell">
+            <aec-chip
+              density="dense"
+              [tone]="statusTone(r.status)"
+              [attr.data-testid]="r.status === 'pending' ? null : 'review-status'"
+              >{{ statusLabel(r.status) }}</aec-chip
+            >
+          </td>
+        </tr>
+        <tr
+          [id]="'review-' + r.id + '-detail'"
+          [class]="t.detailRow"
+          [hidden]="!isOpen(r.id)"
+          data-testid="review-detail"
         >
-          Something went wrong. Please try again.
-        </p>
-        }
-      </article>
-    </li>
-    }
-  </ul>
+          <td [attr.colspan]="columnCount" [class]="t.detailCell">
+            <div [class]="t.detailInner">
+              <div [class]="detailGridClass">
+                <!-- The review: its words and its facts -->
+                <div class="min-w-0">
+                  <p class="text-t-16 font-semibold text-(--text-primary)">{{ r.title }}</p>
+                  <p [class]="bodyClass" class="mt-2">{{ r.body }}</p>
+                  <p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-t-14 text-(--text-secondary)">
+                    <span i18n="@@admin.reviews.rating.overall"
+                      >Overall {{ r.rating_overall }}/5</span
+                    >
+                    <span i18n="@@admin.reviews.rating.onboarding"
+                      >Onboarding {{ r.rating_onboarding }}/5</span
+                    >
+                    @if (r.role_at_company) {
+                    <span>{{ roleLabel(r.role_at_company) }}</span>
+                    } @if (r.years_using !== null) {
+                    <span i18n="@@admin.reviews.meta.years">{{ r.years_using }} yrs using</span>
+                    } @if (r.would_recommend) {
+                    <span>{{ recommendLabel(r.would_recommend) }}</span>
+                    }
+                  </p>
+                  @if (r.removed_at) {
+                  <dl [class]="factsClass" class="mt-4">
+                    <div class="flex flex-wrap gap-x-2">
+                      <dt [class]="labelClass" i18n="@@admin.reviews.meta.removed">Removed</dt>
+                      <dd class="text-(--text-primary)">{{ r.removed_at | date: 'medium' }}</dd>
+                    </div>
+                  </dl>
+                  }
+
+                  <!-- The reason the reviewer was given, on a decided review -->
+                  @if (r.status === 'removed' && r.removal_reason) {
+                  <div
+                    class="mt-4 border-t border-(--border-default) pt-4"
+                    data-testid="review-reason"
+                  >
+                    <p [class]="labelClass" i18n="@@admin.reviews.reason.removed.heading">
+                      Why it was removed
+                    </p>
+                    <p [class]="bodyClass" class="mt-2">{{ r.removal_reason }}</p>
+                  </div>
+                  } @else if (r.status === 'rejected' && r.rejection_reason) {
+                  <div
+                    class="mt-4 border-t border-(--border-default) pt-4"
+                    data-testid="review-reason"
+                  >
+                    <p [class]="labelClass" i18n="@@admin.reviews.reason.rejected.heading">
+                      Why it was rejected
+                    </p>
+                    <p [class]="bodyClass" class="mt-2">{{ r.rejection_reason }}</p>
+                  </div>
+                  }
+                </div>
+
+                <!-- The decision, from the shared state machine (reviewDecisionsFor) -->
+                <div class="grid min-w-0 content-start gap-4">
+                  @if (decisionsFor(r).length > 0) {
+                  <!-- AECI-2104: Reject and Remove are the shared danger form. Each opens
+                       under its opener. The help line describes Remove's opener. -->
+                  @if (canRemove(r)) {
+                  <p
+                    [id]="'review-' + r.id + '-remove-help'"
+                    [class]="helpClass"
+                    i18n="@@admin.reviews.remove.help"
+                  >
+                    Removing takes the review off the product page and its ratings out of the
+                    averages. It is final. No email is sent. The reviewer sees your reason on their
+                    account page.
+                  </p>
+                  }
+                  <div class="flex flex-wrap items-start gap-3">
+                    @if (canApprove(r)) {
+                    <button
+                      aecButton
+                      (click)="approve(r.id)"
+                      [disabled]="pendingActionId() === r.id"
+                    >
+                      @if (pendingActionId() === r.id) {
+                      <span i18n="@@admin.reviews.approving">Working…</span>
+                      } @else {
+                      <span i18n="@@admin.reviews.approve">Approve</span>
+                      }
+                    </button>
+                    } @if (canReject(r)) {
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      [openerLabel]="rejectCopy.opener"
+                      [confirmLabel]="rejectCopy.confirm"
+                      [busyLabel]="rejectCopy.busy"
+                      [reasonLabel]="rejectCopy.label"
+                      [reasonRequired]="rejectCopy.error"
+                      [maxLength]="reasonMax"
+                      [lengthMessage]="rejectCopy.error"
+                      [cancelLabel]="rejectCopy.cancel"
+                      [openerDisabled]="pendingActionId() === r.id && rejectingId() !== r.id"
+                      [busy]="busyWith(r.id, 'reject')"
+                      [open]="rejectingId() === r.id"
+                      (openChange)="onRejectOpen(r.id, $event)"
+                      (confirmed)="confirmReject(r.id, $event)"
+                    />
+                    } @if (canRemove(r)) {
+                    <aec-admin-danger-action
+                      class="min-w-0 flex-1"
+                      data-testid="remove-form"
+                      [openerLabel]="removeCopy.opener"
+                      [confirmLabel]="removeCopy.confirm"
+                      [busyLabel]="removeCopy.busy"
+                      [reasonLabel]="removeCopy.label"
+                      [reasonHelp]="removeCopy.help"
+                      [reasonRequired]="removeCopy.missing"
+                      [maxLength]="reasonMax"
+                      [confirmStep]="removeStep"
+                      [cancelLabel]="removeCopy.cancel"
+                      [openerDescribedBy]="'review-' + r.id + '-remove-help'"
+                      [openerDisabled]="pendingActionId() === r.id && removingId() !== r.id"
+                      [busy]="busyWith(r.id, 'remove')"
+                      [open]="removingId() === r.id"
+                      (openChange)="onRemoveOpen(r.id, $event)"
+                      (confirmed)="confirmRemove(r.id, $event)"
+                    />
+                    }
+                  </div>
+                  } @if (failedAction()?.id === r.id) {
+                  <p
+                    [id]="'review-' + r.id + '-failed'"
+                    tabindex="-1"
+                    [class]="failedClass"
+                    role="alert"
+                    i18n="@@admin.reviews.action.failed"
+                  >
+                    Something went wrong. Please try again.
+                  </p>
+                  }
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+      }
+    </table>
+  </div>
+
+  <!-- Previous and Next over the loaded set (ADMIN_PANEL_SPEC.md §5.7). The API
+       pages too, but the sorts run in the browser over what is loaded, so the
+       pages are cut from that set. -->
+  <aec-admin-paginator
+    [page]="currentPage()"
+    [perPage]="pageSize"
+    [total]="loadedCount()"
+    (pageChange)="setPage($event)"
+  />
   }
 
-  <!-- AECI-218 ban dialog: opened from the banner's "Ban reviewer" button. A
+  <!-- AECI-218 ban dialog: opened from the notice's "Ban reviewer" button. A
        required reason mirrors the reject form. Opened from the click handler
        (`openBan()`), never from an effect; the backdrop/Escape `closed` output keeps
        state in sync. It opens on its title (AECI-1861). -->
@@ -598,31 +432,28 @@
     <ng-template brnDialogContent>
       @if (banTarget(); as t) {
       <div
-        class="fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+        class="aec-dialog fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 p-6"
       >
         <h2
           brnDialogTitle
           tabindex="-1"
-          class="text-lg font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          class="text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3"
           i18n="@@admin.reviews.ban.dialog.title"
         >
           Ban this reviewer?
         </h2>
         <p
           brnDialogDescription
-          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          [class]="noticeClass"
+          class="mt-4"
           i18n="@@admin.reviews.ban.dialog.description"
         >
           {{ t.reviewer_email ?? fallbackReviewerName }} will be blocked from submitting new
           reviews. Their existing approved reviews stay visible. You can unban them later.
         </p>
 
-        <form method="dialog" novalidate (aecSubmit)="confirmBan()" class="mt-5 space-y-2">
-          <label
-            for="ban-reason"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.reviews.ban.dialog.label"
-          >
+        <form method="dialog" novalidate (aecSubmit)="confirmBan()" class="mt-4 grid gap-2">
+          <label for="ban-reason" [class]="labelClass" i18n="@@admin.reviews.ban.dialog.label">
             Reason for ban
           </label>
           <textarea
@@ -637,7 +468,8 @@
                 ? 'ban-reason-error'
                 : null
             "
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [class]="inputClass"
+            class="min-h-24 resize-y py-3"
           ></textarea>
           @if (banForm.reason().touched() && banForm.reason().getError('standardSchema')) {
           <p
@@ -650,7 +482,9 @@
           </p>
           } @if (banFailed()) {
           <p
-            class="text-sm font-medium text-(--text-primary)"
+            id="ban-failed"
+            tabindex="-1"
+            [class]="failedClass"
             role="alert"
             i18n="@@admin.reviews.ban.dialog.failed"
           >
@@ -658,7 +492,9 @@
           </p>
           } @if (banLastSeatVendorId(); as vendorId) {
           <p
-            class="text-sm font-medium text-(--text-primary)"
+            id="ban-last-seat"
+            tabindex="-1"
+            [class]="failedClass"
             role="alert"
             i18n="@@admin.reviews.ban.dialog.lastSeat"
           >
@@ -666,17 +502,13 @@
             Suspend on its
             <a
               [routerLink]="['/admin/vendors', vendorId]"
-              class="font-medium underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary)"
+              class="underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary)"
               >vendor page</a
             >.
           </p>
           }
-          <div class="flex flex-wrap gap-3 pt-2">
-            <button
-              type="submit"
-              [disabled]="banSubmitting()"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
+          <div class="mt-2 flex flex-wrap gap-3">
+            <button aecButton variant="danger" compact type="submit" [disabled]="banSubmitting()">
               @if (banSubmitting()) {
               <span i18n="@@admin.reviews.ban.dialog.banning">Banning…</span>
               } @else {
@@ -684,10 +516,10 @@
               }
             </button>
             <button
-              type="button"
+              aecButton
+              variant="ghost"
               (click)="closeBan()"
               [disabled]="banSubmitting()"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
               i18n="@@admin.reviews.ban.dialog.cancel"
             >
               Cancel
@@ -700,10 +532,10 @@
   </brn-dialog>
 
   <!-- Shared toxicity-scale legend: one connected overlay anchored to whichever
-       badge / explainer is active (`legendOrigin`). A `cdkConnectedOverlay` rather
+       score / explainer is active (`legendOrigin`). A `cdkConnectedOverlay` rather
        than a focus-trapping dialog, so revealing it on hover never moves focus. The
-       overlay is portaled to the CDK container (escapes the card's bounds), keeps
-       itself open while hovered, and closes via mouse-out, blur, or Escape. -->
+       overlay is portaled to the CDK container (escapes the table's scroll region),
+       keeps itself open while hovered, and closes via mouse-out, blur, or Escape. -->
   <ng-template
     [cdkConnectedOverlay]="legendOverlayConfig()"
     [cdkConnectedOverlayOpen]="legendOrigin() !== null"
@@ -713,25 +545,22 @@
       role="tooltip"
       (mouseenter)="keepLegendOpen()"
       (mouseleave)="scheduleCloseLegend()"
-      class="w-[min(90vw,18rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
+      class="aec-popover w-[min(90vw,18rem)] p-4"
     >
-      <p
-        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@admin.reviews.toxicity.legend.title"
-      >
+      <p [class]="labelClass" i18n="@@admin.reviews.toxicity.legend.title">
         Toxicity score · 0–100
       </p>
       <p
-        class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+        class="mt-2 text-t-14 leading-relaxed text-(--text-secondary)"
         i18n="@@admin.reviews.toxicity.legend.intro"
       >
         AI-rated when a review is submitted. A higher number means the text is more likely to be
         abusive.
       </p>
-      <ul class="mt-3 space-y-1.5 text-sm">
+      <ul class="mt-3 space-y-2 text-t-14">
         <li class="flex items-center gap-2">
           <span
-            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--border-strong)"
+            class="inline-block h-2 w-2 shrink-0 rounded-pill bg-(--border-strong)"
             aria-hidden="true"
           ></span>
           <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.normal"
@@ -740,7 +569,7 @@
         </li>
         <li class="flex items-center gap-2">
           <span
-            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--accent-secondary)"
+            class="inline-block h-2 w-2 shrink-0 rounded-pill bg-(--accent-secondary-deep)"
             aria-hidden="true"
           ></span>
           <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.high"
@@ -749,7 +578,7 @@
         </li>
       </ul>
       <p
-        class="mt-3 border-t border-(--border-default) pt-3 text-xs leading-relaxed text-(--text-tertiary)"
+        class="mt-3 border-t border-(--border-default) pt-3 text-t-13 leading-relaxed text-(--text-secondary)"
         i18n="@@admin.reviews.toxicity.legend.note"
       >
         A harsh or critical opinion isn't toxic on its own. This score only surfaces the worst

@@ -180,6 +180,11 @@ async function wholePage(
           s.backgroundColor,
           s.color,
           s.borderTopLeftRadius,
+          // AECI-2088: a border colour that drifts between first and final paint.
+          s.borderTopColor,
+          s.borderRightColor,
+          s.borderBottomColor,
+          s.borderLeftColor,
         ].join(' | '),
       };
     }),

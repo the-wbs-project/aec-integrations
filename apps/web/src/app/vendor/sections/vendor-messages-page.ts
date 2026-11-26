@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 
+import { AecCard } from '../../shared/card/card';
 import { VendorContestsList } from '../components/vendor-contests-list';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorNotificationsList } from '../components/vendor-notifications-list';
@@ -55,6 +56,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 @Component({
   selector: 'aec-vendor-messages-page',
   imports: [
+    AecCard,
     VendorContestsList,
     VendorDocsLink,
     VendorNotificationsList,
@@ -63,41 +65,35 @@ import { VendorPortalStore } from '../vendor-portal-store';
   ],
   template: `
     @if (me(); as m) {
+      <!-- AECI-1812: each block is the shared white card (the contests list, the
+           reminder switch and the archive carry their own), 32px apart. -->
       <div class="space-y-8">
         <div>
-          <h2
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.messages"
-          >
-            Messages
-          </h2>
+          <h2 i18n="@@vendor.section.messages">Messages</h2>
           <p
-            class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            class="mt-2 max-w-[30rem] text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.messages.intro.contests"
           >
             Updates about your company: where your claim and correction requests stand, the change
             requests you have sent or received, and the reminders we have sent you about your
             integrations.
           </p>
-          <p class="mt-1"><aec-vendor-docs-link page="notifications-and-messages" /></p>
+          <p class="mt-2"><aec-vendor-docs-link page="notifications-and-messages" /></p>
         </div>
 
-        <div>
-          <h3
-            class="font-display text-lg font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.requests"
-          >
+        <section aecCard [class]="'p-6'" aria-labelledby="vendor-requests-heading">
+          <h3 id="vendor-requests-heading" i18n="@@vendor.section.requests">
             Claim &amp; correction status
           </h3>
-          <p class="mt-1"><aec-vendor-docs-link page="claiming-your-listing" /></p>
-          <div class="mt-3">
+          <p class="mt-2"><aec-vendor-docs-link page="claiming-your-listing" /></p>
+          <div class="mt-4">
             <aec-vendor-request-status [requests]="m.requests" />
           </div>
-        </div>
+        </section>
 
         <aec-vendor-contests-list />
 
-        <div class="space-y-4">
+        <div class="space-y-6">
           <aec-vendor-nudge-mute-toggle />
           <aec-vendor-notifications-list />
         </div>

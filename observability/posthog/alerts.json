@@ -758,6 +758,37 @@
         "_note": "NEW with AECI-1222, no Datadog predecessor. INITIAL threshold set before any delivery data existed: at today's volume any complaint fires. Re-tune after 14 days of production data. Not applied to PostHog by AECI-1222: apply.sh is run by hand."
       },
       "runbook": "docs/email.md — 'Delivery webhooks (AECI-1222)' (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
+    },
+    {
+      "key": "cache-tags-truncated",
+      "name": "AECi — A page went uncached: its cache tags did not fit (any, 24 h)",
+      "insightKey": "alert-cache-tags-truncated",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, because the window is 24 h. An hourly check would re-read the same day 24 times and email on each firing check.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "uncacheable_renders",
+        "label_column": "uncacheable_route_classes"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-2025, no Datadog predecessor. Before AECI-2025 the same page returned 500. Fires on Tier B only (reason:uncacheable_product_tags_dropped): a page that is not stored renders on every visit. Tier A (degraded_ttl, cached for 60 s) is the insight's degraded_renders column, a watch that does not fire. Not applied to PostHog by AECI-2025: apply.sh is run by hand."
+      },
+      "runbook": "docs/runbooks/alerts.md — 'Cache tags cut to fit'."
     }
   ]
 }

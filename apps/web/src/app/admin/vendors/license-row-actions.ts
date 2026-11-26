@@ -24,7 +24,17 @@ import { LICENSE_GRANT_REFERENCE_MAX } from '@aeci/shared/entitlements';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { AdminLicensesApi } from './admin-licenses-api';
 import type { BillingLicenseRow } from './billing-licenses-table';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  FIELD_ERROR_CLASS,
+  FIELD_HINT_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import { VENDOR_ACTIONS_CLASS, VENDOR_FIELD_CLASS } from './vendor-console-classes';
+import { CONSOLE_NOTICE_CLASS } from '../console/console-detail';
 
 /** Which edits a license offers. Mirrors the API's refusals, so no button leads to one. */
 export interface LicenseRowActionSet {
@@ -80,8 +90,8 @@ type Mode = 'extend' | 'reference' | 'revoke';
  * owns their term and invoice. One form open at a time.
  *
  * ── FOCUS (AECI-1994) ───────────────────────────────────────────────────────
- * Opening a form focuses its first field, and Cancel returns focus to the button that
- * opened it. A refusal focuses its message, because the confirm button was disabled
+ * Opening a form focuses its first field, and Cancel or Escape returns focus to the
+ * button that opened it. Escape does nothing while the request runs (AECI-2124). A refusal focuses its message, because the confirm button was disabled
  * while the request ran and a disabled button drops focus.
  *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
@@ -91,7 +101,7 @@ type Mode = 'extend' | 'reference' | 'revoke';
  */
 @Component({
   selector: 'aec-license-row-actions',
-  imports: [AecFormSubmit],
+  imports: [AecButton, AecFormSubmit],
   templateUrl: './license-row-actions.html',
 })
 export class LicenseRowActions {
@@ -109,6 +119,14 @@ export class LicenseRowActions {
 
   protected readonly reasonMax = ADMIN_REASON_MAX;
   protected readonly referenceMax = LICENSE_GRANT_REFERENCE_MAX;
+  protected readonly labelClass = FIELD_LABEL_CLASS;
+  protected readonly hintClass = FIELD_HINT_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
 
   protected readonly license = computed(() => this.row().license);
   protected readonly actions = computed(() => licenseRowActions(this.license()));
@@ -176,6 +194,12 @@ export class LicenseRowActions {
           ?.focus(),
       { injector: this.injector },
     );
+  }
+
+  /** Escape is Cancel, except while the request runs: its answer needs the form. */
+  protected onEscape(event: Event): void {
+    event.stopPropagation();
+    if (!this.pending()) this.close();
   }
 
   protected onEndInput(event: Event): void {

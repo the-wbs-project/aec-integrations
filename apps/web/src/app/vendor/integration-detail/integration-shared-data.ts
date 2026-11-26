@@ -35,6 +35,7 @@ import {
   directionShort,
   disagreementItemId,
   formatDay,
+  isClaimed,
   myAnswer,
   myNote,
   noteAudience,
@@ -45,17 +46,23 @@ import {
   theirAnswer,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
+import { AecButton } from '../../shared/button/button';
 import {
-  ALERT,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  HELP,
-  ID_STYLES,
-  LABEL,
-  ROW_ACTION,
-} from './integration-detail-styles';
+  FIELD_OPTIONAL_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { AecIcon } from '../../shared/icon/icon';
+import {
+  PORTAL_FORM_GRID_CLASS,
+  PORTAL_FORM_SPAN_CLASS,
+  PORTAL_SAVE_BUTTON_CLASS,
+} from '../shared/portal-form';
+import { ALERT, FORM_PANEL, HELP, ID_STYLES, INPUT } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 import { isReplayedEvent } from '../../core/event-replay';
+import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { PORTAL_NESTED_SAVE_BAR_CLASS } from '../shared/portal-form';
+import { SEGMENTED_CLASS, segmentClass } from '../shared/portal-segmented';
 
 /**
  * "Data that's shared" (AECI-1151, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4).
@@ -86,51 +93,49 @@ import { isReplayedEvent } from '../../core/event-replay';
  */
 @Component({
   selector: 'aec-integration-shared-data',
-  imports: [VendorTip, VendorDocsLink, IntegrationAnswerForm],
+  imports: [
+    KeepClearOfSaveBar,
+    AecButton,
+    AecIcon,
+    VendorTip,
+    VendorDocsLink,
+    IntegrationAnswerForm,
+  ],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
     <div class="flex items-center gap-1">
-      <h3
-        id="data-shared-heading"
-        tabindex="-1"
-        class="id-h3 text-(--text-primary) focus:outline-none"
-      >
+      <h3 id="data-shared-heading" tabindex="-1" class="text-(--text-primary) focus:outline-none">
         {{ heading() }}
       </h3>
       <aec-vendor-tip [label]="aboutHeading" [lines]="[headingTip()]" />
       @if (canAdd()) {
         <button
           #addButton
+          aecButton
+          variant="secondary"
+          iconOnly
           type="button"
-          class="id-icon-btn-bordered ms-auto inline-flex h-8 w-8 items-center justify-center rounded-(--radius-md) text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [class]="'ms-auto'"
           [attr.aria-label]="addLabel"
           [attr.aria-expanded]="state.addingRow()"
           aria-controls="data-shared-add"
           data-testid="add-row"
           (click)="toggleAdd()"
         >
-          <svg
-            aria-hidden="true"
-            class="h-4 w-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <aec-icon name="plus" decorative [size]="4" />
         </button>
       }
     </div>
-    <p class="mt-1"><aec-vendor-docs-link page="confirming-integration-data" /></p>
+    <p><aec-vendor-docs-link page="confirming-integration-data" /></p>
 
     <div id="data-shared-add">
       @if (state.addingRow() && canAdd()) {
         <form
+          aecKeepClearOfSaveBar
           method="dialog"
-          class="id-well mt-3 space-y-3 p-4 text-sm"
+          [class]="panel"
+          class="mt-4 space-y-6 text-sm"
           [attr.aria-label]="addFormLabel"
           (submit)="add($event)"
           data-testid="add-row-form"
@@ -138,7 +143,7 @@ import { isReplayedEvent } from '../../core/event-replay';
           <p id="data-shared-add-how" class="max-w-prose text-(--text-secondary)">
             {{ addHelp() }}
           </p>
-          <div class="flex flex-wrap items-end gap-3">
+          <div [class]="grid">
             <div>
               <label for="data-shared-add-type" [class]="label" i18n="@@vendor.im.add.data"
                 >Data</label
@@ -146,7 +151,8 @@ import { isReplayedEvent } from '../../core/event-replay';
               <select
                 #addFirst
                 id="data-shared-add-type"
-                class="id-input mt-1 min-w-[12rem]"
+                [class]="input"
+                class="mt-2"
                 aria-describedby="data-shared-add-how"
                 (change)="draftData.set(selectValue($event))"
               >
@@ -163,7 +169,8 @@ import { isReplayedEvent } from '../../core/event-replay';
               >
               <select
                 id="data-shared-add-dir"
-                class="id-input mt-1 min-w-[12rem]"
+                [class]="input"
+                class="mt-2"
                 (change)="draftDirection.set(asDirection($event))"
               >
                 @for (d of directions; track d) {
@@ -173,24 +180,23 @@ import { isReplayedEvent } from '../../core/event-replay';
                 }
               </select>
             </div>
-          </div>
-          <div>
-            <label for="data-shared-add-note" [class]="label">
-              {{ addNoteLabel() }}
-              <span class="font-normal text-(--text-secondary)" i18n="@@vendor.im.answer.optional">
-                (optional)</span
-              >
-            </label>
-            <textarea
-              id="data-shared-add-note"
-              rows="2"
-              maxlength="2000"
-              class="id-input mt-1"
-              aria-describedby="data-shared-add-note-help"
-              [value]="draftNote()"
-              (input)="draftNote.set(textValue($event))"
-            ></textarea>
-            <p id="data-shared-add-note-help" [class]="help">{{ audience() }}</p>
+            <div [class]="span">
+              <label for="data-shared-add-note" [class]="label">
+                {{ addNoteLabel() }}
+                <span [class]="optional" i18n="@@vendor.im.answer.optional"> (optional)</span>
+              </label>
+              <textarea
+                id="data-shared-add-note"
+                rows="2"
+                maxlength="2000"
+                [class]="input"
+                class="mt-2"
+                aria-describedby="data-shared-add-note-help"
+                [value]="draftNote()"
+                (input)="draftNote.set(textValue($event))"
+              ></textarea>
+              <p id="data-shared-add-note-help" [class]="help">{{ audience() }}</p>
+            </div>
           </div>
           @if (vocabularyFailed()) {
             <p [class]="alert" role="alert" i18n="@@vendor.im.add.vocabularyFailed">
@@ -200,18 +206,21 @@ import { isReplayedEvent } from '../../core/event-replay';
           @if (addError()) {
             <p [class]="alert" role="alert">{{ addError() }}</p>
           }
-          <div class="flex flex-wrap gap-3">
+          <div [class]="saveBar">
             <button
+              aecButton
               type="submit"
-              [class]="primary"
+              [class]="saveButton"
               [disabled]="adding() || dataOptions().length === 0"
               data-testid="add-row-submit"
             >
               <span i18n="@@vendor.im.add.submit">Add</span>
             </button>
             <button
+              aecButton
+              variant="secondary"
               type="button"
-              [class]="secondary"
+              [class]="saveButton"
               [disabled]="adding()"
               (click)="closeAdd()"
               i18n="@@vendor.im.add.cancel"
@@ -241,7 +250,7 @@ import { isReplayedEvent } from '../../core/event-replay';
       </p>
     } @else {
       <div
-        class="mt-3 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        class="relative mt-4 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         tabindex="0"
         role="region"
         [attr.aria-label]="caption()"
@@ -279,54 +288,22 @@ import { isReplayedEvent } from '../../core/event-replay';
                   {{ claim.data_object_name }}
                 </th>
                 <td class="py-2 pe-4 text-(--text-primary)">
-                  <span class="inline-flex items-center gap-1.5">
+                  <span class="inline-flex items-center gap-2">
                     @switch (claim.direction) {
                       @case ('outbound') {
-                        <svg
-                          aria-hidden="true"
-                          class="h-4 w-4 shrink-0 text-(--text-secondary) rtl:-scale-x-100"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M5 12h14" />
-                          <path d="m12 5 7 7-7 7" />
-                        </svg>
+                        <span class="flex shrink-0 text-(--text-secondary)">
+                          <aec-icon name="arrow-right" decorative [size]="4" [mirrorRtl]="true" />
+                        </span>
                       }
                       @case ('inbound') {
-                        <svg
-                          aria-hidden="true"
-                          class="h-4 w-4 shrink-0 text-(--text-secondary) rtl:-scale-x-100"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="m12 19-7-7 7-7" />
-                          <path d="M19 12H5" />
-                        </svg>
+                        <span class="flex shrink-0 text-(--text-secondary)">
+                          <aec-icon name="arrow-left" decorative [size]="4" [mirrorRtl]="true" />
+                        </span>
                       }
                       @default {
-                        <svg
-                          aria-hidden="true"
-                          class="h-4 w-4 shrink-0 text-(--text-secondary)"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M8 3 4 7l4 4" />
-                          <path d="M4 7h16" />
-                          <path d="m16 21 4-4-4-4" />
-                          <path d="M20 17H4" />
-                        </svg>
+                        <span class="flex shrink-0 text-(--text-secondary)">
+                          <aec-icon name="two-way" decorative [size]="4" />
+                        </span>
                       }
                     }
                     {{ directionText(claim.direction) }}
@@ -340,42 +317,22 @@ import { isReplayedEvent } from '../../core/event-replay';
                   } @else if (mine !== null && editing() !== claim.id) {
                     <span class="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span
-                        class="inline-flex items-center gap-1 font-medium text-(--text-primary)"
+                        class="inline-flex items-center gap-1 font-semibold text-(--text-primary)"
                         [attr.data-testid]="'answer-' + claim.data_object_slug"
                       >
                         @if (mine === 'yes') {
-                          <svg
-                            aria-hidden="true"
-                            class="h-3.5 w-3.5"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          >
-                            <path d="M20 6 9 17l-5-5" />
-                          </svg>
+                          <aec-icon name="check" decorative [size]="3.5" />
                           <span i18n="@@vendor.im.answer.yes">Yes</span>
                         } @else {
-                          <svg
-                            aria-hidden="true"
-                            class="h-3.5 w-3.5"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.5"
-                            stroke-linecap="round"
-                          >
-                            <path d="M18 6 6 18M6 6l12 12" />
-                          </svg>
+                          <aec-icon name="x" decorative [size]="3.5" />
                           <span i18n="@@vendor.im.answer.no">No</span>
                         }
                       </span>
                       @if (!change && canChange()) {
                         <button
+                          aecButton
+                          variant="ghost"
                           type="button"
-                          [class]="rowAction"
                           [attr.aria-label]="changeLabel(claim)"
                           [attr.data-change-for]="claim.id"
                           [attr.data-testid]="'change-' + claim.data_object_slug"
@@ -388,7 +345,7 @@ import { isReplayedEvent } from '../../core/event-replay';
                     </span>
                   } @else {
                     <div
-                      class="id-seg"
+                      [class]="segmented"
                       role="group"
                       [attr.aria-label]="groupLabel(claim)"
                       [attr.data-answer-group]="claim.id"
@@ -396,7 +353,7 @@ import { isReplayedEvent } from '../../core/event-replay';
                     >
                       <button
                         type="button"
-                        class="id-seg-btn inline-flex min-h-8 items-center gap-1 px-2.5 py-1 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        [class]="segment(mine === 'yes')"
                         [attr.aria-pressed]="mine === 'yes'"
                         [attr.aria-expanded]="
                           yesOpensForm(claim) ? openForm() === claim.id + ':yes' : null
@@ -406,23 +363,12 @@ import { isReplayedEvent } from '../../core/event-replay';
                         [attr.data-testid]="'yes-' + claim.data_object_slug"
                         (click)="pressYes(claim)"
                       >
-                        <svg
-                          aria-hidden="true"
-                          class="h-3.5 w-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        >
-                          <path d="M20 6 9 17l-5-5" />
-                        </svg>
+                        <aec-icon name="check" decorative [size]="3.5" />
                         <span i18n="@@vendor.im.answer.yes">Yes</span>
                       </button>
                       <button
                         type="button"
-                        class="id-seg-btn inline-flex min-h-8 items-center gap-1 px-2.5 py-1 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        [class]="segment(mine === 'no')"
                         [attr.aria-pressed]="mine === 'no'"
                         [attr.aria-expanded]="
                           mine === 'no' ? null : openForm() === claim.id + ':no'
@@ -432,17 +378,7 @@ import { isReplayedEvent } from '../../core/event-replay';
                         [attr.data-testid]="'no-' + claim.data_object_slug"
                         (click)="pressNo(claim)"
                       >
-                        <svg
-                          aria-hidden="true"
-                          class="h-3.5 w-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.5"
-                          stroke-linecap="round"
-                        >
-                          <path d="M18 6 6 18M6 6l12 12" />
-                        </svg>
+                        <aec-icon name="x" decorative [size]="3.5" />
                         <span i18n="@@vendor.im.answer.no">No</span>
                       </button>
                     </div>
@@ -459,8 +395,10 @@ import { isReplayedEvent } from '../../core/event-replay';
                           >Delete this row?</span
                         >
                         <button
+                          aecButton
+                          variant="danger"
+                          compact
                           type="button"
-                          [class]="rowAction"
                           [attr.data-delete-yes]="claim.id"
                           [disabled]="busy() === claim.id"
                           [attr.data-testid]="'delete-yes-' + claim.data_object_slug"
@@ -470,8 +408,10 @@ import { isReplayedEvent } from '../../core/event-replay';
                           Yes, delete it
                         </button>
                         <button
+                          aecButton
+                          variant="secondary"
+                          compact
                           type="button"
-                          [class]="rowAction"
                           [disabled]="busy() === claim.id"
                           [attr.data-testid]="'delete-keep-' + claim.data_object_slug"
                           (click)="keepRow(claim)"
@@ -483,8 +423,9 @@ import { isReplayedEvent } from '../../core/event-replay';
                     } @else {
                       <div class="mt-1">
                         <button
+                          aecButton
+                          variant="ghost"
                           type="button"
-                          [class]="rowAction"
                           [attr.aria-label]="deleteLabel(claim)"
                           [attr.data-delete-for]="claim.id"
                           [disabled]="busy() === claim.id"
@@ -540,7 +481,7 @@ import { isReplayedEvent } from '../../core/event-replay';
                     colspan="4"
                     [id]="boxId(claim.id)"
                     tabindex="-1"
-                    class="id-change-box scroll-mt-20 space-y-1 px-4 py-3 text-(--text-primary) focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
+                    class="scroll-mt-20 space-y-1 border-s-3 border-(--accent-primary) bg-(--surface-sunken) px-4 py-3 text-(--text-primary) focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
                   >
                     <p class="font-semibold" i18n="@@vendor.im.change.title">
                       You submitted a change
@@ -575,8 +516,9 @@ import { isReplayedEvent } from '../../core/event-replay';
                       <div class="flex flex-wrap gap-x-4 gap-y-1 pt-1">
                         @if (live()) {
                           <button
+                            aecButton
+                            variant="ghost"
                             type="button"
-                            [class]="rowAction"
                             [attr.aria-label]="changeBoxLabel(claim)"
                             [attr.aria-expanded]="changeForm()?.id === claim.id"
                             [attr.aria-controls]="boxId(claim.id) + '-form'"
@@ -590,8 +532,9 @@ import { isReplayedEvent } from '../../core/event-replay';
                           </button>
                         }
                         <button
+                          aecButton
+                          variant="ghost"
                           type="button"
-                          [class]="rowAction"
                           [attr.aria-label]="cancelBoxLabel(claim)"
                           [disabled]="busy() === claim.id"
                           [attr.data-testid]="'change-box-cancel-' + claim.data_object_slug"
@@ -702,8 +645,12 @@ export class IntegrationSharedData {
     const i = this.integration();
     const a = i.context_product.name;
     const b = i.other_product.name;
-    return i.attestable
-      ? $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`
+    if (i.attestable) {
+      return $localize`:@@vendor.im.data.tip:The types of data that move between ${a}:a: and ${b}:b:. Say whether each row is right. Only the badge your answer produces is public.`;
+    }
+    // A claim ends promote's upkeep of the rows (§4.5.3), so the sentence changes.
+    return isClaimed(i)
+      ? $localize`:@@vendor.im.data.tipConnectorClaimed:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations stopped updating this list when the integration was claimed.`
       : $localize`:@@vendor.im.data.tipConnector:The types of data that move between ${a}:a: and ${b}:b:. AEC Integrations keeps this list up to date.`;
   });
 
@@ -720,7 +667,17 @@ export class IntegrationSharedData {
       i.powered_by?.name ??
       i.mechanism_name ??
       $localize`:@@vendor.im.connector.fallback:a connector service`;
-    return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+    if (!isClaimed(i)) {
+      return $localize`:@@vendor.im.data.connectorNote:AEC Integrations keeps these up to date. They run through ${connector}:connector:, so neither company answers for them.`;
+    }
+    // Claimed: promote writes nothing to the row, its data rows included (§4.5.3).
+    if (i.is_owner) {
+      return $localize`:@@vendor.im.data.connectorNoteClaimed.mine:AEC Integrations stopped updating these when your company claimed this integration. They run through ${connector}:connector:, so neither product vendor can confirm them.`;
+    }
+    const owner = i.owner?.name;
+    return owner
+      ? $localize`:@@vendor.im.data.connectorNoteClaimed.other:AEC Integrations stopped updating these when ${owner}:owner: claimed this integration. They run through ${connector}:connector:, so neither product vendor can confirm them.`
+      : $localize`:@@vendor.im.data.connectorNoteClaimed.unnamed:AEC Integrations stopped updating these when this integration was claimed. They run through ${connector}:connector:, so neither product vendor can confirm them.`;
   });
 
   protected readonly columns = computed(() => {
@@ -786,12 +743,18 @@ export class IntegrationSharedData {
   protected readonly yesLabel = $localize`:@@vendor.im.answer.yes.aria:Yes, this is right`;
   protected readonly noLabel = $localize`:@@vendor.im.answer.no.aria:No, this is wrong`;
 
-  protected readonly label = LABEL;
+  protected readonly label = FIELD_LABEL_CLASS;
   protected readonly help = HELP;
   protected readonly alert = ALERT;
-  protected readonly primary = BTN_PRIMARY;
-  protected readonly secondary = BTN_SECONDARY;
-  protected readonly rowAction = ROW_ACTION;
+  protected readonly input = INPUT;
+  protected readonly optional = FIELD_OPTIONAL_CLASS;
+  protected readonly panel = FORM_PANEL;
+  protected readonly grid = PORTAL_FORM_GRID_CLASS;
+  protected readonly span = PORTAL_FORM_SPAN_CLASS;
+  protected readonly saveBar = PORTAL_NESTED_SAVE_BAR_CLASS;
+  protected readonly saveButton = PORTAL_SAVE_BUTTON_CLASS;
+  protected readonly segmented = SEGMENTED_CLASS;
+  protected readonly segment = segmentClass;
 
   protected deleteLabel(claim: VendorClaim): string {
     const data = claim.data_object_name;
@@ -924,7 +887,9 @@ export class IntegrationSharedData {
       lines.push(claimOutcomeLine(claim, this.integration().other_product.name));
     } else {
       lines.push(
-        $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
+        isClaimed(this.integration())
+          ? $localize`:@@vendor.im.data.status.connectorClaimed:AEC Integrations no longer updates it. Neither product vendor can confirm it.`
+          : $localize`:@@vendor.im.data.status.connector:AEC Integrations checks it. Neither company answers for it.`,
       );
     }
     return lines;

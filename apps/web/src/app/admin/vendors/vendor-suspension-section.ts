@@ -28,15 +28,32 @@ import { SuspensionCostLog } from './suspension-cost-log';
 import { SuspensionStatement } from './suspension-statement';
 import { SuspensionTerminate } from './suspension-terminate';
 import {
-  SUSPENSION_BUTTON,
-  SUSPENSION_CONFIRM_BUTTON,
-  SUSPENSION_INPUT,
   currentNoticeUnconfirmed,
   formatCents,
   isStaleError,
   suspensionErrorMessage,
 } from './vendor-suspension-model';
+import {
+  VENDOR_ACTIONS_CLASS,
+  VENDOR_FIELD_CLASS,
+  VENDOR_FORM_CLASS,
+} from './vendor-console-classes';
+import { AecButton } from '../../shared/button/button';
 import { AecFormSubmit } from '../../shared/form-field/form-submit';
+import {
+  CHOICE_INPUT_CLASS,
+  FIELD_ERROR_CLASS,
+  FIELD_INPUT_CLASS,
+  FIELD_LABEL_CLASS,
+} from '../../shared/form-field/form-field-classes';
+import { CONSOLE_CAPTION_CLASS, CONSOLE_LABEL_CLASS } from '../console/console-table';
+import { QUEUE_FAILED_CLASS } from '../reviews/queue-classes';
+import {
+  CONSOLE_FAILED_TEXT_CLASS,
+  CONSOLE_LOAD_FAILED_CLASS,
+  CONSOLE_NOTICE_CLASS,
+  CONSOLE_STATUS_LINE_CLASS,
+} from '../console/console-detail';
 
 /**
  * How long after Terminate the page re-reads the state. The API answers once the D1 batch
@@ -47,6 +64,9 @@ export const REFUND_SETTLE_DELAY_MS = 5_000;
 
 /** The actions that share a pending flag and a failure slot. */
 type SuspensionAction = 'suspend' | 'resend' | 'stage2' | 'lift' | 'retry';
+
+/** The three inline forms. Each closes on Escape and hands focus back to its opener. */
+type SuspensionForm = 'suspend' | 'stage2' | 'lift';
 
 /**
  * Suspend, then terminate, on the Vendor tab of `/admin/vendors/:id` (AECI-1623,
@@ -66,10 +86,26 @@ type SuspensionAction = 'suspend' | 'resend' | 'stage2' | 'lift' | 'retry';
  * No heading and no live region: `VendorDetail` owns both. It reloads the audit trail on
  * {@link changed} and the vendor and Billing on {@link terminated}. Nothing here blanks the
  * section on a re-read, so a form in progress keeps its text and its focus.
+ *
+ * ── LOOK (AECI-2124) ────────────────────────────────────────────────────────
+ * The page's "Suspension" panel holds this section. The state is the console's Bone
+ * notice, and each stage is a part of the panel under a hairline, never a box inside it.
+ * Each form opens in place of its secondary opener. Cancel and Escape close it and hand
+ * focus back to the opener. Escape does nothing while a request runs. Suspend and
+ * stage 2 confirm with danger: they lock a vendor out or record a false-claim finding,
+ * and each sends a notice nothing takes back. Lift confirms with primary: it gives every
+ * seat its access back.
  */
 @Component({
   selector: 'aec-vendor-suspension-section',
-  imports: [AecFormSubmit, DatePipe, SuspensionCostLog, SuspensionStatement, SuspensionTerminate],
+  imports: [
+    AecButton,
+    AecFormSubmit,
+    DatePipe,
+    SuspensionCostLog,
+    SuspensionStatement,
+    SuspensionTerminate,
+  ],
   templateUrl: './vendor-suspension-section.html',
 })
 export class VendorSuspensionSection {
@@ -88,9 +124,25 @@ export class VendorSuspensionSection {
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
 
-  protected readonly buttonClass = SUSPENSION_BUTTON;
-  protected readonly confirmClass = SUSPENSION_CONFIRM_BUTTON;
-  protected readonly inputClass = SUSPENSION_INPUT;
+  protected readonly statusLineClass = CONSOLE_STATUS_LINE_CLASS;
+  protected readonly loadFailedClass = CONSOLE_LOAD_FAILED_CLASS;
+  protected readonly failedTextClass = CONSOLE_FAILED_TEXT_CLASS;
+  protected readonly noticeClass = CONSOLE_NOTICE_CLASS;
+  protected readonly failedClass = QUEUE_FAILED_CLASS;
+  protected readonly labelClass = CONSOLE_LABEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly formClass = VENDOR_FORM_CLASS;
+  protected readonly fieldClass = VENDOR_FIELD_CLASS;
+  protected readonly actionsClass = VENDOR_ACTIONS_CLASS;
+  protected readonly fieldLabelClass = FIELD_LABEL_CLASS;
+  protected readonly inputClass = FIELD_INPUT_CLASS;
+  protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly choiceClass = CHOICE_INPUT_CLASS;
+  /** A fact's value: the words as stored, line breaks kept. */
+  protected readonly valueClass = 'mt-1 whitespace-pre-line text-t-14 text-(--text-primary)';
+  /** One stage of the panel: a hairline above, 24px clear of what came before. */
+  protected readonly partClass = 'grid gap-3 border-t border-(--border-default) pt-6';
+  protected readonly partHeadingClass = 'text-t-16 font-semibold text-(--text-primary)';
   protected readonly ruleMax = VENDOR_SUSPENSION_RULE_MAX;
   protected readonly evidenceMax = VENDOR_SUSPENSION_EVIDENCE_MAX;
   protected readonly reasonMax = ADMIN_REASON_MAX;
@@ -249,6 +301,21 @@ export class VendorSuspensionSection {
 
   protected cancelSuspend(): void {
     this.suspendOpen.set(false);
+    this.focusOpener('suspend');
+  }
+
+  /** Escape inside an open form is its Cancel, except while a request runs. */
+  protected onEscape(event: Event, form: SuspensionForm): void {
+    event.stopPropagation();
+    if (this.pendingAction() !== null) return;
+    if (form === 'suspend') this.cancelSuspend();
+    else if (form === 'stage2') this.cancelStage2();
+    else this.cancelLift();
+  }
+
+  /** Back to the secondary button that opened the form. */
+  private focusOpener(form: SuspensionForm): void {
+    this.focus(`[id="${this.idPrefix()}-${form}-open"]`);
   }
 
   protected onSuspendInput(field: 'rule' | 'evidence' | 'reason', event: Event): void {
@@ -301,6 +368,7 @@ export class VendorSuspensionSection {
 
   protected cancelStage2(): void {
     this.stage2Open.set(false);
+    this.focusOpener('stage2');
   }
 
   protected onFindingInput(event: Event): void {
@@ -339,6 +407,7 @@ export class VendorSuspensionSection {
 
   protected cancelLift(): void {
     this.liftOpen.set(false);
+    this.focusOpener('lift');
   }
 
   protected onLiftReasonInput(event: Event): void {
