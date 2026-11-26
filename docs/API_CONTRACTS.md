@@ -3721,7 +3721,7 @@ for the form.
 
 #### `GET /api/admin/products/:id/delivered-pairs` (AECI-2045)
 
-Every pair one connector product delivers, both tables, live and retired, for the Delivered pairs section of the Products tab (`ADMIN_PANEL_SPEC.md` §5.7). No catalogue row is needed. Behind `requireAdmin()`. No rate limit, no audit row. Source: `packages/shared/src/api/delivered-pairs.ts`.
+Every pair one connector product delivers, both tables, live and retired, for the "Integrations through this connector" dialog of the Products tab (`ADMIN_PANEL_SPEC.md` §5.7; "Delivered pairs" until AECI-2202). No catalogue row is needed. Behind `requireAdmin()`. No rate limit, no audit row. Source: `packages/shared/src/api/delivered-pairs.ts`.
 
 ```typescript
 export const AdminDeliveredPairSchema = z.object({

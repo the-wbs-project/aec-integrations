@@ -30,8 +30,9 @@ interface FactField {
  * Three short text inputs, how often it syncs, who supports it, how setup works, the
  * https link they come from, and one explicit Save, like every other catalog write on
  * this tab. A blank input clears that fact. The link is required while any fact is set:
- * the page marks the facts as ours "with its source and date", as the Terms promise. The table renders it only on a row whose kind is Sync Service, the only product
- * the endpoint accepts. AECi curates these facts. The vendor cannot edit them.
+ * the page marks the facts as ours "with its source and date", as the Terms promise. Since
+ * AECI-2202 it sits in the row's "Edit Sync Service facts…" dialog, which the table offers
+ * only on a row whose kind is Sync Service, the only product the endpoint accepts. AECi curates these facts. The vendor cannot edit them.
  *
  * Host-owned chrome, the `ConnectorKindControl` contract: no live region here.
  * Announcements go out through {@link announce}, and the page's region speaks them.
@@ -40,10 +41,14 @@ interface FactField {
   selector: 'aec-sync-facts-control',
   imports: [AecButton],
   template: `
-    <fieldset class="mt-3 min-w-0 space-y-2 border-0 p-0">
-      <legend [class]="labelClass" i18n="@@admin.vendors.products.syncFacts.legend">
+    <fieldset class="m-0 min-w-0 space-y-4 border-0 p-0">
+      <legend class="sr-only" i18n="@@admin.vendors.products.syncFacts.legend">
         Sync Service facts
       </legend>
+      <p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.products.syncFacts.intro">
+        These show on the public product page as "Recorded by AEC Integrations", with a link to the
+        source. Leave a fact blank to remove it. The vendor cannot edit them.
+      </p>
       @for (field of fields; track field.key) {
         <div class="space-y-1">
           <label [class]="labelClass" [attr.for]="inputId(field.key)">{{ field.label }}</label>
@@ -51,7 +56,7 @@ interface FactField {
             [type]="field.key === 'source_url' ? 'url' : 'text'"
             autocomplete="off"
             [class]="inputClass"
-            class="min-w-48"
+            class="w-full"
             [id]="inputId(field.key)"
             [attr.maxlength]="field.max"
             [value]="draft()[field.key] ?? ''"
@@ -59,25 +64,36 @@ interface FactField {
           />
         </div>
       }
-      <button
-        aecButton
-        variant="secondary"
-        compact
-        type="button"
-        [disabled]="!dirty() || pending()"
-        (click)="save()"
-      >
-        @if (pending()) {
-          <span i18n="@@admin.vendors.products.syncFacts.saving">Saving…</span>
-        } @else {
-          <span i18n="@@admin.vendors.products.syncFacts.save">Save facts</span>
-        }
-      </button>
       @if (failedMessage()) {
-        <p class="text-xs font-medium text-(--text-primary)" role="alert">
+        <p class="text-sm font-medium text-(--text-primary)" role="alert">
           {{ failedMessage() }}
         </p>
       }
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          aecButton
+          variant="secondary"
+          type="button"
+          [disabled]="pending()"
+          (click)="cancelled.emit()"
+          i18n="@@admin.vendors.products.syncFacts.cancel"
+        >
+          Cancel
+        </button>
+        <button
+          aecButton
+          type="button"
+          [disabled]="!dirty() || pending()"
+          [attr.aria-busy]="pending() ? 'true' : null"
+          (click)="save()"
+        >
+          @if (pending()) {
+            <span i18n="@@admin.vendors.products.syncFacts.saving">Saving…</span>
+          } @else {
+            <span i18n="@@admin.vendors.products.syncFacts.save">Save facts</span>
+          }
+        </button>
+      </div>
     </fieldset>
   `,
 })
@@ -97,6 +113,11 @@ export class SyncFactsControl {
   /** The saved facts. The host refetches its rows. */
   readonly saved = output<SyncFacts>();
   readonly announce = output<string>();
+  /** AECI-2202: a write is in flight. The host dialog will not close until it settles,
+   *  so the write's result is never emitted from a destroyed component. */
+  readonly busyChange = output<boolean>();
+  /** Cancel: the host closes its dialog. */
+  readonly cancelled = output<void>();
 
   protected readonly fields: readonly FactField[] = [
     {
@@ -163,6 +184,7 @@ export class SyncFactsControl {
   protected async save(): Promise<void> {
     if (this.pending() || !this.dirty()) return;
     this.pending.set(true);
+    this.busyChange.emit(true);
     this.failedMessage.set('');
     try {
       const result = await this.api.setSyncFacts(this.productId(), this.normalized());
@@ -181,6 +203,7 @@ export class SyncFactsControl {
       this.failedMessage.set(messageForError(err));
     } finally {
       this.pending.set(false);
+      this.busyChange.emit(false);
     }
   }
 }

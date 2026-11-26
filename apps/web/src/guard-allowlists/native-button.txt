@@ -23,6 +23,8 @@ admin/threads/thread-list.html 1
 admin/traffic/traffic.html 4
 admin/users/user-detail.html 1
 admin/vendors/vendor-detail.html 1
+# Kept: the Actions menu items inside the row popover (AECI-2202), the vendor-license-actions menu recipe.
+admin/vendors/vendor-products-table.html 6
 # Kept: the status filter toggles (aria-pressed segments), kept by ruling 2026-11-24.
 vendor/components/vendor-integrations-section.ts 1
 # Kept: Release and Keep, menu items inside the actions popover.

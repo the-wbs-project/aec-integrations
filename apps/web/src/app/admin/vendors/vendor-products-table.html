@@ -29,9 +29,9 @@
 </p>
 } @else {
 <!--
-  AECI-2112: the console table recipe (mock-up 14). One tbody per product, so the
-  row and the logo and listing forms under it stay one group. The row's actions
-  open their forms in a detail row under it, on the raised fill.
+  AECI-2112: the console table recipe (mock-up 14). Since AECI-2202 every row action
+  sits in the row's Actions menu and opens the dialog at the end of this file, so
+  there are no detail rows.
 -->
 <div
   [class]="t.region"
@@ -65,9 +65,9 @@
         <th scope="col" [class]="t.headNum" i18n="@@admin.vendors.products.col.actions">Actions</th>
       </tr>
     </thead>
-    @for (row of rows(); track row.id) {
     <tbody>
-      <tr [class]="rowOpen(row) ? t.rowOpen : t.row">
+      @for (row of rows(); track row.id) {
+      <tr [class]="t.row">
         <th scope="row" [class]="t.rowHead">
           {{ row.name }}
           <span [class]="t.sub">{{ row.slug }}</span>
@@ -77,47 +77,26 @@
             [tone]="tone('hidden')"
             class="mt-1"
             data-testid="product-hidden-badge"
-            ><span i18n="@@admin.vendors.products.hiddenBadge">Hidden</span></aec-chip
+            ><span i18n="@@admin.vendors.products.hiddenBadge2"
+              >Hidden from public site</span
+            ></aec-chip
           >
-          }
+          @if (row.listing_hide.parent_id) {
+          <!-- A child hide: only the company's restore clears it (409 LISTING_HIDDEN_WITH_VENDOR). -->
+          <span
+            [class]="t.sub"
+            data-testid="product-listing-with-vendor"
+            i18n="@@admin.vendors.products.listing.withVendor2"
+            >Hidden with the company. Restore the company's listing on the Vendor tab.</span
+          >
+          } }
         </th>
 
         <td [class]="t.cell" class="text-(--text-secondary)">
           {{ roleLabel(row) }}
-          <!-- AECI-2036: Integration platform or Sync Service. Connector and hybrid rows only. -->
+          <!-- AECI-2036: the connector type, as text. "Set connector type…" changes it. -->
           @if (takesConnectorKind(row)) {
-          <aec-connector-kind-control
-            [productId]="row.id"
-            [productName]="row.name"
-            [kind]="row.connector_kind"
-            (saved)="retry.emit()"
-            (announce)="announce.emit($event)"
-          />
-          <!-- AECI-2046: the three curated facts, on a Sync Service row only. -->
-          @if (row.connector_kind === 'sync_service') {
-          <aec-sync-facts-control
-            [productId]="row.id"
-            [productName]="row.name"
-            [facts]="row.sync_facts ?? noSyncFacts"
-            (saved)="retry.emit()"
-            (announce)="announce.emit($event)"
-          />
-          }
-          <!-- AECI-2045: every pair this connector delivers, with its owner. -->
-          <button
-            aecButton
-            variant="ghost"
-            compact
-            type="button"
-            class="mt-2"
-            [attr.aria-expanded]="deliveredOpenId() === row.id"
-            [attr.aria-controls]="'delivered-pairs-' + row.id"
-            (click)="toggleDelivered(row)"
-            data-testid="delivered-pairs-toggle"
-            i18n="@@admin.vendors.products.deliveredPairs"
-          >
-            Delivered pairs
-          </button>
+          <span [class]="t.sub" data-testid="product-connector-kind">{{ kindLine(row) }}</span>
           }
           <!--
             Ownership is EVERY `product_vendors` row, so a product this vendor
@@ -151,155 +130,146 @@
         </td>
 
         <td [class]="t.act">
-          <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 py-1">
-            <!--
-              A plain href with `target="_blank"`, matching View page in Basics: the
-              operator opens the public product to CHECK the record, so navigating
-              away from the admin page is the wrong outcome. There is no admin
-              product detail page to link to instead. AECI-980 added the drawn cue
-              via `aec-new-tab-icon`, which also carries the "(opens in a new tab)"
-              note that used to sit in a sibling span — a sibling is not read in a
-              rotor or an NVDA+F7 links list, so inside the anchor is where it
-              belongs.
-            -->
-            <a [href]="'/products/' + row.slug" target="_blank" rel="noopener" [class]="linkClass">
-              <span i18n="@@admin.vendors.products.view">View page</span>
-              <aec-new-tab-icon />
-            </a>
-            <!--
-              AECI-955's disclosure lives HERE and not in the row header. A
-              `<th scope="row">` is announced before every data cell in the row, so
-              a control parked there is re-read six times per product.
-            -->
-            <button
-              aecButton
-              variant="secondary"
-              compact
-              type="button"
-              [id]="logoTriggerId(row)"
-              (click)="toggleLogo(row)"
-              [attr.aria-expanded]="editingLogo() === row.id"
-              [attr.aria-controls]="'product-logo-' + row.id"
-              i18n="@@admin.logo.editProduct"
-            >
-              Edit logo
-            </button>
-            <!-- AECI-1238: the per-product listing hide. Same disclosure shape as Edit logo. -->
-            @if (!row.listing_hide) {
-            <button
-              aecButton
-              variant="secondary"
-              compact
-              type="button"
-              [id]="listingTriggerId(row)"
-              (click)="openListingForm(row)"
-              [attr.aria-expanded]="listingFormFor()?.id === row.id"
-              [attr.aria-controls]="'product-listing-' + row.id"
-              i18n="@@admin.vendors.products.listing.hide"
-            >
-              Hide
-            </button>
-            } @else if (row.listing_hide.parent_id) {
-            <!-- A child hide: only the company's restore clears it (409 LISTING_HIDDEN_WITH_VENDOR). -->
-            <button
-              aecButton
-              variant="secondary"
-              compact
-              type="button"
-              [id]="listingTriggerId(row)"
-              disabled
-              [attr.aria-describedby]="'product-listing-note-' + row.id"
-              i18n="@@admin.vendors.products.listing.restore"
-            >
-              Restore
-            </button>
-            <span
-              [id]="'product-listing-note-' + row.id"
-              [class]="t.sub"
-              class="basis-full text-end"
-              data-testid="product-listing-with-vendor"
-              i18n="@@admin.vendors.products.listing.withVendor"
-              >Hidden with the company. Restore the company's listing.</span
-            >
-            } @else {
-            <button
-              aecButton
-              variant="secondary"
-              compact
-              type="button"
-              [id]="listingTriggerId(row)"
-              (click)="openListingForm(row)"
-              [attr.aria-expanded]="listingFormFor()?.id === row.id"
-              [attr.aria-controls]="'product-listing-' + row.id"
-              i18n="@@admin.vendors.products.listing.restore2"
-            >
-              Restore
-            </button>
-            }
-          </div>
+          <!--
+            AECI-2202: one Actions menu per row. The vendor portal's menu recipe
+            (vendor-license-actions.ts): a BrnPopover holding plain buttons, no
+            role="menu". Each item but View opens the one dialog below. The
+            accessible name starts with the visible word (label in name).
+          -->
+          <button
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            brnPopoverTrigger
+            [brnPopoverTriggerFor]="menu"
+            [id]="actionsTriggerId(row)"
+            [attr.aria-label]="actionsLabel(row)"
+            [class]="triggerClass"
+            data-testid="product-actions-trigger"
+          >
+            <span i18n="@@admin.vendors.products.actions">Actions</span>
+            <aec-icon name="chevron-down" decorative />
+          </button>
+          <!-- The overlay pane is role="dialog", so it takes the same name as the list. -->
+          <brn-popover
+            #menu="brnPopover"
+            class="contents"
+            align="end"
+            [sideOffset]="4"
+            [aria-label]="actionsLabel(row)"
+          >
+            <ng-template brnPopoverContent>
+              <ul
+                [attr.aria-label]="actionsLabel(row)"
+                class="aec-popover m-0 flex min-w-[16rem] list-none flex-col gap-1 p-2 text-start whitespace-normal"
+                data-testid="product-actions-menu"
+              >
+                <li>
+                  <!--
+                    A plain href in a new tab: the operator opens the public product
+                    to CHECK the record. aec-new-tab-icon carries the "(opens in a new
+                    tab)" note inside the anchor, where a links list reads it (AECI-980).
+                  -->
+                  <a
+                    [href]="'/products/' + row.slug"
+                    target="_blank"
+                    rel="noopener"
+                    [class]="itemClass"
+                    (click)="menu.close()"
+                    data-testid="product-action-view"
+                  >
+                    <span i18n="@@admin.vendors.products.action.view">View public page</span>
+                    <aec-new-tab-icon />
+                  </a>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'logo', menu)"
+                    data-testid="product-action-logo"
+                    i18n="@@admin.vendors.products.action.logo"
+                  >
+                    Change logo…
+                  </button>
+                </li>
+                @if (takesConnectorKind(row)) {
+                <li>
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'kind', menu)"
+                    data-testid="product-action-kind"
+                    i18n="@@admin.vendors.products.action.kind"
+                  >
+                    Set connector type…
+                  </button>
+                </li>
+                @if (row.connector_kind === 'sync_service') {
+                <li>
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'facts', menu)"
+                    data-testid="product-action-facts"
+                    i18n="@@admin.vendors.products.action.facts"
+                  >
+                    Edit Sync Service facts…
+                  </button>
+                </li>
+                }
+                <li>
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'pairs', menu)"
+                    data-testid="product-action-pairs"
+                    i18n="@@admin.vendors.products.action.pairs"
+                  >
+                    Integrations through this connector…
+                  </button>
+                </li>
+                }
+                <li class="mt-1 border-t border-(--border-default) pt-1">
+                  @if (!row.listing_hide) {
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'hide', menu)"
+                    data-testid="product-action-hide"
+                    i18n="@@admin.vendors.products.action.hide"
+                  >
+                    Hide from public site…
+                  </button>
+                  } @else if (row.listing_hide.parent_id) {
+                  <p
+                    class="px-3 py-2 text-t-13 text-(--text-secondary)"
+                    data-testid="product-action-restore-with-vendor"
+                    i18n="@@admin.vendors.products.action.restoreWithVendor"
+                  >
+                    Hidden with the company. To bring it back, restore the company's listing on the
+                    Vendor tab.
+                  </p>
+                  } @else {
+                  <button
+                    type="button"
+                    [class]="itemClass"
+                    (click)="openDialog(row, 'restore', menu)"
+                    data-testid="product-action-restore"
+                    i18n="@@admin.vendors.products.action.restore"
+                  >
+                    Restore to public site…
+                  </button>
+                  }
+                </li>
+              </ul>
+            </ng-template>
+          </brn-popover>
         </td>
       </tr>
-      @if (deliveredOpenId() === row.id) {
-      <tr [id]="'delivered-pairs-' + row.id" [class]="t.detailRow">
-        <td colspan="7" [class]="t.detailCell">
-          <div [class]="t.detailInner">
-            <aec-delivered-pairs-panel
-              [productId]="row.id"
-              [productName]="row.name"
-              (announce)="announce.emit($event)"
-            />
-          </div>
-        </td>
-      </tr>
-      } @if (listingFormFor(); as open) { @if (open.id === row.id) {
-      <tr [id]="'product-listing-' + row.id" [class]="t.detailRow">
-        <td colspan="7" [class]="t.detailCell">
-          <div [class]="t.detailInner">
-            <aec-listing-hide-form
-              entityType="product"
-              [entityId]="row.id"
-              [mode]="open.mode"
-              [recordName]="row.name"
-              [idPrefix]="'product-' + row.id"
-              (done)="onListingDone(row, open.mode)"
-              (stale)="onListingStale(row, $event)"
-              (cancelled)="closeListingForm(row)"
-            >
-              @if (open.mode === 'hide') {
-              <p [class]="captionClass" i18n="@@admin.vendors.products.listing.impact">
-                Only this product is hidden. Its integrations leave the public site with it.
-              </p>
-              } @else {
-              <p [class]="captionClass" i18n="@@admin.vendors.products.listing.impactRestore">
-                Only this product comes back. Its integrations return with it.
-              </p>
-              }
-            </aec-listing-hide-form>
-          </div>
-        </td>
-      </tr>
-      } }
-      <tr [id]="'product-logo-' + row.id" [hidden]="editingLogo() !== row.id" [class]="t.detailRow">
-        <td colspan="7" [class]="t.detailCell">
-          <!-- Escape (handled by the editor, never mid-save) closes it and returns focus to
-               Edit logo (AECI-2112). -->
-          <div [class]="t.detailInner">
-            @if (editingLogo() === row.id) {
-            <aec-admin-logo-editor
-              kind="product"
-              [recordId]="row.id"
-              [logoUrl]="row.logo_url"
-              (logoSaved)="retry.emit()"
-              (closeRequested)="closeLogo(row)"
-              (savingChange)="logoSaving.set($event)"
-              (announce)="announce.emit($event)"
-            />
-            }
-          </div>
-        </td>
-      </tr>
+      }
     </tbody>
-    }
   </table>
 </div>
 
@@ -312,3 +282,129 @@
   />
 </div>
 }
+
+<!--
+  AECI-2202: the one dialog every row action opens. Opened from a menu item's click
+  handler only (BrnDialog.open() must never run in an effect, NG0602). It opens on its
+  title (DESIGN.md "The Title-First Dialog Rule"). While it is open the CDK hides the
+  app root from assistive technology, so the dialog carries its own live region; a
+  save closes it and (closed) hands the confirmation to the page's region. It sits
+  outside the loading branches, so a refetch never destroys it. While any write in it
+  is in flight (busy), Escape is stopped at the panel and Close is disabled, so the
+  write's result is never emitted from a destroyed form (AECI-2112's rule, for every
+  action). A backdrop click never closes it: each action is a form.
+-->
+<brn-dialog
+  #actionDialog="brnDialog"
+  [role]="'alertdialog'"
+  [autoFocus]="'first-heading'"
+  [closeOnBackdropClick]="false"
+  (closed)="onDialogClosed()"
+>
+  <ng-template brnDialogContent>
+    @if (dialogFor(); as d) {
+    <div
+      class="aec-dialog max-h-[85vh] overflow-y-auto p-6 text-start md:p-8"
+      [class]="d.kind === 'pairs' ? 'w-[min(92vw,44rem)]' : 'w-[min(92vw,36rem)]'"
+      data-testid="product-action-dialog"
+      tabindex="-1"
+      [attr.aria-busy]="busy() ? 'true' : null"
+      (keydown.escape)="onDialogEscape($event)"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <h2
+          brnDialogTitle
+          tabindex="-1"
+          class="rounded-mark focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        >
+          {{ dialogTitle(d) }}
+        </h2>
+        <button
+          aecButton
+          variant="ghost"
+          iconOnly
+          brnDialogClose
+          [disabled]="busy()"
+          type="button"
+          class="-me-3 -mt-2"
+          i18n-aria-label="@@admin.vendors.products.dialog.close"
+          aria-label="Close"
+        >
+          <aec-icon name="x" decorative />
+        </button>
+      </div>
+      @if (dialogIntro(d); as intro) {
+      <p
+        brnDialogDescription
+        class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+        data-testid="product-action-intro"
+      >
+        {{ intro }}
+      </p>
+      }
+      <div class="mt-6">
+        @switch (d.kind) { @case ('logo') {
+        <aec-admin-logo-editor
+          kind="product"
+          [recordId]="d.row.id"
+          [logoUrl]="d.row.logo_url"
+          (logoSaved)="onSaved()"
+          (closeRequested)="closeDialog()"
+          (savingChange)="logoSaving.set($event)"
+          (announce)="onChildAnnounce($event)"
+        />
+        } @case ('kind') {
+        <aec-connector-kind-control
+          [productId]="d.row.id"
+          [productName]="d.row.name"
+          [kind]="d.row.connector_kind"
+          (saved)="onSaved()"
+          (cancelled)="closeDialog()"
+          (busyChange)="childBusy.set($event)"
+          (announce)="onChildAnnounce($event)"
+        />
+        } @case ('facts') {
+        <aec-sync-facts-control
+          [productId]="d.row.id"
+          [productName]="d.row.name"
+          [facts]="d.row.sync_facts ?? noSyncFacts"
+          (saved)="onSaved()"
+          (cancelled)="closeDialog()"
+          (busyChange)="childBusy.set($event)"
+          (announce)="onChildAnnounce($event)"
+        />
+        } @case ('pairs') {
+        <aec-delivered-pairs-panel
+          [productId]="d.row.id"
+          (busyChange)="childBusy.set($event)"
+          (announce)="onChildAnnounce($event)"
+        />
+        } @default {
+        <aec-listing-hide-form
+          entityType="product"
+          [entityId]="d.row.id"
+          [mode]="d.kind === 'hide' ? 'hide' : 'restore'"
+          [recordName]="d.row.name"
+          [idPrefix]="'product-' + d.row.id"
+          (done)="onListingDone(d.kind === 'hide' ? 'hide' : 'restore')"
+          (stale)="onListingStale($event)"
+          (cancelled)="closeDialog()"
+          (busyChange)="childBusy.set($event)"
+        >
+          @if (d.kind === 'hide') {
+          <p [class]="captionClass" i18n="@@admin.vendors.products.listing.impact">
+            Only this product is hidden. Its integrations leave the public site with it.
+          </p>
+          } @else {
+          <p [class]="captionClass" i18n="@@admin.vendors.products.listing.impactRestore">
+            Only this product comes back. Its integrations return with it.
+          </p>
+          }
+        </aec-listing-hide-form>
+        } }
+      </div>
+      <p class="sr-only" role="status" aria-live="polite">{{ dialogMessage() }}</p>
+    </div>
+    }
+  </ng-template>
+</brn-dialog>

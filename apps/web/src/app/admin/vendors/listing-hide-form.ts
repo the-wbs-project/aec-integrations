@@ -93,6 +93,9 @@ export class ListingHideForm {
   readonly done = output<AdminListingHideResponse>();
   /** The operator closed the form without sending. */
   readonly cancelled = output<void>();
+  /** AECI-2202: a write is in flight. The host dialog will not close until it settles,
+   *  so the write's result is never emitted from a destroyed component. */
+  readonly busyChange = output<boolean>();
   /** A 409 that means the state moved: the message for the host's live region. */
   readonly stale = output<string>();
 
@@ -229,6 +232,7 @@ export class ListingHideForm {
   protected async confirm(): Promise<void> {
     if (this.pending()) return;
     this.pending.set(true);
+    this.busyChange.emit(true);
     this.failedMessage.set('');
     try {
       const result = await this.send();
@@ -244,6 +248,7 @@ export class ListingHideForm {
       }
     } finally {
       this.pending.set(false);
+      this.busyChange.emit(false);
     }
   }
 
