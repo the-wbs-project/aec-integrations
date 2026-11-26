@@ -3452,6 +3452,52 @@ was checked on 2026-11-24 (follow-up). "Reads" means it joins the owner's answer
 | Private row threads, retention prune, handback, promote | Safely ignore it. Threads are between the two companies. Promote writes nothing to a claimed row. A promote delete of a claim on an unclaimed row cascades its answers, which no longer count there. |
 | Retraction lanes | `retract-product` deletes the answers explicitly before the claims. `retract-vendor` nulls `vendor_id`. Both CLIs probe for the table (`CLAIM_OWNER_ANSWERS_TABLE_SQL`), the convention for every table a later migration added. |
 
+**AECi corrects one flow (AECI-2139 — 2026-11-26).** Ruled by Chris on 2026-11-26: a public
+caption, an admin lift, and the Listing Accuracy Policy 1.0 draft edited in place. Before this,
+a flow a public source showed to be wrong on a claimed Sync Service pair could only come off the
+site with the whole integration. Now AECi removes that one flow, or lists it in the right
+direction. The rest of the integration stays listed. The owner is told why and cannot undo it.
+
+- **Storage.** `claim_aeci_corrections` (migration 0138, a plain `CREATE TABLE`, `DATABASE_SCHEMA.md`
+  §5a.2c). One live row per claim. A lift stamps `retracted_*`. No CHECK on `claims` or
+  `attestations` changed. `claim_owner_answers` could not hold it: an answer counts only while
+  its vendor is the owner now.
+- **Effect.** A live correction withholds its claim from every public read, whoever owns the row,
+  whatever its claim state and whatever the owner answered. `withOwnerVote(s)` appends one more
+  in-memory entry, `source = AECI_CORRECTION_SOURCE` (`'aeci_correction'`, never stored, never on
+  the wire). `isClaimPubliclyBacked` returns false on it, before the owner's answer. `tallyVoters`,
+  `conflictSince` and `computeAgreement` skip it. `isOwnerVote` drops it from the wire with the
+  owner entry, so `PairClaimAttestationSchema.source` is unchanged.
+- **A direction correction** removes the old claim and makes the right-direction claim public.
+  No claim has that identity: a new one with `origin 'aeci'`, which reads "Listed by AEC
+  Integrations". A public one has it: nothing more. One that nobody backs: a live `aeci`
+  attestation on it. The owner answered No on it: `409 FLOW_DIRECTION_REMOVED_BY_OWNER`, and AECi
+  removes instead. `claims.direction` is never rewritten. The owner may answer the replacement.
+  A lift ends the correction only: the replacement claim, or the `aeci` attestation the redirect
+  added, stays, so after a lift both directions can be public. To take the replacement down too,
+  correct it with a removal.
+- **The gate** (`resolveAdminFlowTarget`, `lib/flow-corrections.ts`): `404`, then
+  `403 FLOW_CORRECTION_NOT_AVAILABLE` (not a Sync Service), `409 INTEGRATION_NOT_CLAIMED` (the
+  review app holds those flows), `409 INTEGRATION_RETIRED`, `409 INTEGRATION_VETOED`,
+  `409 FLOW_ALREADY_CORRECTED`. `pairCorrectionSentinel` re-asserts the row at commit, and the
+  partial unique index re-asserts the last.
+- **The owner cannot undo it.** Set or clear the answer, change the direction, an add on the
+  corrected identity and the owner's accept of a data flow report (`planOwnerFlowChange`) each
+  answer `409 FLOW_CORRECTED_BY_AECI` and write nothing. The owner batch carries
+  `noLiveCorrectionSentinel`, so a correction that lands mid-request aborts it.
+- **What the public page says.** The pair card's "About this listing" panel lists "A data flow:
+  Removed by AEC Integrations on {date} · Source", or "Corrected by…" for a redirect
+  (`flowCorrections`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). It names no data type.
+- **Writes**, API, notices and the admin form: `API_CONTRACTS.md` §6.15c, `ADMIN_PANEL_SPEC.md`
+  §5.12a. The owner reads the correction on its flows panel (§6.15.3 of the portal spec) and in
+  Messages (`portal-flow-corrected-by-aeci`, `portal-flow-correction-lifted-by-aeci`).
+
+Every reader in the table above joins the correction through the same `withOwnerVote(s)` call,
+so it drops a corrected flow as it drops one the owner removed. Three readers read it by hand:
+the endpoint vendor list sets `aeci_corrected` (its pill reads "Removed by AEC Integrations"),
+the owner's flows panel sets `aeci_correction`, and the ownership record adds `aeciCorrected: true`
+to the flow's `ownerFlows` entry. `retract-product` deletes corrections before the claims.
+
 **The ownership record (follow-up).** `REVIEW_APP_PROMOTE_API.md` §4d `ownerFlows`, ADR 0044
 amendment. An owned entry of either list whose row the owner maintains (claimed, Sync Service)
 carries `ownerFlows`: every claim on the row with its counted owner answer. It is additive: no

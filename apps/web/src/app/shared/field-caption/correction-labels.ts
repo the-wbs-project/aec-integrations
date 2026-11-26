@@ -57,6 +57,9 @@ const LABELS: Readonly<Record<string, () => string>> = {
   maturity: () => $localize`:@@correctionLabel.maturity:Release stage`,
   // AECI-1628: a contest-only field an AECi accept can record as a correction.
   mechanism_url: () => $localize`:@@correctionLabel.mechanismUrl:Connection link`,
+  // AECI-2139: AECi's correction of one data flow on a Sync Service pair. The line names
+  // no data type, so a removed flow still shows nowhere on the page.
+  data_flow: () => $localize`:@@correctionLabel.dataFlow:A data flow`,
 };
 
 /** The public name of `field`, or `field` itself when the map does not know it. */

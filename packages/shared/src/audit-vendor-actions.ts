@@ -227,6 +227,14 @@ export const AUDIT_VENDOR_ACTIONS = {
   'integration.field_overridden': { kind: 'aeci-override', receipt: true },
   'integration.override_lifted': { kind: 'aeci-override', receipt: true },
 
+  // ── AECi's correction of one data flow (AECI-2139, attestations spec §14.10) ──
+  // Filed under the correction (`entity_type 'claim_aeci_correction'`), with the
+  // row's owner in `vendor_id`. Not receipts: the history read binds one parameter per
+  // receipt action and sits at D1's cap (`vendor-history.spec.ts`). The owner reads the
+  // correction in its portal messages and on its flows panel instead.
+  'claim_aeci_correction.created': { kind: 'aeci-override', receipt: false },
+  'claim_aeci_correction.retracted': { kind: 'aeci-override', receipt: false },
+
   // ── AECi listing hides (AECI-1238, §11d.6) ────────────────────────────────
   // A company hide writes `vendor.hidden` plus one `product.hidden` per product it
   // cascaded to. The restore mirrors it. Receipts: the vendor sees them in history.

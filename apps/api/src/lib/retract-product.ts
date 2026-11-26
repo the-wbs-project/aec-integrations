@@ -237,6 +237,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // AECI-2039 (0131): the owner's answers on a Sync Service pair's flows. Deleted
   // explicitly with the attestations, before the claims.
   'claim_owner_answers.claim_id': 'cascade-child',
+  // AECI-2139 (0138): AECi's flow corrections. Deleted explicitly on both FKs, before
+  // the claims. The corrected claim and its replacement sit on the same row.
+  'claim_aeci_corrections.claim_id': 'cascade-child',
+  'claim_aeci_corrections.replacement_claim_id': 'cascade-child',
   // AECI-2042 (0132): Sync Service pair reports cascade with their edge or claim, and
   // a veto's anchor is SET NULL, so the veto keeps blocking a re-create of the pair.
   // Neither is counted on a tombstone. A follow-up may count the reports.
@@ -379,6 +383,9 @@ export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE
 
 /** AECI-2039: does `claim_owner_answers` exist on the target tier (migration 0131)? */
 export const CLAIM_OWNER_ANSWERS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_owner_answers';`;
+
+/** AECI-2139: does `claim_aeci_corrections` exist on the target tier (migration 0138)? */
+export const CLAIM_AECI_CORRECTIONS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_aeci_corrections';`;
 
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
  *  none when migration 0073 has not reached it. */
@@ -879,6 +886,10 @@ export interface ProductDeleteArgs {
    *  {@link CLAIM_OWNER_ANSWERS_TABLE_SQL} probe, as for every table a later migration
    *  added, so a tier without it gets a plan that never names the table. */
   claimOwnerAnswersTable?: boolean;
+  /** AECI-2139: whether `claim_aeci_corrections` exists on the target tier (migration
+   *  0138). Defaults to true, the schema at HEAD. The CLI passes its
+   *  {@link CLAIM_AECI_CORRECTIONS_TABLE_SQL} probe. */
+  claimAeciCorrectionsTable?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -1322,6 +1333,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const licensesTable = args.licensesTable ?? true;
   const claimThreadsTable = args.claimThreadsTable ?? true;
   const claimOwnerAnswersTable = args.claimOwnerAnswersTable ?? true;
+  const claimAeciCorrectionsTable = args.claimAeciCorrectionsTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
@@ -1481,6 +1493,13 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     // AECI-2039: the owner's answers, the other child of `claims`.
     ...(claimOwnerAnswersTable
       ? [`DELETE FROM "claim_owner_answers" WHERE "claim_id" IN (${s.claims});`]
+      : []),
+    // AECI-2139: AECi's corrections, the third child of `claims`. Both FKs: the
+    // corrected claim and the replacement are on the same row, so both are in scope.
+    ...(claimAeciCorrectionsTable
+      ? [
+          `DELETE FROM "claim_aeci_corrections" WHERE "claim_id" IN (${s.claims}) OR "replacement_claim_id" IN (${s.claims});`,
+        ]
       : []),
     // AECI-1536: the thread survives its claim, detached and closed (§15.10).
     ...(claimThreadsTable ? [threadDetachUpdate(args, s.claims)] : []),

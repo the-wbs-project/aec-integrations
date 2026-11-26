@@ -173,3 +173,10 @@ an entry that already has `content` and whose row the owner maintains. No existi
 claim slot changes meaning, and every other entry hashes as before. An owner flow write already
 re-sends the builder's record. The receiver must accept and ignore the key until it mirrors it
 (§4d rule 10), and production needs a backfill of the affected vendors after the deploy.
+
+**Amendment 2026-11-26 (AECI-2139):** An `ownerFlows` entry gains an optional `aeciCorrected: true`
+when AEC Integrations corrected that flow on a public source (`claim_aeci_corrections`,
+`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). No public page shows a corrected flow, whatever `answer`
+says. The key is absent on every other flow, so no existing meaning changes and only the owners of
+corrected flows get a new hash. A correction and its lift re-send the owner's record. The receiver
+must accept and ignore the key until it mirrors it (§4d rule 10).

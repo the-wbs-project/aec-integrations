@@ -1284,6 +1284,8 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       vendorHeldPairColumns: false,
       // AECI-2039: nor 0131's `claim_owner_answers`.
       claimOwnerAnswersTable: false,
+      // AECI-2139: nor 0138's `claim_aeci_corrections`.
+      claimAeciCorrectionsTable: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
       evidencedContestAnchor: false,
       // AECI-1192: nor 0063's `audit_log` columns.

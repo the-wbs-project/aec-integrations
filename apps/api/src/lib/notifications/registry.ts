@@ -1633,6 +1633,41 @@ export const NOTIFICATIONS = {
       'Tells a vendor that AECi lifted a field lock, so it can edit the field again, and why.',
     note: 'Goes to the vendor named on the lock when it was set. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email.',
   },
+  // AECI-2139 (§14.10): AECi corrects one data flow on a claimed Sync Service pair.
+  'portal-flow-corrected-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/flows/:claimId/correction (routes/admin-flow-corrections.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per correction, in the correction batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §14.10',
+    summary:
+      'Tells the owner of a Sync Service integration that AECi removed or corrected one of its data flows, with the reason and the public source.',
+    note: 'Goes to the owner of the row when the correction was made. The rest of the integration stays listed. The owner cannot undo the correction. Every plan, no tier rule. Carries the reason and the source, never the internal note. Not pausable: a portal row, not email.',
+  },
+  'portal-flow-correction-lifted-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/flow-corrections/:id/lift (routes/admin-flow-corrections.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per lift, in the lift batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §14.10',
+    summary:
+      'Tells the owner of a Sync Service integration that AECi lifted its correction of a data flow, so the owner maintains it again, and why.',
+    note: 'Goes to the owner of the row at the lift. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email.',
+  },
   // AECI-1238 (§11d.6): the admin listing hide and its restore.
   'portal-listing-hidden-by-aeci': {
     channel: 'portal',

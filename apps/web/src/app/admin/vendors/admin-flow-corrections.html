@@ -1,0 +1,457 @@
+<!-- AECI-2139: the vendor page's "Data flow corrections" panel, beside "Field
+     corrections" and on its recipe: intro and opener, an inline form, the console table
+     with one tbody per correction. -->
+<div class="flex flex-wrap items-start justify-between gap-4" data-testid="admin-flow-corrections">
+  <p
+    [id]="id('heading')"
+    tabindex="-1"
+    [class]="c.caption"
+    class="max-w-prose focus-visible:outline-3 focus-visible:outline-offset-3"
+    i18n="@@admin.flowCorrections.intro"
+  >
+    Remove one data flow on an integration a Sync Service delivers, or list it in the right
+    direction, when a public source shows it is wrong. The rest of the integration stays listed. The
+    owner is told why and cannot undo the correction until you lift it.
+  </p>
+  @if (!formOpen()) {
+  <button
+    aecButton
+    variant="secondary"
+    compact
+    type="button"
+    [id]="id('open')"
+    [attr.aria-expanded]="formOpen()"
+    [attr.aria-controls]="id('form')"
+    (click)="openForm()"
+    i18n="@@admin.flowCorrections.open"
+  >
+    Correct a data flow
+  </button>
+  }
+</div>
+
+@if (formOpen()) {
+<form
+  method="dialog"
+  [id]="id('form')"
+  [class]="c.form"
+  class="mt-4"
+  novalidate
+  [attr.aria-labelledby]="id('form-title')"
+  (aecSubmit)="submit()"
+  (keydown.escape)="onFormEscape()"
+>
+  <p
+    [id]="id('form-title')"
+    class="text-t-16 font-semibold text-(--text-primary)"
+    i18n="@@admin.flowCorrections.form.title"
+  >
+    Correct a data flow
+  </p>
+  <div [class]="c.field">
+    <label [attr.for]="id('record')" [class]="c.label" i18n="@@admin.flowCorrections.form.record">
+      Integration
+    </label>
+    <select
+      #recordInput
+      [id]="id('record')"
+      [disabled]="pending()"
+      (change)="onRecord($event)"
+      [class]="c.input"
+    >
+      <option
+        value=""
+        [selected]="recordKey() === ''"
+        i18n="@@admin.flowCorrections.form.recordPick"
+      >
+        Choose an integration
+      </option>
+      @for (r of records(); track r.key) {
+      <option [value]="r.key" [selected]="recordKey() === r.key">{{ r.label }}</option>
+      }
+    </select>
+    @if (recordsFailed()) {
+    <p role="alert" [class]="c.error" i18n="@@admin.flowCorrections.records.error">
+      Could not load this vendor's integrations. Close the form and try again.
+    </p>
+    } @else if (records().length === 0) {
+    <p [class]="c.hint" i18n="@@admin.flowCorrections.records.empty">
+      This vendor holds no claimed integration a connector delivers.
+    </p>
+    }
+  </div>
+
+  @if (flowsLoading()) {
+  <p [class]="c.statusLine" i18n="@@admin.flowCorrections.flows.loading">Loading the data flows…</p>
+  } @else if (flowsFailed()) {
+  <p role="alert" [class]="c.error" i18n="@@admin.flowCorrections.flows.error">
+    Could not load this integration's data flows. Choose it again to retry.
+  </p>
+  } @else if (flows(); as f) { @if (blockText(f.blocked); as why) {
+  <p role="status" [class]="c.failed" data-testid="flow-correction-blocked">{{ why }}</p>
+  } @else {
+  <div [class]="c.field">
+    <label [attr.for]="id('flow')" [class]="c.label" i18n="@@admin.flowCorrections.form.flow">
+      Data flow
+    </label>
+    <p [id]="id('flow-help')" [class]="c.hint" i18n="@@admin.flowCorrections.form.flowHelp">
+      Only flows the public page shows now are listed.
+    </p>
+    <select
+      #flowInput
+      [id]="id('flow')"
+      [attr.aria-describedby]="id('flow-help')"
+      [disabled]="pending()"
+      (change)="onFlow($event)"
+      [class]="c.input"
+    >
+      <option value="" [selected]="claimId() === ''" i18n="@@admin.flowCorrections.form.flowPick">
+        Choose a data flow
+      </option>
+      @for (option of correctable(); track option.claim_id) {
+      <option [value]="option.claim_id" [selected]="claimId() === option.claim_id">
+        {{ flowLabel(option) }}
+      </option>
+      }
+    </select>
+  </div>
+  <fieldset class="m-0 grid gap-2 border-0 p-0">
+    <legend [class]="c.label" i18n="@@admin.flowCorrections.form.action">Correction</legend>
+    <label class="flex min-h-11 cursor-pointer items-center gap-2 text-t-14 text-(--text-primary)">
+      <input
+        type="radio"
+        [name]="id('action')"
+        value="remove"
+        [class]="c.choice"
+        [checked]="action() === 'remove'"
+        [disabled]="pending()"
+        (change)="onAction('remove')"
+      />
+      <span i18n="@@admin.flowCorrections.form.remove">Remove it from the public page</span>
+    </label>
+    <label class="flex min-h-11 cursor-pointer items-center gap-2 text-t-14 text-(--text-primary)">
+      <input
+        type="radio"
+        [name]="id('action')"
+        value="redirect"
+        [class]="c.choice"
+        [checked]="action() === 'redirect'"
+        [disabled]="pending()"
+        (change)="onAction('redirect')"
+      />
+      <span i18n="@@admin.flowCorrections.form.redirect">List it in the right direction</span>
+    </label>
+  </fieldset>
+  @if (action() === 'redirect') {
+  <div [class]="c.field">
+    <label
+      [attr.for]="id('direction')"
+      [class]="c.label"
+      i18n="@@admin.flowCorrections.form.direction"
+    >
+      The direction the data really moves
+    </label>
+    <select
+      #directionInput
+      [id]="id('direction')"
+      [disabled]="pending() || !flow()"
+      [attr.aria-invalid]="directionError() ? 'true' : null"
+      [attr.aria-describedby]="directionError() ? id('direction-error') : null"
+      (change)="onDirection($event)"
+      [class]="c.input"
+    >
+      <option value="" [selected]="direction() === ''" i18n="@@admin.flowCorrections.form.choose">
+        Choose
+      </option>
+      @for (o of directionOptions(); track o.value) {
+      <option [value]="o.value" [selected]="direction() === o.value">{{ o.label }}</option>
+      }
+    </select>
+    @if (directionError()) {
+    <p
+      [id]="id('direction-error')"
+      role="alert"
+      [class]="c.error"
+      i18n="@@admin.flowCorrections.direction.required"
+    >
+      Choose the direction the data really moves.
+    </p>
+    }
+  </div>
+  } } }
+
+  <div [class]="c.field">
+    <label [attr.for]="id('source')" [class]="c.label" i18n="@@admin.flowCorrections.source.label">
+      Source link (required)
+    </label>
+    <p [id]="id('source-help')" [class]="c.hint" i18n="@@admin.flowCorrections.source.help">
+      The https:// page that shows the flow is wrong. Readers see this link beside the correction on
+      the public page.
+    </p>
+    <input
+      #sourceInput
+      [id]="id('source')"
+      type="url"
+      inputmode="url"
+      required
+      [disabled]="pending()"
+      [attr.aria-invalid]="sourceError() ? 'true' : null"
+      [attr.aria-describedby]="sourceError() ? id('source-help') + ' ' + id('source-error') : id('source-help')"
+      [value]="sourceUrl()"
+      (input)="onSource($event)"
+      [class]="c.input"
+    />
+    @if (sourceError()) {
+    <p
+      [id]="id('source-error')"
+      role="alert"
+      [class]="c.error"
+      i18n="@@admin.flowCorrections.source.required"
+    >
+      Enter the source as a full https:// link.
+    </p>
+    }
+  </div>
+  <div [class]="c.field">
+    <label [attr.for]="id('reason')" [class]="c.label" i18n="@@admin.flowCorrections.reason.label">
+      Reason shown to the owner (required)
+    </label>
+    <p [id]="id('reason-help')" [class]="c.hint" i18n="@@admin.flowCorrections.reason.help">
+      The owner reads this in its portal messages and beside the data flow. It is recorded in the
+      audit trail with your name.
+    </p>
+    <textarea
+      #reasonInput
+      [id]="id('reason')"
+      rows="2"
+      required
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [attr.aria-invalid]="reasonError() ? 'true' : null"
+      [attr.aria-describedby]="reasonError() ? id('reason-help') + ' ' + id('reason-error') : id('reason-help')"
+      [value]="reason()"
+      (input)="onReason($event)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
+    ></textarea>
+    @if (reasonError()) {
+    <p
+      [id]="id('reason-error')"
+      role="alert"
+      [class]="c.error"
+      i18n="@@admin.flowCorrections.reason.required"
+    >
+      Enter a reason for the owner. The owner reads it in its portal messages.
+    </p>
+    }
+  </div>
+  <div [class]="c.field">
+    <label [attr.for]="id('note')" [class]="c.label" i18n="@@admin.flowCorrections.note.label">
+      Internal note (optional, never shown to the owner)
+    </label>
+    <textarea
+      [id]="id('note')"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [value]="internalNote()"
+      (input)="onNote($event)"
+      [class]="c.input"
+      class="min-h-20 resize-y"
+    ></textarea>
+  </div>
+  @if (formError(); as message) {
+  <p [id]="id('form-error')" tabindex="-1" role="alert" [class]="c.failed">{{ message }}</p>
+  }
+  <div [class]="c.actions">
+    <button aecButton compact type="submit" [disabled]="pending()">
+      @if (pending()) {
+      <span i18n="@@admin.flowCorrections.saving">Saving…</span>
+      } @else {
+      <span i18n="@@admin.flowCorrections.save">Correct the data flow</span>
+      }
+    </button>
+    <button
+      aecButton
+      variant="ghost"
+      type="button"
+      (click)="closeForm()"
+      i18n="@@admin.flowCorrections.cancel"
+    >
+      Cancel
+    </button>
+  </div>
+</form>
+} @if (loading()) {
+<p [class]="c.statusLine" class="mt-4" i18n="@@admin.flowCorrections.loading">
+  Loading the data flow corrections…
+</p>
+} @else if (failed()) {
+<div role="alert" [class]="c.loadFailed" class="mt-4">
+  <p [class]="c.failedText" i18n="@@admin.flowCorrections.loadError">
+    We couldn't load this vendor's data flow corrections.
+  </p>
+  <button
+    aecButton
+    variant="secondary"
+    type="button"
+    (click)="loadCorrections()"
+    i18n="@@admin.flowCorrections.retry"
+  >
+    Try again
+  </button>
+</div>
+} @else if (corrections().length === 0) {
+<p [class]="c.t.empty" class="mt-4" i18n="@@admin.flowCorrections.empty">
+  No data flow is corrected on this vendor's integrations.
+</p>
+} @else {
+<div
+  [class]="c.t.region"
+  class="mt-4"
+  role="region"
+  tabindex="0"
+  [attr.aria-labelledby]="id('caption')"
+>
+  <table [class]="c.t.table" class="min-w-[44rem]">
+    <caption [id]="id('caption')" [class]="c.t.caption" i18n="@@admin.flowCorrections.caption">
+      Data flows AEC Integrations corrected on this vendor's integrations
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.flowCorrections.col.integration">
+          Integration
+        </th>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.flowCorrections.col.flow">
+          Data flow and correction
+        </th>
+        <th scope="col" [class]="c.t.head" i18n="@@admin.flowCorrections.col.reason">
+          Reason shown to the owner
+        </th>
+        <th scope="col" [class]="c.t.headNum" i18n="@@admin.flowCorrections.col.actions">
+          Actions
+        </th>
+      </tr>
+    </thead>
+    @for (correction of corrections(); track correction.id) {
+    <tbody>
+      <tr [class]="liftFor() === correction.id ? c.t.rowOpen : c.t.row">
+        <th scope="row" [class]="c.t.rowHead">
+          {{ correction.integration_name ?? correction.anchor_id }}
+        </th>
+        <td [class]="c.t.cell">
+          <span class="block font-semibold text-(--text-primary)"
+            >{{ correction.data_object_name }}, {{ directionCode(correction.direction) }}</span
+          >
+          <span [class]="c.t.sub">{{ effectLabel(correction) }}</span>
+          @if (sourceHref(correction.source_url); as href) {
+          <a
+            [href]="href"
+            target="_blank"
+            rel="noopener nofollow"
+            data-testid="flow-correction-source"
+            [class]="c.sourceLink"
+            ><span i18n="@@admin.flowCorrections.source.link">Source</span><aec-new-tab-icon
+          /></a>
+          }
+        </td>
+        <td [class]="c.t.cell" class="text-(--text-secondary)">
+          <span class="block text-(--text-primary)">{{ correction.reason }}</span>
+          @if (correction.internal_note) {
+          <span [class]="c.t.sub" i18n="@@admin.flowCorrections.internalNote"
+            >Internal note: {{ correction.internal_note }}</span
+          >
+          }
+          <span [class]="c.t.sub" i18n="@@admin.flowCorrections.createdAt"
+            >Corrected {{ correction.created_at | date: 'mediumDate' : 'UTC' }}</span
+          >
+        </td>
+        <td [class]="c.t.act">
+          <button
+            aecButton
+            variant="secondary"
+            compact
+            type="button"
+            [id]="liftTriggerId(correction)"
+            [attr.aria-expanded]="liftFor() === correction.id"
+            [attr.aria-controls]="liftFormId(correction, 'form')"
+            (click)="openLift(correction)"
+            i18n="@@admin.flowCorrections.lift"
+          >
+            Lift
+          </button>
+        </td>
+      </tr>
+      @if (liftFor() === correction.id) {
+      <tr [class]="c.t.detailRow">
+        <td colspan="4" [class]="c.t.detailCell">
+          <div [class]="c.t.detailInner">
+            <form
+              method="dialog"
+              [id]="liftFormId(correction, 'form')"
+              [class]="c.form"
+              novalidate
+              (aecSubmit)="lift(correction)"
+              (keydown.escape)="onLiftEscape(correction)"
+            >
+              <div [class]="c.field">
+                <label
+                  [attr.for]="liftFormId(correction, 'reason')"
+                  [class]="c.label"
+                  i18n="@@admin.flowCorrections.lift.reasonLabel"
+                >
+                  Reason shown to the owner (required)
+                </label>
+                <textarea
+                  #liftReasonInput
+                  [id]="liftFormId(correction, 'reason')"
+                  rows="2"
+                  required
+                  [attr.maxlength]="reasonMax"
+                  [disabled]="pending()"
+                  [value]="liftReason()"
+                  (input)="onLiftReason($event)"
+                  [class]="c.input"
+                  class="min-h-20 resize-y"
+                ></textarea>
+              </div>
+              @if (liftError(); as message) {
+              <p
+                [id]="liftFormId(correction, 'error')"
+                tabindex="-1"
+                role="alert"
+                [class]="c.failed"
+              >
+                {{ message }}
+              </p>
+              }
+              <div [class]="c.actions">
+                <button
+                  aecButton
+                  compact
+                  type="submit"
+                  [disabled]="pending()"
+                  i18n="@@admin.flowCorrections.lift.confirm"
+                >
+                  Lift the correction
+                </button>
+                <button
+                  aecButton
+                  variant="ghost"
+                  type="button"
+                  (click)="closeLift(correction)"
+                  i18n="@@admin.flowCorrections.lift.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </td>
+      </tr>
+      }
+    </tbody>
+    }
+  </table>
+</div>
+}

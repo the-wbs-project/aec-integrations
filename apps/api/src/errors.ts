@@ -70,6 +70,8 @@ type ResourceKind =
   | 'notification_setting'
   // An AECi field lock (AECI-1237). The caller is an authenticated admin.
   | 'field_override'
+  // AECi's correction of one data flow (AECI-2139). The caller is an authenticated admin.
+  | 'flow_correction'
   // An AECi value hide (AECI-1238 §11d.7). The caller is an authenticated admin.
   | 'field_hide'
   // A vendor's product request (AECI-1377). Admin-only on the PATCH.

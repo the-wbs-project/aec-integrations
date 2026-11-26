@@ -352,6 +352,17 @@
       </div>
     </section>
 
+    <!-- AECI-2139: one data flow on a Sync Service integration, beside the field
+         corrections (ADMIN_PANEL_SPEC.md section 5.12a). -->
+    <section [class]="panelClass" aria-labelledby="admin-vendor-flow-corrections">
+      <h3 id="admin-vendor-flow-corrections" i18n="@@admin.vendors.detail.flowCorrections">
+        Data flow corrections
+      </h3>
+      <div class="mt-4">
+        <aec-admin-flow-corrections [vendorId]="v.id" (announce)="onAnnounce($event)" />
+      </div>
+    </section>
+
     <!-- AECI-1238: values hidden while AECi checks them (ADMIN_PANEL_SPEC.md section 5.7,
          STAGE_2_VENDOR_PORTAL_SPEC.md section 11d.7). -->
     <section [class]="panelClass" aria-labelledby="admin-vendor-field-hides">

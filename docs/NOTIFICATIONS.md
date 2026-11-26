@@ -79,9 +79,9 @@ run `pnpm docs:notifications` and commit this file.
 | `email` | 60 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 36 |
+| `portal` | 38 |
 | `linear` | 4 |
-| **Total** | **102** |
+| **Total** | **104** |
 
 ## Email (Resend) (`email`, 60)
 
@@ -177,7 +177,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 36)
+## Vendor portal feed only (`portal`, 38)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -205,6 +205,8 @@ notification at all.
 | `portal-field-hide-cleared-by-aeci` | Tells a vendor that a hidden value is back on its public page, or that AECi corrected it, and why. | external | route: POST /api/admin/field-hides/:id/restore (routes/admin-field-hides.ts), POST /api/admin/field-overrides (routes/admin-field-overrides.ts) | `any-tier` | One row per hide, in the restore or correction batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.7 | Goes to the vendor named on the hide. Written by an admin restore and by an AECi correction of the hidden field. A vendor edit that ends the hide writes none. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-field-lock-lifted-by-aeci` | Tells a vendor that AECi lifted a field lock, so it can edit the field again, and why. | external | route: POST /api/admin/field-overrides/:id/lift (routes/admin-field-overrides.ts) | `any-tier` | One row per lift, in the lift batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.5 | Goes to the vendor named on the lock when it was set. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-field-overridden-by-aeci` | Tells an integration's owner that AECi accepted a contest that changed a field it holds, and why. On an Owner accept it tells the old owner it no longer holds the integration. | external | route: PATCH /api/admin/contests/:id (routes/admin-contests.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Since AECI-2045 also sent by PUT /api/admin/integrations/:id/owner (routes/admin-integration-owner.ts) to the owner of a claimed pair the admin re-owns, with the admin reason. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
+| `portal-flow-corrected-by-aeci` | Tells the owner of a Sync Service integration that AECi removed or corrected one of its data flows, with the reason and the public source. | external | route: POST /api/admin/flows/:claimId/correction (routes/admin-flow-corrections.ts) | `any-tier` | One row per correction, in the correction batch. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §14.10 | Goes to the owner of the row when the correction was made. The rest of the integration stays listed. The owner cannot undo the correction. Every plan, no tier rule. Carries the reason and the source, never the internal note. Not pausable: a portal row, not email. |
+| `portal-flow-correction-lifted-by-aeci` | Tells the owner of a Sync Service integration that AECi lifted its correction of a data flow, so the owner maintains it again, and why. | external | route: POST /api/admin/flow-corrections/:id/lift (routes/admin-flow-corrections.ts) | `any-tier` | One row per lift, in the lift batch. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §14.10 | Goes to the owner of the row at the lift. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-integration-claim` | Tells the other endpoint vendors that a vendor now owns an integration. | external | route: POST /api/vendor/integrations/:id/claim (routes/vendor-integration-claims.ts); owner accept in routes/admin-contests.ts | `any-tier` | One row per recipient, in the claim batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5 | Not pausable: a portal row, not email. |
 | `portal-integration-create` | Tells the other endpoint vendors a vendor created an integration on their product. | external | route: POST /api/vendor/integrations (routes/vendor-integration-create.ts) | `any-tier` | One row per recipient, in the create batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7 | Not pausable: a portal row, not email. |
 | `portal-integration-retire` | Tells the endpoint vendors an integration was retired or restored. | external | route: POST /api/{vendor,admin}/integrations/:id/{retire,restore} (routes/integration-retire-write.ts) | `any-tier` | One row per recipient, in the write batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6 | On an AECi retire or restore the owner is told too, and since AECI-1159 the owner's row carries AECi's vendor-visible reason. Endpoint vendors' rows stay generic. Not pausable: a portal row, not email. |

@@ -8,6 +8,7 @@
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminPairContest, AdminVeto } from '@aeci/shared';
@@ -132,6 +133,7 @@ beforeEach(() => {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
+      provideRouter([]),
       { provide: AdminContestsApi, useValue: api as unknown as AdminContestsApi },
     ],
   });
@@ -371,5 +373,56 @@ describe('AdminPairRights — a not offered report acts on the whole pair (AECI-
     expect(el(empty).querySelector('[data-admin-retractions]')?.textContent).toContain(
       'Nothing to retract.',
     );
+  });
+});
+
+describe('AdminPairRights — an owner-routed data flow report (AECI-2139)', () => {
+  const REPORT: AdminPairContest = {
+    id: '00000000-0000-4000-8000-000000000301',
+    kind: 'data_flow',
+    pair: VETO.pair,
+    flow: {
+      claim_id: '00000000-0000-4000-8000-000000000060',
+      data_object_slug: 'rfis',
+      data_object_name: 'RFIs',
+      current_direction: 'a_to_b',
+      proposed_direction: null,
+    },
+    reason: 'We do not sync RFIs.',
+    submitter_vendor_id: '00000000-0000-4000-8000-000000000002',
+    submitter_name: 'Procore Inc',
+    routed_to: 'owner',
+    owner_vendor_id: '00000000-0000-4000-8000-000000000003',
+    owner_name: 'Rivets',
+    status: 'open',
+    decision_note: null,
+    decided_at: null,
+    accept_mode: null,
+    protest: null,
+    protest_closes_at: null,
+    created_at: '2026-11-22T09:30:00.000Z',
+    updated_at: '2026-11-22T09:30:00.000Z',
+    key_rows: null,
+    retract_by: null,
+  };
+
+  it("stays the owner's, and links to the flow correction form on the owner's page", async () => {
+    api['listPairContests'] = vi
+      .fn()
+      .mockImplementation((query?: { protests?: boolean }) =>
+        Promise.resolve({ data: query?.protests ? [] : [REPORT] }),
+      );
+    api['listVetoes'] = vi.fn().mockResolvedValue({ data: [] });
+    const fixture = await mount();
+    expect(text(fixture)).toContain('With the owner, Rivets. The owner decides.');
+    const link = el(fixture).querySelector<HTMLAnchorElement>(
+      '[data-testid="pair-report-correct-flow"]',
+    );
+    expect(link?.textContent?.trim()).toBe('Correct this data flow on a public source');
+    const href = link?.getAttribute('href') ?? '';
+    expect(href).toContain('/admin/vendors/00000000-0000-4000-8000-000000000003');
+    expect(href).toContain('flowRow=00000000-0000-4000-8000-000000000030');
+    expect(href).toContain('flowAnchor=evidenced_pair');
+    expect(href).toContain('flowClaim=00000000-0000-4000-8000-000000000060');
   });
 });

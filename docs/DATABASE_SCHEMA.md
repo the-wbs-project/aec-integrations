@@ -1018,6 +1018,36 @@ create index claim_owner_answers_claim_idx on claim_owner_answers(claim_id, upda
 - **Writers.** `routes/vendor-owner-flows.ts` only. Promote never writes it.
   Since AECI-2042 a data flow report accept (`routes/vendor-pair-contests.ts`) writes it through the same logic, in the decision's batch.
 
+### 5a.2c `claim_aeci_corrections` (AECI-2139, migration 0138)
+
+AECi's correction of one data flow on a claimed Sync Service pair (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10). A plain `CREATE TABLE`: no existing table changed, so no recreate, and no CHECK.
+
+```sql
+create table claim_aeci_corrections (
+  id                   text primary key,
+  claim_id             text not null references claims(id) on delete cascade,   -- the flow AECi corrected
+  replacement_claim_id text references claims(id) on delete set null,          -- the right-direction flow, or null for a removal
+  reason               text not null,     -- shown to the owner
+  internal_note        text,              -- never shown to a vendor
+  source_url           text not null,     -- the verifiable public source; Zod (HttpsUrlSchema) owns the rule
+  created_by           text references profiles(id) on delete set null,
+  retracted_at         text,
+  retracted_by         text references profiles(id) on delete set null,
+  retracted_reason     text,              -- the lift reason, shown to the owner
+  created_at           text not null,
+  updated_at           text not null
+);
+create unique index claim_aeci_corrections_live_key on claim_aeci_corrections(claim_id) where retracted_at is null;
+create index claim_aeci_corrections_claim_idx on claim_aeci_corrections(claim_id, updated_at);
+```
+
+- **Why its own table.** `claim_owner_answers` counts an answer only while its vendor is the owner now. A correction is AECi's finding and counts whoever owns the row. A new `claims.origin` or `attestations.source` value would be a CHECK change on a cascade parent (`docs/migrations.md` §0).
+- **Effect.** A live row withholds `claim_id` from every public read. Readers append an in-memory `source = 'aeci_correction'` entry through `withOwnerVote` (`apps/api/src/lib/owner-flows.ts`). It is never written to `attestations`.
+- **One live row per claim.** A lift stamps `retracted_at`, `retracted_by` and `retracted_reason`. Nothing deletes a row except `retract-product` and the `claims` cascade.
+- **A child of `claims`, twice.** `claim_id` cascades, so a recreate of `claims` empties it. `replacement_claim_id` is SET NULL. `retract-product` deletes rows on either FK before the claims, and probes the table (`CLAIM_AECI_CORRECTIONS_TABLE_SQL`).
+- **Two FKs to `profiles`**, both SET NULL and nulled explicitly by the `DELETE /api/account` batch (`AUTH_AND_RLS.md` §8). The correction survives as AECi's record.
+- **Writers.** `routes/admin-flow-corrections.ts` only. Promote never writes it.
+
 ### 5a.2b `sync_service_pair_vetoes` and `sync_service_pair_contests` (AECI-2042, migration 0132)
 
 An endpoint vendor's rights on a pair a Sync Service delivers (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e). Two plain `CREATE TABLE`s; the only change to existing tables is `vetoed_at` on `integrations` and `connector_evidenced_pairs`, two plain `ADD COLUMN`s. No CHECK on an existing table changes.

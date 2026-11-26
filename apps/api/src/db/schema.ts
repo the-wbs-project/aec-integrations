@@ -1182,6 +1182,57 @@ export const claimOwnerAnswers = sqliteTable(
   ],
 );
 
+// AECi's correction of ONE data flow on a claimed Sync Service pair (AECI-2139,
+// `STAGE_2_ATTESTATIONS_SPEC.md` §14.10). The owner maintains those flows, but AECi
+// still corrects one that a verifiable public source shows is wrong. The rest of the
+// integration stays listed.
+//
+// ── WHY A TABLE OF ITS OWN ──────────────────────────────────────────────────
+// `claim_owner_answers` cannot hold it: an answer counts only while its vendor is the
+// row's owner (`lib/owner-flows.ts`), and this is AECi's finding, not the owner's. A
+// new `claims.origin` or `attestations.source` value would be a CHECK change on a
+// cascade parent (`docs/migrations.md` §0). So the correction lives here, with no CHECK.
+//
+// A live row (`retracted_at IS NULL`) withholds `claim_id` from every public read,
+// whoever owns the row and whatever the owner answered. The read paths append one
+// in-memory entry, `source = AECI_CORRECTION_SOURCE`, to the claim's attestations
+// (`withOwnerVote`), and `isClaimPubliclyBacked` returns false on it. A direction
+// correction also names the right-direction claim in `replacement_claim_id`. That claim
+// is an ordinary public claim, so the owner may still answer it. One LIVE row per claim
+// (`claim_aeci_corrections_live_key`). An admin lift stamps `retracted_*`, never DELETE.
+export const claimAeciCorrections = sqliteTable(
+  'claim_aeci_corrections',
+  {
+    id: uuidPk(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => claims.id, { onDelete: 'cascade' }),
+    /** The corrected-direction claim, or NULL for a removal. */
+    replacementClaimId: text('replacement_claim_id').references(() => claims.id, {
+      onDelete: 'set null',
+    }),
+    /** Shown to the owner (`reasonVisibility: 'vendor'`). */
+    reason: text('reason').notNull(),
+    /** Never shown to a vendor. */
+    internalNote: text('internal_note'),
+    /** The verifiable public source. Required by `AdminCorrectFlowSchema`. No CHECK. */
+    sourceUrl: text('source_url').notNull(),
+    createdBy: text('created_by').references(() => profiles.id, { onDelete: 'set null' }),
+    retractedAt: text('retracted_at'),
+    retractedBy: text('retracted_by').references(() => profiles.id, { onDelete: 'set null' }),
+    /** Shown to the owner, like `reason`. */
+    retractedReason: text('retracted_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('claim_aeci_corrections_live_key')
+      .on(t.claimId)
+      .where(sql`"retracted_at" IS NULL`),
+    index('claim_aeci_corrections_claim_idx').on(t.claimId, t.updatedAt),
+  ],
+);
+
 // ===========================================================================
 // Endpoint rights on a Sync Service pair (AECI-2042, rulings 8 to 10 on AECI-2035,
 // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e)
@@ -6554,10 +6605,20 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
   attestations: many(attestations),
   // AECI-2039: the owner's answer on a Sync Service pair's flow.
   ownerAnswers: many(claimOwnerAnswers),
+  // AECI-2139: AECi's correction of this flow. Named, because the table holds a second
+  // FK into `claims` (`replacement_claim_id`) that no read joins.
+  aeciCorrections: many(claimAeciCorrections, { relationName: 'ClaimAeciCorrection' }),
 }));
 export const claimOwnerAnswersRelations = relations(claimOwnerAnswers, ({ one }) => ({
   claim: one(claims, { fields: [claimOwnerAnswers.claimId], references: [claims.id] }),
   vendor: one(vendors, { fields: [claimOwnerAnswers.vendorId], references: [vendors.id] }),
+}));
+export const claimAeciCorrectionsRelations = relations(claimAeciCorrections, ({ one }) => ({
+  claim: one(claims, {
+    fields: [claimAeciCorrections.claimId],
+    references: [claims.id],
+    relationName: 'ClaimAeciCorrection',
+  }),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
@@ -6753,6 +6814,7 @@ export const schema = {
   claims,
   attestations,
   claimOwnerAnswers,
+  claimAeciCorrections,
   productCategories,
   productAudiences,
   productPhases,
@@ -6822,6 +6884,7 @@ export const schema = {
   claimsRelations,
   attestationsRelations,
   claimOwnerAnswersRelations,
+  claimAeciCorrectionsRelations,
   productVersionsRelations,
   productCategoriesRelations,
   productAudiencesRelations,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DATA_FLOW_CORRECTION_FIELD,
   INTEGRATION_EDIT_FIELDS,
   PRODUCT_OVERRIDE_FIELDS,
   VENDOR_OVERRIDE_FIELDS,
@@ -23,6 +24,8 @@ describe('correctionLabel', () => {
     ...INTEGRATION_EDIT_FIELDS,
     'logo_url',
     'mechanism_url',
+    // AECI-2139: AECi's correction of one data flow.
+    DATA_FLOW_CORRECTION_FIELD,
   ])('names %s', (field) => {
     expect(hasCorrectionLabel(field)).toBe(true);
     expect(correctionLabel(field)).not.toBe(field);
@@ -33,6 +36,10 @@ describe('correctionLabel', () => {
     expect(correctionLabel('phase_slugs')).toBe('Project phases');
     expect(correctionLabel('pricing_model')).toBe('Price');
     expect(correctionLabel('tool_integrations_url')).toBe('Integrations page');
+  });
+
+  it('names a data flow correction without naming its data type (AECI-2139)', () => {
+    expect(correctionLabel('data_flow')).toBe('A data flow');
   });
 
   it('reads a pre-AECI-1310 ownership row as Ownership', () => {

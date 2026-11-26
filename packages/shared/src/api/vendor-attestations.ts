@@ -10,6 +10,7 @@ import {
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vendor-links';
+import { OwnedFlowCorrectionSchema } from './flow-corrections';
 import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import type { AttestationSource } from './promote';
@@ -264,6 +265,12 @@ export const VendorClaimSchema = z.object({
    * owner removed the flow from the public page. `null` otherwise. Defaulted for skew.
    */
   owner_answer: z.enum(['yes', 'no']).nullable().default(null),
+  /**
+   * AECI-2139. AEC Integrations corrected this flow on a Sync Service pair, so the
+   * public page no longer shows it, whatever `owner_answer` says. Optional for skew:
+   * absent reads as `false`.
+   */
+  aeci_corrected: z.boolean().optional(),
 });
 
 export type VendorClaim = z.infer<typeof VendorClaimSchema>;
@@ -298,6 +305,13 @@ export const OwnedFlowSchema = z.object({
    * then falls back to the origin rule.
    */
   public: z.boolean().nullable().default(null),
+  /**
+   * AECI-2139. AEC Integrations corrected this flow on a public source: the reason it
+   * gave the owner, the source and when. No public page shows the flow, and the owner's
+   * writes on it answer `409 FLOW_CORRECTED_BY_AECI`. `null` otherwise. Optional for skew:
+   * absent reads as `null`.
+   */
+  aeci_correction: OwnedFlowCorrectionSchema.nullable().optional(),
 });
 
 export type OwnedFlow = z.infer<typeof OwnedFlowSchema>;

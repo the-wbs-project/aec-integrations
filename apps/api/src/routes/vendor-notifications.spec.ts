@@ -591,6 +591,63 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
     ]);
   });
 
+  it('maps a data flow correction and its lift with the data type and the source (AECI-2139)', async () => {
+    const corrected = aeciOverrideNotificationAudit('portal-flow-corrected-by-aeci', ADMIN_ACTOR, {
+      event: 'flow_corrected',
+      vendorId: VENDOR,
+      reason: 'The vendor page lists no RFI sync.',
+      correctionId: uuid(80),
+      entityType: 'connector_evidenced_pair',
+      entityId: uuid(81),
+      integrationName: 'Revit and Procore',
+      pairSlugs: ['revit', 'procore'],
+      dataObjectName: 'RFIs',
+      sourceUrl: 'https://example.com/sync',
+      redirected: true,
+    });
+    expect(corrected).toMatchObject({ entityType: 'connector_evidenced_pair', vendorId: VENDOR });
+    const lifted = aeciOverrideNotificationAudit(
+      'portal-flow-correction-lifted-by-aeci',
+      ADMIN_ACTOR,
+      {
+        event: 'flow_correction_lifted',
+        vendorId: VENDOR,
+        reason: 'We read the page wrong.',
+        correctionId: uuid(80),
+        entityType: 'connector_evidenced_pair',
+        entityId: uuid(81),
+        integrationName: 'Revit and Procore',
+        pairSlugs: ['revit', 'procore'],
+        dataObjectName: 'RFIs',
+        sourceUrl: 'https://example.com/sync',
+      },
+    );
+    await ledgerRow({ metadata: corrected.metadata, createdAt: daysAgo(2) });
+    await ledgerRow({ metadata: lifted.metadata, createdAt: daysAgo(1) });
+
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    expect(body.notifications).toEqual([
+      expect.objectContaining({
+        event: 'flow_correction_lifted',
+        reason: 'We read the page wrong.',
+        integration_id: uuid(81),
+        data_object_name: 'RFIs',
+        source_url: 'https://example.com/sync',
+        flow_redirected: false,
+        pair_path: '/products/procore/integrations/revit',
+      }),
+      expect.objectContaining({
+        event: 'flow_corrected',
+        reason: 'The vendor page lists no RFI sync.',
+        data_object_name: 'RFIs',
+        source_url: 'https://example.com/sync',
+        flow_redirected: true,
+      }),
+    ]);
+  });
+
   it('maps the three override events with the reason, and validates the union', async () => {
     const field = aeciOverrideNotificationAudit('portal-field-overridden-by-aeci', ADMIN_ACTOR, {
       event: 'field_overridden',
@@ -640,6 +697,9 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       license_product: null,
       hide_kind: null,
       hide_clear_kind: null,
+      data_object_name: null,
+      source_url: null,
+      flow_redirected: false,
       created_at: expect.any(String),
     };
     expect(body.notifications).toEqual([

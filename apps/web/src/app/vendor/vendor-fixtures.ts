@@ -1944,6 +1944,9 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     license_product: null,
     hide_kind: null,
     hide_clear_kind: null,
+    data_object_name: null,
+    source_url: null,
+    flow_redirected: false,
     created_at: daysFromNow(-1),
   },
   {
@@ -1963,6 +1966,9 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     license_product: null,
     hide_kind: null,
     hide_clear_kind: null,
+    data_object_name: null,
+    source_url: null,
+    flow_redirected: false,
     created_at: daysFromNow(-3),
   },
   {
@@ -1982,6 +1988,9 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     license_product: null,
     hide_kind: null,
     hide_clear_kind: null,
+    data_object_name: null,
+    source_url: null,
+    flow_redirected: false,
     created_at: daysFromNow(-5),
   },
   {
@@ -2001,6 +2010,9 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     license_product: { slug: 'summit-field-issues', name: 'Summit Field Issues' },
     hide_kind: null,
     hide_clear_kind: null,
+    data_object_name: null,
+    source_url: null,
+    flow_redirected: false,
     created_at: daysFromNow(-6),
   },
 ];

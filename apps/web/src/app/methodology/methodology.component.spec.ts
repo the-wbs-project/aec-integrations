@@ -206,7 +206,11 @@ describe('MethodologyPage', () => {
       expect(text).toContain('choose its reason from a fixed list');
       expect(text).toContain("with the vendor's reason and how to object");
       expect(text).toContain('We answer an objection within five business days of receiving it.');
-      expect(text).toContain('it maintains the data rows and we cannot change one');
+      // AECI-2139: AECi corrects the one flow. The rest of the integration stays listed.
+      expect(text).toContain('it maintains the data rows. If a public source we can verify');
+      expect(text).toContain('The rest of the integration stays listed.');
+      expect(text).toContain('it cannot undo the correction');
+      expect(text).not.toContain('we cannot change one');
       expect(text).toContain('on three grounds only');
       expect(text).toContain('plainly false on its face');
       expect(text).toContain('We tell both vendors why.');

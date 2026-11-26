@@ -104,6 +104,7 @@ import { and, asc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/client';
 import {
   attestations,
+  claimAeciCorrections,
   productAudiences,
   productCategories,
   productPhases,
@@ -135,14 +136,17 @@ import {
   withOwnerVotes,
   type OwnerFlowConnectorFacts,
   type OwnerFlowContext,
+  type RawAeciCorrection,
   type RawOwnerAnswer,
 } from './owner-flows';
 import { orderPairMechanisms } from './pair-mechanism-order';
 import {
+  flowCorrections,
   productGroupCaptions,
   rowCaption,
   toFieldCorrections,
   type CorrectionRow,
+  type FlowCorrectionCaptionRow,
 } from './field-captions';
 import { isVendorHeld } from './integration-claims';
 import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
@@ -335,6 +339,18 @@ export const integrationListConfig = {
 export const liveAttestationsWhere = isNull(attestations.retractedAt);
 
 /**
+ * AECI-2139: AECi's live correction of a flow, joined beside the owner's answers so
+ * `withOwnerVote` withholds a corrected flow. Declared here from the schema, not imported
+ * from `owner-flows` (whose `aeciCorrectionsRelationConfig` is the same shape): the two
+ * modules import each other, and a binding read before its module finished loading is
+ * `undefined` under some load orders, which would drop the join without an error.
+ */
+const liveAeciCorrectionsConfig = {
+  columns: { retractedAt: true },
+  where: isNull(claimAeciCorrections.retractedAt),
+} as const;
+
+/**
  * Product-detail embed of an integration (`ProductDetail.integrations_as_*`).
  * Like the list config but also loads each mechanism's claims — their
  * **directions** and the attestations that decide whether each still counts —
@@ -384,6 +400,8 @@ export const productDetailIntegrationConfig = {
         },
         // AECI-2039: the owner's answer on a Sync Service pair's flow.
         ownerAnswers: ownerAnswersRelationConfig,
+        // AECI-2139: AECi's live correction withholds the flow.
+        aeciCorrections: liveAeciCorrectionsConfig,
       },
     },
   },
@@ -470,6 +488,8 @@ export const connectorEvidencedPairDetailConfig = {
         },
         // AECI-2039: the owner's answer on a Sync Service pair's flow.
         ownerAnswers: ownerAnswersRelationConfig,
+        // AECI-2139: AECi's live correction withholds the flow.
+        aeciCorrections: liveAeciCorrectionsConfig,
       },
     },
   },
@@ -495,6 +515,8 @@ const poweredClaimsConfig = {
       where: liveAttestationsWhere,
     },
     ownerAnswers: ownerAnswersRelationConfig,
+    // AECI-2139: AECi's live correction withholds the flow.
+    aeciCorrections: liveAeciCorrectionsConfig,
   },
 } as const;
 
@@ -570,6 +592,16 @@ const pairClaimsConfig = {
     },
     // AECI-2039: the owner's answer on a Sync Service pair's flow.
     ownerAnswers: ownerAnswersRelationConfig,
+    // AECI-2139: AECi's live correction withholds the flow. The date, the source and
+    // whether it redirected feed the card's "A data flow" correction line. Never the
+    // reason or the note.
+    // Spelled out, not spread from `aeciCorrectionsRelationConfig`: `owner-flows` and
+    // this module import each other, and a spread of a binding not yet initialised
+    // throws at load.
+    aeciCorrections: {
+      columns: { retractedAt: true, createdAt: true, sourceUrl: true, replacementClaimId: true },
+      where: isNull(claimAeciCorrections.retractedAt),
+    },
   },
 } as const;
 
@@ -653,6 +685,8 @@ export const connectorEvidencedPairTimelineConfig = {
           },
         },
         ownerAnswers: timelineOwnerAnswersConfig,
+        // AECI-2139: a live correction withholds the flow's history whole.
+        aeciCorrections: liveAeciCorrectionsConfig,
       },
     },
   },
@@ -678,6 +712,8 @@ export interface RawConnectorEvidencedPairRow {
 export interface RawProductDetailClaimRow {
   /** AECI-2039. Optional so a hand-built fixture without it reads as no answer. */
   ownerAnswers?: RawOwnerAnswer[];
+  /** AECI-2139. Optional so a hand-built fixture without it reads as uncorrected. */
+  aeciCorrections?: RawAeciCorrection[];
   direction: string;
   /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
   origin: string;
@@ -710,6 +746,8 @@ export interface RawPoweredClaimRow {
   origin?: string;
   attestations?: RawAgreementVoteRow[];
   ownerAnswers?: RawOwnerAnswer[];
+  /** AECI-2139. Optional so a hand-built fixture without it reads as uncorrected. */
+  aeciCorrections?: RawAeciCorrection[];
 }
 
 /** Evidenced pair + claim slugs, for `integrations_as_connector`. */
@@ -816,6 +854,21 @@ function rowCaptionFields(
     }),
     corrections: toFieldCorrections(corrections.get(raw.id) ?? []),
   };
+}
+
+/**
+ * {@link rowCaptionFields} for a pair page mechanism, plus AECi's data flow corrections
+ * (AECI-2139). `raw.claims` holds every claim, the corrected ones included, so the lines
+ * are read from it, not from the public list.
+ */
+function pairRowCaptionFields(
+  raw: Parameters<typeof rowCaptionFields>[0] & { claims: readonly RawPairClaimRow[] },
+  claims: ReadonlyArray<{ attestations: readonly RawAgreementVoteRow[] }>,
+  corrections: CorrectionsByEntity,
+): { caption: FieldCaption | null; corrections: FieldCorrection[] } {
+  const fields = rowCaptionFields(raw, claims, corrections);
+  const flows = flowCorrections(raw.claims);
+  return flows.length ? { ...fields, corrections: [...fields.corrections, ...flows] } : fields;
 }
 
 export function toIntegrationListItemFromEvidencedPair(
@@ -1061,6 +1114,8 @@ export const integrationTimelineConfig = {
           },
         },
         ownerAnswers: timelineOwnerAnswersConfig,
+        // AECI-2139: a live correction withholds the flow's history whole.
+        aeciCorrections: liveAeciCorrectionsConfig,
       },
     },
   },
@@ -1957,6 +2012,8 @@ export interface RawTimelineClaimRow {
   attestations: RawTimelineAttestationRow[];
   /** AECI-2039. Optional so a hand-built fixture without it reads as no answer. */
   ownerAnswers?: RawTimelineOwnerAnswerRow[];
+  /** AECI-2139. Optional so a hand-built fixture without it reads as uncorrected. */
+  aeciCorrections?: RawAeciCorrection[];
 }
 
 export interface RawTimelineIntegrationRow {
@@ -2012,6 +2069,9 @@ export interface PairVersionResolver {
 export interface RawPairClaimRow {
   /** AECI-2039. Optional so a hand-built fixture without it reads as no answer. */
   ownerAnswers?: RawOwnerAnswer[];
+  /** AECI-2139. Optional so a hand-built fixture without it reads as uncorrected. The
+   *  pair read also loads the line's date, source and replacement (`flowCorrections`). */
+  aeciCorrections?: (RawAeciCorrection & FlowCorrectionCaptionRow)[];
   id: string;
   direction: string;
   /** `claims.origin`. Gates public visibility only (`isClaimPubliclyBacked`, AECI-1314). */
@@ -2579,6 +2639,7 @@ function poweredPublicClaims(
           origin: claim.origin ?? 'aeci',
           attestations: claim.attestations ?? [],
           ownerAnswers: claim.ownerAnswers,
+          aeciCorrections: claim.aeciCorrections,
         },
         ctx,
       ),
@@ -3020,7 +3081,7 @@ function toProductPairMechanism(
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
-    ...rowCaptionFields(raw, claims, corrections),
+    ...pairRowCaptionFields(raw, claims, corrections),
   };
 }
 
@@ -3105,7 +3166,7 @@ function toProductPairMechanismFromEvidencedPair(
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsA, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
-    ...rowCaptionFields(raw, claims, corrections),
+    ...pairRowCaptionFields(raw, claims, corrections),
   };
 }
 

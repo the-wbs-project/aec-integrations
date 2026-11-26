@@ -87,6 +87,35 @@ export interface AgreementAttestation {
  */
 export const OWNER_ANSWER_SOURCE = 'owner';
 
+/**
+ * The `source` of AECi's correction of one data flow on a claimed Sync Service pair
+ * (AECI-2139, `STAGE_2_ATTESTATIONS_SPEC.md` §14.10).
+ *
+ * **Never stored and never on the wire.** The correction lives in
+ * `claim_aeci_corrections`. The API read paths append one entry with this source to a
+ * claim's attestation list while the correction is live (`withOwnerVote`,
+ * `apps/api/src/lib/owner-flows.ts`), and the wire mappers drop it by source.
+ *
+ * The rules it brings:
+ *
+ * - It REMOVES the flow: {@link isClaimPubliclyBacked} is false, checked before the
+ *   owner's answer. AECi corrected it on a verifiable public source, so the owner's Yes
+ *   does not bring it back.
+ * - It never votes ({@link tallyVoters}, {@link conflictSince} and
+ *   {@link computeAgreement} skip it).
+ */
+export const AECI_CORRECTION_SOURCE = 'aeci_correction';
+
+/** True for a live AECi correction entry. */
+function hasLiveAeciCorrection(attestations: readonly AgreementAttestation[]): boolean {
+  return attestations.some((a) => a.source === AECI_CORRECTION_SOURCE && a.retractedAt === null);
+}
+
+/** The sources that never vote in the endpoint tally. */
+function isNonVotingSource(source: string): boolean {
+  return source === 'aeci' || source === OWNER_ANSWER_SOURCE || source === AECI_CORRECTION_SOURCE;
+}
+
 /** The live owner answer in a set, or `undefined`. */
 function liveOwnerAnswer(
   attestations: readonly AgreementAttestation[],
@@ -121,7 +150,7 @@ const UNATTRIBUTED: unique symbol = Symbol('unattributed');
 function tallyVoters(attestations: readonly AgreementAttestation[]): Map<string | symbol, boolean> {
   const voters = new Map<string | symbol, boolean>();
   for (const a of attestations) {
-    if (a.source === 'aeci' || a.source === OWNER_ANSWER_SOURCE) continue;
+    if (isNonVotingSource(a.source)) continue;
     if (a.retractedAt !== null) continue;
     const identity = a.attestedByVendorId ?? UNATTRIBUTED;
     voters.set(identity, (voters.get(identity) ?? true) && a.asserted);
@@ -208,10 +237,7 @@ function instantMs(value: string): number {
  */
 export function conflictSince(rows: readonly HistoricalAttestation[]): string | null {
   const vendorRows = rows.filter(
-    (row) =>
-      row.source !== 'aeci' &&
-      row.source !== OWNER_ANSWER_SOURCE &&
-      !Number.isNaN(instantMs(row.createdAt)),
+    (row) => !isNonVotingSource(row.source) && !Number.isNaN(instantMs(row.createdAt)),
   );
   const instants = new Set<number>();
   for (const row of vendorRows) {
@@ -286,7 +312,10 @@ export interface PublicVisibilityClaim {
  * `unverified`, and the pair page would label it "Listed by AEC Integrations".
  * AECi never listed it, so the claim is withheld instead.
  *
- * A live {@link OWNER_ANSWER_SOURCE} entry decides first (AECI-2039): `true` when it
+ * A live {@link AECI_CORRECTION_SOURCE} entry decides first (AECI-2139): `false`. AECi
+ * corrected the flow, whatever its origin and whatever the owner answered.
+ *
+ * A live {@link OWNER_ANSWER_SOURCE} entry decides next (AECI-2039): `true` when it
  * affirms, `false` when it denies. Otherwise `true` when any one holds:
  *
  * - `origin` is not `'vendor'`. AECi-seeded claims stay public exactly as before,
@@ -298,6 +327,9 @@ export interface PublicVisibilityClaim {
  * visibility, never a label (`STAGE_2_ATTESTATIONS_SPEC.md` §2.2).
  */
 export function isClaimPubliclyBacked(claim: PublicVisibilityClaim): boolean {
+  // AECI-2139: AECi corrected this flow on a public source. Nothing brings it back
+  // while the correction is live, the owner's Yes included.
+  if (hasLiveAeciCorrection(claim.attestations)) return false;
   // AECI-2039: the owner of a Sync Service pair decides for its own flows. A "No"
   // removes the flow, AECi-seeded or not. A "Yes" stands behind it.
   const owner = liveOwnerAnswer(claim.attestations);

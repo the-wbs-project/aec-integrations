@@ -225,6 +225,20 @@ export const ApiErrorCode = {
   // closed, or one the removal's end closed meanwhile.
   VETO_OBJECTION_DUPLICATE: 'VETO_OBJECTION_DUPLICATE',
   VETO_OBJECTION_NOT_OPEN: 'VETO_OBJECTION_NOT_OPEN',
+  // AECI-2139 (`STAGE_2_ATTESTATIONS_SPEC.md` §14.10): AECi corrects one data flow on a
+  // claimed Sync Service pair. `FLOW_CORRECTION_NOT_AVAILABLE` (403): the row's connector
+  // is not a Sync Service, so AECi corrects its flows upstream. `FLOW_ALREADY_CORRECTED`
+  // (409): the flow already carries a live correction. `FLOW_CORRECTION_LIFTED` (409): a
+  // lift of a correction already lifted. `FLOW_CORRECTED_BY_AECI` (409): an owner write
+  // on a flow AECi corrected; nothing was written. `FLOW_DIRECTION_REMOVED_BY_OWNER` (409):
+  // a direction correction whose right-direction flow the owner removed; remove instead.
+  // `FLOW_NO_CHANGE` (422): a direction correction to the flow's current direction.
+  FLOW_CORRECTION_NOT_AVAILABLE: 'FLOW_CORRECTION_NOT_AVAILABLE',
+  FLOW_ALREADY_CORRECTED: 'FLOW_ALREADY_CORRECTED',
+  FLOW_CORRECTION_LIFTED: 'FLOW_CORRECTION_LIFTED',
+  FLOW_CORRECTED_BY_AECI: 'FLOW_CORRECTED_BY_AECI',
+  FLOW_DIRECTION_REMOVED_BY_OWNER: 'FLOW_DIRECTION_REMOVED_BY_OWNER',
+  FLOW_NO_CHANGE: 'FLOW_NO_CHANGE',
   // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
   // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
   // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)

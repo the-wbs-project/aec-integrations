@@ -214,6 +214,16 @@ export const previewRoutes: Routes = [
         (m) => m.AdminFieldCorrectionsPreview,
       ),
   },
+  // AECI-2139 — the Data flow corrections section of `/admin/vendors/:id` over a fake
+  // API, so the list and the correct and lift forms render without a session.
+  {
+    path: 'admin-flow-corrections',
+    providers: [provideAdminChipTones()],
+    loadComponent: () =>
+      import('./admin-flow-corrections/admin-flow-corrections-preview').then(
+        (m) => m.AdminFlowCorrectionsPreview,
+      ),
+  },
   // AECI-1618: the pending brand-asset removals section of `/admin/vendors` over a fake
   // API, so the list and the hold forms render without a session.
   {

@@ -65,6 +65,7 @@ import {
 import { getDb, type Db } from '../db/client';
 import {
   attestations,
+  claimAeciCorrections,
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
@@ -295,6 +296,15 @@ function loadChecklistFacts(
         ),
       ),
   );
+  // AECI-2139: a flow AECi corrected waits for nothing. The owner cannot answer it.
+  const notAeciCorrected = notExists(
+    db
+      .select({ one: sql`1` })
+      .from(claimAeciCorrections)
+      .where(
+        and(eq(claimAeciCorrections.claimId, claims.id), isNull(claimAeciCorrections.retractedAt)),
+      ),
+  );
   const ownerFlowsOnPairs = db
     .select({ connectorProductId: connectorEvidencedPairs.connectorProductId })
     .from(connectorEvidencedPairs)
@@ -306,6 +316,7 @@ function loadChecklistFacts(
         liveEvidencedPairOn(connectorEvidencedPairs),
         inArray(connectorEvidencedPairs.connectorProductId, scope),
         noLiveOwnerAnswer,
+        notAeciCorrected,
       ),
     )
     .then((rows) => rows.map((row) => ({ productIds: [row.connectorProductId] })));
@@ -324,6 +335,7 @@ function loadChecklistFacts(
         liveIntegrationOn(integrations),
         inArray(integrations.poweredByProductId, scope),
         noLiveOwnerAnswer,
+        notAeciCorrected,
       ),
     )
     .then((rows) =>

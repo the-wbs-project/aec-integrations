@@ -111,6 +111,15 @@ describe('a row the other company added, only while it still says Yes (AECI-1315
     });
   });
 
+  it('a flow AEC Integrations corrected reads removed by AECi (AECI-2139)', () => {
+    const corrected: VendorClaim = { ...added, aeci_corrected: true };
+    const i = withClaims(INTEGRATION_PROCORE_DETAIL, [corrected]);
+    expect(rowPill(i, corrected, 'Procore Technologies')).toEqual({
+      label: 'Removed by AEC Integrations',
+      tone: 'neutral',
+    });
+  });
+
   it('the adder changed direction: the old row drops out, the corrected row is asked about', () => {
     const i = withClaims(INTEGRATION_PROCORE_DETAIL, [saidNo, correction]);
     expect(isCounterpartAddedUnanswered(i, saidNo)).toBe(false);

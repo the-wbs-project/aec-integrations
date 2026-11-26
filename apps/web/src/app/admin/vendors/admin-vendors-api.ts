@@ -19,6 +19,10 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminCorrectFlowInput,
+  AdminFlowCorrectionResponse,
+  AdminFlowCorrectionsResponse,
+  AdminFlowsResponse,
   AdminDeliveredPairsResponse,
   AdminSetIntegrationOwnerBody,
   AdminSetIntegrationOwnerResponse,
@@ -245,6 +249,52 @@ export class AdminVendorsApi {
       this.http.post<AdminFieldOverrideResponse>(
         `/api/admin/field-overrides/${encodeURIComponent(overrideId)}/lift`,
         overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/flow-corrections` (AECI-2139): the live corrections of
+   * one data flow on the Sync Service rows this vendor owns.
+   */
+  listFlowCorrections(vendorId: string): Promise<AdminFlowCorrectionsResponse> {
+    return firstValueFrom(
+      this.http.get<AdminFlowCorrectionsResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/flow-corrections`,
+      ),
+    );
+  }
+
+  /** `GET /api/admin/flows?integrationId=…|pairId=…` (AECI-2139): one row's flows. */
+  listFlows(anchor: 'integration' | 'evidenced_pair', id: string): Promise<AdminFlowsResponse> {
+    return firstValueFrom(
+      this.http.get<AdminFlowsResponse>('/api/admin/flows', {
+        params: anchor === 'integration' ? { integrationId: id } : { pairId: id },
+      }),
+    );
+  }
+
+  /** `POST /api/admin/flows/:claimId/correction` (AECI-2139). A blank note is dropped. */
+  correctFlow(claimId: string, input: AdminCorrectFlowInput): Promise<AdminFlowCorrectionResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFlowCorrectionResponse>(
+        `/api/admin/flows/${encodeURIComponent(claimId)}/correction`,
+        {
+          action: input.action,
+          ...(input.direction ? { direction: input.direction } : {}),
+          sourceUrl: input.sourceUrl,
+          ...overrideReasonBody(input.reason, input.internalNote ?? ''),
+        },
+      ),
+    );
+  }
+
+  /** `POST /api/admin/flow-corrections/:id/lift` (AECI-2139). */
+  liftFlowCorrection(id: string, reason: string): Promise<AdminFlowCorrectionResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFlowCorrectionResponse>(
+        `/api/admin/flow-corrections/${encodeURIComponent(id)}/lift`,
+        { reason },
       ),
     );
   }

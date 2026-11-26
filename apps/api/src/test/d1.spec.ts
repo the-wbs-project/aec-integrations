@@ -1185,6 +1185,10 @@ describe('connector lane (AECI-714)', () => {
     // recreate of `claims` would empty `claim_owner_answers` as well.
     expect(inboundOf(t, 'claims')).toEqual([
       ['attestations', 'claim_id', 'CASCADE'],
+      // AECI-2139 (0138): AECi's flow corrections cascade with the corrected claim, and
+      // a replacement claim's delete nulls the pointer.
+      ['claim_aeci_corrections', 'claim_id', 'CASCADE'],
+      ['claim_aeci_corrections', 'replacement_claim_id', 'SET NULL'],
       ['claim_owner_answers', 'claim_id', 'CASCADE'],
       ['claim_threads', 'claim_id', 'SET NULL'],
       // AECI-2042 (0132): a data flow report names one claim, and goes with it.

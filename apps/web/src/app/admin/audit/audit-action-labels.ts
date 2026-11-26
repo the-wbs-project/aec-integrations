@@ -105,6 +105,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'attestation.retracted': $localize`:@@admin.audit.action.attestationRetracted:Vendor position withdrawn`,
   'claim_owner_answer.created': $localize`:@@admin.audit.action.ownerFlowAnswered:Owner answered a data flow`,
   'claim_owner_answer.retracted': $localize`:@@admin.audit.action.ownerFlowAnswerCleared:Owner answer on a data flow withdrawn`,
+  'claim_aeci_correction.created': $localize`:@@admin.audit.action.flowCorrected:AECi corrected a data flow`,
+  'claim_aeci_correction.retracted': $localize`:@@admin.audit.action.flowCorrectionLifted:AECi lifted a data flow correction`,
 
   // ── Product versions, written from the vendor portal ──────────────────────
   'product_version.created': $localize`:@@admin.audit.action.versionCreated:Product version added`,

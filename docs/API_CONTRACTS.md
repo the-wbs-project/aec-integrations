@@ -355,6 +355,12 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PAIR_PROTEST_NOT_OPEN` | 409 | AECI-2042: a decision or withdraw on a protest that is no longer open |
 | `VETO_OBJECTION_DUPLICATE` | 409 | AECI-2192 (§6.15b): an objection to this removal is already open. One open objection per removal |
 | `VETO_OBJECTION_NOT_OPEN` | 409 | AECI-2192: a decision on an objection already decided or closed, or whose removal ended meanwhile. Nothing written |
+| `FLOW_CORRECTION_NOT_AVAILABLE` | 403 | AECI-2139 (§6.15c): a flow correction on a row whose connector is not a Sync Service, or no connector delivers. The review app holds its flows |
+| `FLOW_ALREADY_CORRECTED` | 409 | AECI-2139: the flow already carries a live AECi correction, including one set by a racing request (`claim_aeci_corrections_live_key`). Lift it first. Also a redirect onto a direction AECi corrected |
+| `FLOW_CORRECTION_LIFTED` | 409 | AECI-2139: a lift of a correction already lifted. Nothing written |
+| `FLOW_CORRECTED_BY_AECI` | 409 | AECI-2139: an owner write (§6.15a) or a report accept on a flow AECi corrected. Nothing written |
+| `FLOW_DIRECTION_REMOVED_BY_OWNER` | 409 | AECI-2139: a redirect onto a direction whose flow the owner removed. Remove instead |
+| `FLOW_NO_CHANGE` | 422 | AECI-2139: a redirect to the flow's current direction |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `THREAD_CHANGED_DURING_PROMOTE` | 409 | Promote job error only, product and connector-catalog arms. A private row thread on an edge the bundle moves into `connector_evidenced_pairs` or makes connector-powered in place (AECI-1541), or on a claim the push deletes, opened or closed after the promote planned the batch and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push closes the threads as they now stand (AECI-1536, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
@@ -11293,6 +11299,34 @@ Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e. Schemas: `packages/shared/src/a
 **Changed wire (AECI-2042).** `EvidencedPairContestTarget` on `GET /api/vendor/products/:id/connectors` gains `sync_service_rights` (`SyncServiceRightsSchema`: `veto_id`, `open_reports`, `open_flow_claim_ids`, `flows`, `flows_decided_by_owner`), `null` on any other connector and for the owner, defaulted for deploy skew. `VendorNotification` gains the `pair_right` member (`VendorPairRightNotificationSchema`). `POST /api/vendor/sync-service-pairs` answers `409 INTEGRATION_VETOED` for a vetoed pair key. The owner and admin restores answer `409 INTEGRATION_VETOED` on a vetoed row.
 
 **Changed wire (AECI-2192, ruling 66).** `SyncServicePairVeto` gains `reason_code` (`null` on a removal filed before the fixed list, whose `reason` is the vendor's own words, and `unrecognised` on a stored code outside today's list, `RemovalReasonWireCodeSchema`), `end_reason` and `objection` (`VetoObjectionSchema`, the newest objection, or `null`). `VendorPairRightNotificationSchema` gains optional `reason_code` (the same wire values) and `end_reason`, and the event `objection_declined`. The vocabularies are zod-free in `packages/shared/src/api/sync-service-removal.ts`. The public `GET /api/integrations/:id` answers a removed `integrations` row with its two slugs only, as for a retired row. No public payload carries any of these fields.
+
+#### 6.15c AECi corrects one data flow on a Sync Service pair (AECI-2139)
+
+Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §14.10. Schemas: `packages/shared/src/api/flow-corrections.ts`.
+Routes: `apps/api/src/routes/admin-flow-corrections.ts`. The two writes are `requireAdmin()` →
+`rateLimit('write')` → the handler. The two reads are `requireAdmin()` only. Directions are the
+row's own A/B frame (`claims.direction`).
+
+| Method and path | Body | Answer | Refusals, in order |
+|---|---|---|---|
+| `POST /api/admin/flows/:claimId/correction` | `AdminCorrectFlowSchema` `{ action: 'remove' \| 'redirect', direction?, sourceUrl, reason, internalNote? }`, strict. `direction` is required for a redirect and refused on a removal | `201 AdminFlowCorrectionResponse` | `400 VALIDATION_FAILED`, `404`, `403 FLOW_CORRECTION_NOT_AVAILABLE`, `409 INTEGRATION_NOT_CLAIMED`, `409 INTEGRATION_RETIRED`, `409 INTEGRATION_VETOED`, `409 FLOW_ALREADY_CORRECTED`, `422 FLOW_NO_CHANGE`, `409 FLOW_DIRECTION_REMOVED_BY_OWNER`, `409 INTEGRATION_CHANGED_WHILE_SAVING` (a race the gate no longer explains) |
+| `POST /api/admin/flow-corrections/:id/lift` | `AdminLiftFlowCorrectionSchema` `{ reason }` | `200 AdminFlowCorrectionResponse` | `400`, `404`, `409 FLOW_CORRECTION_LIFTED` |
+| `GET /api/admin/flows?integrationId=…` or `?pairId=…` | none | `200 AdminFlowsResponse`: the row, its endpoints, `blocked` (`not_sync_service`, `not_claimed`, `retired`, `vetoed` or `null`), and every flow with `public`, `agreement`, `owner_answer` and its live `correction` | `400` (not exactly one id), `404` |
+| `GET /api/admin/vendors/:id/flow-corrections` | none | `200 AdminFlowCorrectionsResponse`: live corrections on rows the vendor owns, newest first | `404` |
+
+`AdminFlowCorrection` carries `id`, `claim_id`, `replacement_claim_id`, `anchor_id`, `anchor`,
+`integration_name`, `data_object_slug`, `data_object_name`, `direction`, `replacement_direction`,
+`source_url`, `reason`, `internal_note`, `created_by`, `created_at` and the `retracted_*` trio.
+
+**Changed wire (AECI-2139), all additive.** `OwnedFlow.aeci_correction` (`{ reason, source_url,
+created_at }` or `null`, optional for skew). `VendorClaim.aeci_corrected` (optional boolean).
+`ProductPairMechanism.corrections` may hold `{ field: 'data_flow', date, source_url, cleared }`.
+`VendorAeciOverrideNotification` gains the events `flow_corrected` and `flow_correction_lifted`
+and the fields `data_object_name`, `source_url` and `flow_redirected`. The ownership record's
+`ownerFlows[]` gains `aeciCorrected: true` (`REVIEW_APP_PROMOTE_API.md` §4d).
+
+**The owner's routes (§6.15a)** answer `409 FLOW_CORRECTED_BY_AECI` on any write that touches a
+corrected claim, and write nothing. So does the owner's accept of a data flow report (§6.15b).
 
 #### Private row threads — `/api/vendor/claims/:claimId/thread` (AECI-1535)
 
