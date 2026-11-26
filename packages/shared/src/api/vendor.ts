@@ -7,7 +7,9 @@ import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
+import { ProductSummarySchema } from './summary';
 import { ConnectorKindSchema } from './connector-kind-schema';
+import { ConnectorManagedBySchema } from './admin-connector-catalogs';
 import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
 /**
@@ -248,6 +250,8 @@ export const VendorProductSchema = z.object({
   is_primary: z.boolean(),
 
   description: z.string().nullable(),
+  // AECI-2198. The one-line hero summary; null shows the clamped description.
+  summary: z.string().nullable(),
   website: z.string().nullable(),
   tool_integrations_url: z.string().nullable(),
   api_docs_url: z.string().nullable(),
@@ -277,6 +281,12 @@ export const VendorProductSchema = z.object({
   // is the §8.9 catalogue-maintenance seat's (`isCatalogueProduct` in the portal).
   // Defaulted so an older payload still parses.
   has_connector_catalog: z.boolean().default(false),
+  // AECI-2206: who maintains that catalogue (`connector_catalogs.managed_by`): `review`
+  // while AEC Integrations does, `vendor` once it is handed to the vendor. `null` when
+  // `has_connector_catalog` is false. The portal shows the Catalog tab, the overview's
+  // catalog link and the plan panel's `catalogue` state only on `vendor`. Defaulted so
+  // an older payload still parses, and reads as no tab.
+  connector_catalog_managed_by: ConnectorManagedBySchema.nullable().default(null),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   updated_at: z.string().datetime(),
@@ -453,6 +463,8 @@ export type UpdateVendorProfileResponse = z.infer<typeof UpdateVendorProfileResp
 export const UpdateVendorProductSchema = z
   .object({
     description: longText.nullable().optional(),
+    // AECI-2198. One line, at most 155 characters after trimming; empty clears it.
+    summary: ProductSummarySchema.optional(),
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
@@ -514,6 +526,8 @@ export const CreateVendorProductSchema = z
   .object({
     name: shortText.min(1, 'Enter the product name').max(VENDOR_PRODUCT_NAME_MAX),
     description: longText.optional(),
+    // AECI-2198. Free, like `description`: one line, at most 155 characters.
+    summary: ProductSummarySchema.optional(),
     website: editableUrl.optional(),
     logo_url: LogoUrlSchema.optional(),
     // Find-only: an unknown slug is a `VALIDATION_FAILED`, as on the edit route.
@@ -813,6 +827,7 @@ export type AcceptSeatInviteResponse = z.infer<typeof AcceptSeatInviteResponseSc
 /** The text an owner seat may blank for 30 days after Managed ends. Tags stay. */
 export const REMOVAL_ELECTION_FIELDS = [
   'description',
+  'summary',
   'usefulness',
   'tool_integrations_url',
   'api_docs_url',

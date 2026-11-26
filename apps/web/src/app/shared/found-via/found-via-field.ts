@@ -1,4 +1,4 @@
-import { Component, computed, input, model, signal } from '@angular/core';
+import { Component, computed, input, model, output, signal } from '@angular/core';
 
 import { FOUND_VIA_DETAIL_MAX, FOUND_VIA_FOLLOW_UP, type FoundVia } from '@aeci/shared';
 
@@ -31,7 +31,9 @@ function followUpAppeared(question: string): string {
  *
  * The component owns one polite live region that is always in the DOM. It says
  * when the follow-up box appears, because a screen reader does not otherwise
- * hear content added after the control it is on.
+ * hear content added after the control it is on. A host that already owns the
+ * page's one live region (the About you form, AECI-2208) sets
+ * `[liveRegion]="false"` and relays `announce` to its own region instead.
  */
 @Component({
   selector: 'aec-found-via-field',
@@ -68,9 +70,11 @@ function followUpAppeared(question: string): string {
         </div>
       }
 
-      <p class="sr-only" role="status" aria-live="polite" data-testid="found-via-status">
-        {{ announcement() }}
-      </p>
+      @if (liveRegion()) {
+        <p class="sr-only" role="status" aria-live="polite" data-testid="found-via-status">
+          {{ announcement() }}
+        </p>
+      }
     </div>
   `,
 })
@@ -81,6 +85,10 @@ export class FoundViaField {
   readonly detail = model('');
   /** Stable id stem, unique per host page. */
   readonly idPrefix = input('found-via');
+  /** Render the field's own live region. `false` when the host relays `announce`. */
+  readonly liveRegion = input(true);
+  /** The follow-up announcement, for a host that owns the live region. */
+  readonly announce = output<string>();
 
   protected readonly labelClass = FIELD_LABEL_CLASS;
   protected readonly inputClass = FIELD_INPUT_CLASS;
@@ -109,7 +117,9 @@ export class FoundViaField {
       if (this.detail() !== '') this.detail.set('');
       this.announcement.set('');
     } else {
-      this.announcement.set(followUpAppeared(question));
+      const message = followUpAppeared(question);
+      this.announcement.set(message);
+      this.announce.emit(message);
     }
   }
 

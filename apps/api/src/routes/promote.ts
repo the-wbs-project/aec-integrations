@@ -461,6 +461,8 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
 export function productEditableData(p: PromoteProduct): Record<string, unknown> {
   return compact({
     description: p.description,
+    // AECI-2198. Absent → untouched; `null` clears. Zod already normalized it.
+    summary: p.summary,
     website: p.website,
     toolIntegrationsUrl: p.toolIntegrationsUrl,
     apiDocsUrl: p.apiDocsUrl,

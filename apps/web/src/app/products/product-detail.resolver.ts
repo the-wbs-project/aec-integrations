@@ -73,12 +73,16 @@ function productMetaName(product: ProductDetail): string {
  *    text the vendor already publishes on its own site and on every competing
  *    directory, which is precisely the aggregator signature the 2026 core
  *    updates demoted.
- * 3. The vendor's blurb, for a product with no integrations to describe. It is
- *    still unique text, and a composed sentence there would only advertise the
- *    absence.
+ * 3. The summary, else the vendor's blurb, for a product with no
+ *    integrations to describe (AECI-2198, ruling 3). `summary` is one
+ *    line of at most 155 characters, written to summarise the product, so it reads
+ *    as a snippet where a long `description` gets truncated. A summary
+ *    AECi hid while it checks it arrives masked to `null`, so the ladder falls back
+ *    to `description` rather than publishing the value under review. It is still
+ *    unique text, and a composed sentence there would only advertise the absence.
  * 4. `MetaService`'s `@@meta.defaultDescription`, reached by returning `null`.
  *    Last resort, and now genuinely last: rung 3 catches everything with a
- *    description and rung 2 everything with an integration.
+ *    summary or a description and rung 2 everything with an integration.
  *
  * The count is `integration_count`, the denormalized column, so the snippet
  * agrees with the product card, the hero `IntegrationStat`, the Algolia numeric
@@ -122,7 +126,7 @@ function productMetaDescription(product: ProductDetail): string | null {
     if (composed) return composed;
   }
 
-  return product.description;
+  return product.summary ?? product.description;
 }
 
 /**

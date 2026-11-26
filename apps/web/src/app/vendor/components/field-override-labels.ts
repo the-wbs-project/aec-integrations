@@ -49,6 +49,9 @@ export function fieldOverrideLabel(field: string): string {
       return $localize`:@@fieldOverride.field.toolIntegrations:Integrations page`;
     case 'api_docs_url':
       return $localize`:@@fieldOverride.field.apiDocs:API documentation`;
+    // AECI-2198: hideable on a product, never lockable.
+    case 'summary':
+      return $localize`:@@fieldOverride.field.summary:Summary`;
     // AECI-1628: an admin logo overwrite on a vendor-held record is recorded as a correction.
     case 'logo_url':
       return $localize`:@@fieldOverride.field.logo:Logo`;

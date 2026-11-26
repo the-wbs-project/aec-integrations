@@ -619,7 +619,9 @@ export async function checkDuplicatePageTitles(db: Db): Promise<CheckFinding> {
 export async function checkDefaultMetaDescription(db: Db): Promise<CheckFinding> {
   // SQLite's one-argument `trim` strips spaces only. The web collapses every `\s`,
   // so a newline-only blurb is blank there and must be blank here.
-  const blank = (col: typeof products.description | typeof vendors.description) =>
+  const blank = (
+    col: typeof products.description | typeof products.summary | typeof vendors.description,
+  ) =>
     or(
       isNull(col),
       eq(sql`trim(${col}, ' ' || char(9) || char(10) || char(11) || char(12) || char(13))`, ''),
@@ -635,7 +637,9 @@ export async function checkDefaultMetaDescription(db: Db): Promise<CheckFinding>
       .from(products)
       .where(
         and(
+          // AECI-2198: rung 3 is `summary ?? description`.
           blank(products.description),
+          blank(products.summary),
           eq(products.integrationCount, 0),
           sql`not (${products.productRole} = 'connector' and ${powersLiveEdge})`,
         ),

@@ -14,8 +14,8 @@ The Privacy Policy says: "About you answers: for as long as your account exists.
 
 Since AECI-1869, the code writes no About-you values to the audit record. The row lists which answers changed in `metadata.about_you_fields`. This script removes the values from rows written before that.
 
-- `apply.sql` removes six keys from `before_state` and `after_state` on `profile.updated` rows: `company_type`, `company_size`, `primary_role`, `firm_name`, `linkedin_url` and `audience_ids`. They match `ABOUT_YOU_AUDIT_KEYS` in `apps/api/src/routes/account.ts`.
-- Other keys stay: `display_name`, `listing_view_preference` and `onboarding`.
+- `apply.sql` removes six keys from `before_state` and `after_state` on `profile.updated` rows: `company_type`, `company_size`, `primary_role`, `firm_name`, `linkedin_url` and `audience_ids`. They match the first six of `ABOUT_YOU_AUDIT_KEYS` in `apps/api/src/routes/account.ts`. Its seventh, `found_via_detail` (AECI-2208), was never stored by value.
+- Other keys stay: `display_name`, `listing_view_preference` and `onboarding`. So does `found_via`, which AECI-2208 audits by value on purpose (Chris's ruling 1 of 2026-11-26). Do not add it to the scrub. The Privacy Policy's Retention list says the audit record keeps that choice.
 - A state left empty becomes NULL, which is what the code writes now.
 - Each changed row gets `metadata.about_you_scrubbed = "AECI-1869"`.
 - The script writes one `system` audit row, `audit_log.about_you_scrubbed`, with the number of rows changed in `metadata.rows`.

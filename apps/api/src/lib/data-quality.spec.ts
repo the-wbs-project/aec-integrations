@@ -454,6 +454,7 @@ describe('checkDefaultMetaDescription', () => {
     id: string;
     name: string;
     description?: string | null;
+    summary?: string | null;
     integrationCount?: number;
     productRole?: string;
   }): Promise<void> {
@@ -462,6 +463,7 @@ describe('checkDefaultMetaDescription', () => {
       slug: over.name.toLowerCase(),
       name: over.name,
       description: over.description ?? null,
+      summary: over.summary ?? null,
       integrationCount: over.integrationCount ?? 0,
       productRole: over.productRole ?? 'application',
       promotionStatus: 'promoted',
@@ -475,6 +477,8 @@ describe('checkDefaultMetaDescription', () => {
     await seedMetaProduct({ id: pid(2), name: 'Blank', description: '   ' });
     await seedMetaProduct({ id: pid(3), name: 'Described', description: 'Has a blurb.' });
     await seedMetaProduct({ id: pid(4), name: 'Integrated', integrationCount: 2 });
+    // AECI-2198: rung 3 is `summary ?? description`, so a short one spares it.
+    await seedMetaProduct({ id: pid(5), name: 'Summarised', summary: 'One line.' });
 
     const { lines } = await checkDefaultMetaDescription(t.db);
     expect(lines).toEqual([

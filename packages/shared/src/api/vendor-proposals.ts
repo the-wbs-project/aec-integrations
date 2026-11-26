@@ -55,7 +55,10 @@ export const VendorProposalVendorSchema = z.object({
 });
 export type VendorProposalVendor = z.infer<typeof VendorProposalVendorSchema>;
 
-/** The longest description excerpt the list returns. */
+/**
+ * The longest `description_excerpt` the list returns. Deprecated with that field
+ * (AECI-2212): remove both once no browser runs a bundle older than AECI-2212.
+ */
 export const PROPOSAL_DESCRIPTION_EXCERPT_MAX = 400;
 
 export const VendorProposalSchema = z.object({
@@ -63,9 +66,32 @@ export const VendorProposalSchema = z.object({
   proposed_at: z.string(),
   product: z.object({
     name: z.string(),
-    /** The first {@link PROPOSAL_DESCRIPTION_EXCERPT_MAX} characters, or `null`. */
+    /**
+     * The proposed description, whole (AECI-2212): an accept publishes all of it, so the
+     * owner must see all of it. `null` when none was sent or it is only whitespace,
+     * which the accept stores as `null` too.
+     */
+    description: z.string().nullable(),
+    /**
+     * @deprecated AECI-2212. The first {@link PROPOSAL_DESCRIPTION_EXCERPT_MAX} characters,
+     * kept for one deploy because the API ships before the web Worker and an open tab keeps
+     * the old bundle. Read `description`, falling back to this for an older API.
+     */
     description_excerpt: z.string().nullable(),
+    /**
+     * The proposed summary (AECI-2198), whole: an accept publishes it, so the owner must
+     * see all of it. Already one line of at most 155 characters (Zod on the way in).
+     */
+    summary: z.string().nullable(),
     website: z.string().nullable(),
+    /**
+     * AECI-2212: the other fields an accept publishes through `productEditableData`. The
+     * two doc links (the product page's "Integrations" and "API docs" links) and the logo,
+     * exactly as the accept stores them. `null` when not sent or only whitespace.
+     */
+    tool_integrations_url: z.string().nullable(),
+    api_docs_url: z.string().nullable(),
+    logo_url: z.string().nullable(),
     product_role: z.string(),
   }),
   vendors: z.array(VendorProposalVendorSchema),

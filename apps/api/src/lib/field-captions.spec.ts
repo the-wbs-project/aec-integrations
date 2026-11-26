@@ -222,6 +222,7 @@ describe('productEditStamps', () => {
   const NOW = '2026-11-05T00:00:00.000Z';
   const values: ProductGroupValues = {
     description: 'Text',
+    summary: null,
     website: 'https://site.example',
     categories: ['bim', 'erp'],
     usefulness: { audiences: [{ slug: 'a', name: 'A', points: ['p'] }], phases: [] },
@@ -244,6 +245,8 @@ describe('productEditStamps', () => {
 
   it.each([
     ['description', { description: 'New' }, 'descriptionEditedAt'],
+    // AECI-2198: the summary shares the description group's stamp.
+    ['summary', { summary: 'One line.' }, 'descriptionEditedAt'],
     ['website', { website: 'https://new.example' }, 'profileEditedAt'],
     ['category', { categories: ['bim'] }, 'profileEditedAt'],
     ['usefulness', { usefulness: null }, 'usefulnessEditedAt'],
@@ -268,6 +271,23 @@ describe('productEditStamps', () => {
         NOW,
       ),
     ).toEqual({ descriptionEditedAt: NOW, profileEditedAt: NOW });
+  });
+
+  it('stamps the description group for a new product with only a summary', () => {
+    expect(
+      newProductEditStamps(
+        {
+          description: null,
+          summary: 'One line.',
+          categories: [],
+          usefulness: null,
+          trades: [],
+          audiences: [],
+          phases: [],
+        },
+        NOW,
+      ),
+    ).toEqual({ descriptionEditedAt: NOW });
   });
 });
 

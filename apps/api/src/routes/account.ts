@@ -68,6 +68,8 @@ import {
   CompanyTypeSchema,
   ProfilePrimaryRoleSchema,
   UpdateAccountSchema,
+  normalizeFoundVia,
+  storedFoundVia,
 } from '@aeci/shared';
 import type {
   AccountProfileDetails,
@@ -182,6 +184,8 @@ async function readAccountState(db: DbContext['db'], userId: string): Promise<Ac
         linkedinUrl: profileDetails.linkedinUrl,
         onboardingCompletedAt: profileDetails.onboardingCompletedAt,
         onboardingSkippedAt: profileDetails.onboardingSkippedAt,
+        foundVia: profileDetails.foundVia,
+        foundViaDetail: profileDetails.foundViaDetail,
       })
       .from(profiles)
       .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
@@ -205,6 +209,9 @@ async function readAccountState(db: DbContext['db'], userId: string): Promise<Ac
       firm_name: row?.firmName ?? null,
       linkedin_url: row?.linkedinUrl ?? null,
       audience_ids: audienceRows.map((a) => a.audienceId),
+      // AECI-2208. An off-vocabulary channel reads as `null`, and so does its detail.
+      found_via: storedFoundVia(row?.foundVia),
+      found_via_detail: storedFoundVia(row?.foundVia) ? (row?.foundViaDetail ?? null) : null,
     },
     onboarding: row?.onboardingCompletedAt
       ? 'completed'
@@ -290,8 +297,17 @@ async function queueCountsForSession(
  * The "About you" answers (AECI-1296) whose VALUES never enter an audit row
  * (AECI-1869). The `profile.updated` row lists which of them a request touched in
  * `metadata.about_you_fields`. The ops scrub
- * (`scripts/ops/2026-11-about-you-audit-scrub/apply.sql`) removes the same six keys
- * from rows written before the fix, so the two lists must stay equal.
+ * (`scripts/ops/2026-11-about-you-audit-scrub/apply.sql`) removes the first six
+ * keys from rows written before the fix, so those six must stay equal to its list.
+ * `found_via_detail` (AECI-2208) came after the fix, so no row ever held its value
+ * and the scrub does not need it.
+ *
+ * `found_via` is deliberately NOT in this list (AECI-2208, Chris's ruling 1 of
+ * 2026-11-26). It is the one About-you answer whose value the audit row keeps: the
+ * channel enum, or `null`, goes in the before/after state. Its follow-up text
+ * never does, because audit rows are forwarded to PostHog Logs (`ANALYTICS.md`
+ * §11b). The Privacy Policy's Retention list says the audit record keeps the
+ * channel.
  */
 export const ABOUT_YOU_AUDIT_KEYS = [
   'company_type',
@@ -300,6 +316,7 @@ export const ABOUT_YOU_AUDIT_KEYS = [
   'firm_name',
   'linkedin_url',
   'audience_ids',
+  'found_via_detail',
 ] as const;
 
 /** The `profile_details` columns a PATCH may carry, wire key → Drizzle key. */
@@ -399,6 +416,19 @@ export function createUpdateAccountHandler(
       afterState.onboarding = payload.onboarding;
     }
     if (audienceIds !== undefined) aboutYouFields.push('audience_ids');
+    // "How did you find us?" (AECI-2208, `docs/ANALYTICS.md` §11b). The pair moves
+    // together: normalised, then both columns written, so a stale detail never
+    // outlives its channel. The AECI-1869 carve-out (ruling 1, see
+    // `ABOUT_YOU_AUDIT_KEYS`): the CHANNEL is audited by value. The detail column is
+    // only named, never valued, like every other answer here.
+    if (payload.found_via !== undefined) {
+      const answer = normalizeFoundVia(payload);
+      detailUpdates.foundVia = answer.foundVia;
+      detailUpdates.foundViaDetail = answer.foundViaDetail;
+      beforeState.found_via = before.details.found_via;
+      afterState.found_via = answer.foundVia;
+      aboutYouFields.push('found_via_detail');
+    }
 
     const hasState = Object.keys(beforeState).length > 0;
     const auditEntry: AuditLogEntry = {

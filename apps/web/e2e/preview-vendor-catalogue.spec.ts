@@ -7,7 +7,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *
  *   - `connector-seat` — a vendor-managed catalogue, every match editable;
  *   - `connector-seat-review` — the same seat on a catalogue the AECi team still
- *     maintains, so the tab is read-only.
+ *     maintains, so the product has no Catalog tab (AECI-2206) and the typed URL
+ *     shows a notice that links to the Integrations tab.
  *
  * Why the preview and not `/vendor/:slug`: see `preview-vendor-portal-nav.spec.ts`.
  */
@@ -50,13 +51,30 @@ test.describe('vendor catalogue tab (preview)', () => {
     expect(await axeSerious(page)).toEqual([]);
   });
 
-  test('is read-only on an AECi-managed catalogue', async ({ page }) => {
-    await page.goto(`${PATH}?fixture=connector-seat-review`);
-    await expect(page.locator('[data-catalogue-review-managed]')).toContainText(
-      'We maintain this catalog for now',
+  test('explains itself above the list', async ({ page }) => {
+    await page.goto(`${PATH}?fixture=connector-seat`);
+    const intro = page.locator('[data-catalogue-intro]');
+    await expect(intro).toContainText('Agave publishes a list of the apps it works with.');
+    await expect(intro).toContainText('Reach is how many products');
+    await expect(intro).toContainText('They are on its Integrations tab.');
+  });
+
+  // AECI-2206 (ruling, Chris, 2026-11-26): no tab until the catalogue is handed over.
+  test('has no Catalog tab on an AECi-managed catalogue, and a typed URL shows the notice', async ({
+    page,
+  }) => {
+    const res = await page.goto(`${PATH}?fixture=connector-seat-review`);
+    expect(res?.status()).toBe(200);
+    const nav = page.getByRole('navigation', { name: 'Agave sections' });
+    await expect(nav.getByRole('link', { name: 'Integrations' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Catalog' })).toHaveCount(0);
+    const notice = page.locator('[data-catalogue-hidden="aeci-managed"]');
+    await expect(notice).toContainText('We maintain the catalog for Agave for now');
+    await expect(notice.getByRole('link', { name: 'Open the Integrations tab' })).toHaveAttribute(
+      'href',
+      /\/products\/agave\/integrations$/,
     );
-    await expect(page.locator('[data-listing]').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Edit the match/ })).toHaveCount(0);
+    await expect(page.locator('[data-listing]')).toHaveCount(0);
     expect(await axeSerious(page)).toEqual([]);
   });
 

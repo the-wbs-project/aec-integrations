@@ -36,6 +36,8 @@ export function removalFieldLabel(field: RemovalElectionField): string {
   switch (field) {
     case 'description':
       return $localize`:@@vendor.removalElection.field.description:Description`;
+    case 'summary':
+      return $localize`:@@vendor.removalElection.field.summary:Summary`;
     case 'usefulness':
       return $localize`:@@vendor.removalElection.field.usefulness:"How teams use it"`;
     case 'tool_integrations_url':

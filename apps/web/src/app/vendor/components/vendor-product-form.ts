@@ -11,8 +11,10 @@ import {
 } from '@angular/core';
 
 import {
+  PRODUCT_SUMMARY_MAX,
   UpdateVendorProductSchema,
   hiddenField,
+  normalizeSummary,
   lockedField,
   type HiddenField,
   type LockedField,
@@ -49,17 +51,20 @@ import {
 } from '../shared/portal-form';
 
 type ProductTextKey =
+  | 'summary'
   | 'description'
   | 'website'
   | 'tool_integrations_url'
   | 'api_docs_url'
   | 'logo_url';
-type Control = 'url' | 'textarea';
+type Control = 'url' | 'textarea' | 'line';
 
 interface FieldConfig {
   readonly key: ProductTextKey;
   readonly label: string;
   readonly control: Control;
+  /** A line under the label that says what the field is for. */
+  readonly hint?: string;
 }
 
 /**
@@ -83,7 +88,7 @@ interface FieldConfig {
  * ── PER-FIELD GATES (AECI-1214) ─────────────────────────────────────────────
  * Each field is gated by its own capability on THIS product's plan, read with
  * `productCan` from `PRODUCT_FIELD_CAPABILITIES` — the same table the server's
- * field gate reads. On the Free plan description, website and logo are editable
+ * field gate reads. On the Free plan summary, description, website and logo are editable
  * and the two doc URLs are `readonly` (never `disabled`, so the value stays in
  * the accessibility tree). A locked field is never sent: the server refuses a
  * request naming one WHOLE. Since AECI-1218 each locked field carries a visible
@@ -218,8 +223,8 @@ interface FieldConfig {
 
       <!--
         AECI-1810: the portal form card (vendor/shared/portal-form.ts). Two columns
-        from 768px. The order is unchanged: logo, description, then website and the
-        integrations page URL side by side, then the API documentation URL.
+        from 768px. The order: logo, summary (AECI-2198), description, then
+        website and the integrations page URL side by side, then the API documentation URL.
       -->
       <form
         aecCard
@@ -241,8 +246,17 @@ interface FieldConfig {
           />
 
           @for (cfg of formFields; track cfg.key) {
-            <div [class]="cfg.control === 'textarea' ? wideFieldClass : fieldClass">
+            <div [class]="cfg.control === 'url' ? fieldClass : wideFieldClass">
               <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+              <!--
+                AECI-2198: a field's hint sits under its label, above the control. Only the
+                summary has one, and it spans both columns, so no row misaligns.
+              -->
+              @if (cfg.hint) {
+                <p [id]="fieldId(cfg.key) + '-hint'" class="text-xs text-(--text-secondary)">
+                  {{ cfg.hint }}
+                </p>
+              }
               @if (cfg.control === 'textarea') {
                 <textarea
                   [id]="fieldId(cfg.key)"
@@ -254,6 +268,28 @@ interface FieldConfig {
                   [attr.aria-describedby]="describedBy(cfg.key)"
                   [class]="inputClass"
                 ></textarea>
+              } @else if (cfg.control === 'line') {
+                <!--
+                  AECI-2198: one line. No maxlength, so a pasted value is never cut
+                  silently: the count says how far over it is, and Save waits.
+                -->
+                <input
+                  [id]="fieldId(cfg.key)"
+                  type="text"
+                  [value]="model()[cfg.key]"
+                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
+                  (input)="onInput(cfg.key, $event)"
+                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="inputClass"
+                />
+                <p
+                  [id]="fieldId(cfg.key) + '-count'"
+                  class="text-xs text-(--text-secondary)"
+                  data-testid="summary-count"
+                >
+                  {{ summaryCount() }}
+                </p>
               } @else {
                 <input
                   [id]="fieldId(cfg.key)"
@@ -386,6 +422,10 @@ export class VendorProductForm {
   /** The control's descriptions: its locked reason and its error, when shown. */
   protected describedBy(key: ProductTextKey): string | null {
     const ids: string[] = [];
+    if (this.textFields.some((cfg) => cfg.key === key && cfg.hint)) {
+      ids.push(`${this.fieldId(key)}-hint`);
+    }
+    if (key === 'summary') ids.push(`${this.fieldId(key)}-count`);
     if (!this.editable()[key]) ids.push(`${this.fieldId(key)}-locked`);
     if (this.aeciLock(key)) ids.push(`${this.fieldId(key)}-aeci`);
     if (this.aeciHide(key)) ids.push(`${this.fieldId(key)}-hidden`);
@@ -414,6 +454,12 @@ export class VendorProductForm {
   protected readonly canEdit = computed(() => Object.values(this.editable()).some(Boolean));
 
   protected readonly textFields: readonly FieldConfig[] = [
+    {
+      key: 'summary',
+      control: 'line',
+      label: $localize`:@@vendor.product.field.summary:Summary`,
+      hint: $localize`:@@vendor.product.field.summary.hint:One sentence shown under the product name. Up to 155 characters.`,
+    },
     {
       key: 'description',
       control: 'textarea',
@@ -473,6 +519,18 @@ export class VendorProductForm {
   /** An AECi lock under its field: the lock glyph beside the reason. */
   protected readonly lockRowClass = 'flex items-start gap-2 text-(--text-primary)';
 
+  /** AECI-2198: the summary's length as it will be saved, one line. */
+  private readonly summaryLength = computed(
+    () => normalizeSummary(this.model()['summary'])?.length ?? 0,
+  );
+
+  /** "{n} of 155 characters", under the summary. */
+  protected readonly summaryCount = computed(() => {
+    const count = this.summaryLength();
+    const max = PRODUCT_SUMMARY_MAX;
+    return $localize`:@@vendor.product.field.summary.count:${count}:COUNT: of ${max}:MAX: characters`;
+  });
+
   protected readonly fieldErrors = computed<Record<string, string | null>>(() => {
     const m = this.model();
     const out: Record<string, string | null> = {};
@@ -480,6 +538,14 @@ export class VendorProductForm {
       const raw = (m[cfg.key] ?? '').trim();
       if (raw === '') {
         out[cfg.key] = null;
+        continue;
+      }
+      if (cfg.key === 'summary') {
+        const max = PRODUCT_SUMMARY_MAX;
+        out[cfg.key] =
+          this.summaryLength() > max
+            ? $localize`:@@vendor.product.error.summaryTooLong:Keep the summary to ${max}:MAX: characters or fewer.`
+            : null;
         continue;
       }
       const res = UpdateVendorProductSchema.safeParse({ [cfg.key]: raw });
@@ -508,7 +574,9 @@ export class VendorProductForm {
       // server refuses the whole request when it names one.
       if (!editable[cfg.key]) continue;
       const raw = (m[cfg.key] ?? '').trim();
-      const next = raw === '' ? null : raw;
+      // AECI-2198: the summary is compared as the server will store it,
+      // one line, so a stray double space is not an edit.
+      const next = cfg.key === 'summary' ? normalizeSummary(raw) : raw === '' ? null : raw;
       if (next !== ((base[cfg.key] as string | null) ?? null)) out[cfg.key] = next;
     }
     return out as UpdateVendorProductInput;
@@ -656,6 +724,7 @@ export class VendorProductForm {
   private seed(p: VendorProduct): void {
     this.baseline.set(p);
     this.model.set({
+      summary: p.summary ?? '',
       description: p.description ?? '',
       website: p.website ?? '',
       tool_integrations_url: p.tool_integrations_url ?? '',

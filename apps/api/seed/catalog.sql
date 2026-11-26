@@ -73,6 +73,16 @@ ON CONFLICT ("slug") DO UPDATE SET
   "promotion_status" = excluded."promotion_status",
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
+-- Summaries (AECI-2198): the one-line hero line. Set on a few rows so the
+-- local hero shows both states; the rest stay NULL and fall back to the clamped
+-- first paragraph of `description`. At most 155 characters, single line.
+UPDATE "products" SET "summary" = 'BIM authoring for architects and engineers, with model-based documentation and coordination.'
+  WHERE "slug" = 'revit';
+UPDATE "products" SET "summary" = 'One platform for construction project management, quality and safety, and financials.'
+  WHERE "slug" = 'procore';
+UPDATE "products" SET "summary" = 'Electrical estimating with prebuilt assemblies and live material pricing.'
+  WHERE "slug" = 'trimble-accubid-classic';
+
 -- ---------------------------------------------------------------------------
 -- Product ↔ Vendor (primary)
 -- ---------------------------------------------------------------------------

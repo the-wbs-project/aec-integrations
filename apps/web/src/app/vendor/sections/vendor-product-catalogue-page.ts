@@ -1,6 +1,8 @@
 import { Component, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import type { VendorProduct } from '@aeci/shared';
+
 import { VendorConnectorCatalogue } from '../components/vendor-connector-catalogue';
 import { showsCatalogTab } from '../vendor-capabilities';
 import { PORTAL_NOTICE_CLASS } from '../shared/portal-notice';
@@ -17,9 +19,11 @@ import { vendorProductContext } from './vendor-product-context';
  * here anyway, so it says the product has no catalogue rather than asking the API,
  * which would answer 404 for the same reason.
  *
- * AECI-2045: a Sync Service with no catalogue has no Catalog tab ({@link showsCatalogTab}).
- * A typed URL lands here too, and says so, with a link to the Integrations tab where its
- * pairs are, rather than promising a catalogue that will not come.
+ * AECI-2206: a connector product has a Catalog tab only once its catalogue is handed to
+ * the vendor ({@link showsCatalogTab}). A typed URL on one without the tab lands here
+ * too. It never renders the read-only catalogue and never asks the API. It says why
+ * there is no tab (AECi-managed, a Sync Service with none, or no catalogue at all) and
+ * links to the Integrations tab. AECI-2045 built that notice for a Sync Service.
  *
  * Not entitlement-gated: the §8.9 seat has no entitlement, and the server gates on
  * ownership plus the product's role alone (`STAGE_2_SPEC.md` §8.9(2)).
@@ -35,12 +39,29 @@ import { vendorProductContext } from './vendor-product-context';
         } @else if (p.product_role === 'connector') {
           <p
             [class]="noticeClass + ' max-w-[52ch] text-sm leading-relaxed'"
-            data-catalogue-sync-service
+            [attr.data-catalogue-hidden]="hiddenReason(p)"
+            [attr.data-catalogue-sync-service]="hiddenReason(p) === 'sync-service' ? '' : null"
           >
-            <span i18n="@@vendor.catalogue.syncService"
-              >{{ p.name }} is a Sync Service, so it has no catalog. The pairs it delivers are on
-              its Integrations tab.</span
-            >
+            @switch (hiddenReason(p)) {
+              @case ('aeci-managed') {
+                <span i18n="@@vendor.catalogue.hidden.aeciManaged"
+                  >We maintain the catalog for {{ p.name }} for now, so there is nothing to do here
+                  yet. Its integrations are on its Integrations tab.</span
+                >
+              }
+              @case ('sync-service') {
+                <span i18n="@@vendor.catalogue.syncService"
+                  >{{ p.name }} is a Sync Service, so it has no catalog. The pairs it delivers are
+                  on its Integrations tab.</span
+                >
+              }
+              @default {
+                <span i18n="@@vendor.catalogue.hidden.none"
+                  >We do not hold a catalog for {{ p.name }}. Its integrations are on its
+                  Integrations tab.</span
+                >
+              }
+            }
             {{ ' ' }}
             <a
               routerLink="../integrations"
@@ -67,6 +88,12 @@ export class VendorProductCataloguePage {
   private readonly ctx = vendorProductContext();
   protected readonly product = computed(() => this.ctx.product());
   protected readonly showsCatalogTab = showsCatalogTab;
+
+  /** Why a connector product has no Catalog tab (AECI-2206), for the notice's wording. */
+  protected hiddenReason(p: VendorProduct): 'aeci-managed' | 'sync-service' | 'none' {
+    if (p.has_connector_catalog) return 'aeci-managed';
+    return p.connector_kind === 'sync_service' ? 'sync-service' : 'none';
+  }
   /** AECI-1811: a state, not a card, so it is the portal notice. */
   protected readonly noticeClass = PORTAL_NOTICE_CLASS;
   /** The in-text link role (DESIGN.md, "The Link Treatment Rule"). */

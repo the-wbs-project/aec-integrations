@@ -274,6 +274,8 @@ const HOLD_REASON =
 // same change. What ran is in the README.
 // 2026-10-01 (AECI-1170): pinned to `3 / 0 / 3` for the three promote double-create strays,
 // reset in the change that recorded the run. What ran is in the README.
+// 2026-11-26 (AECI-2095): pinned to `1 / 0 / 1` for the Procore -> Extractus by Smoothx row,
+// reset in the change that recorded the run. What ran is in the README.
 const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
@@ -334,6 +336,9 @@ const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 // 2026-10-01 (AECI-1170): raised to `10 / 10` by twin-count, per pair, object by object and
 // direction by direction: 4 = 4, 5 = 5, 1 = 1 against the three kept twins. Reset in the
 // change that recorded the run. What ran is in the README.
+// 2026-11-26 (AECI-2095): raised to `5 / 5` by Chris Walton's in-session ruling, not by
+// twin-count. The 5 AECi-seeded claims described Procore syncing with its own add-on. Reset in
+// the change that recorded the run. What ran is in the README.
 const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**

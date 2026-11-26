@@ -55,8 +55,13 @@ export const FIELD_HIDE_DECIDE_BUSINESS_DAYS = 5;
 export const VENDOR_HIDE_FIELDS = [...VENDOR_OVERRIDE_FIELDS, 'description'] as const;
 export type VendorHideField = (typeof VENDOR_HIDE_FIELDS)[number];
 
-/** The product fields AECi may hide: the three links, plus the description. */
-export const PRODUCT_HIDE_FIELDS = [...PRODUCT_COLUMN_OVERRIDE_FIELDS, 'description'] as const;
+/** The product fields AECi may hide: the three links, plus the description and the
+ *  one-line summary (AECI-2198). */
+export const PRODUCT_HIDE_FIELDS = [
+  ...PRODUCT_COLUMN_OVERRIDE_FIELDS,
+  'description',
+  'summary',
+] as const;
 export type ProductHideField = (typeof PRODUCT_HIDE_FIELDS)[number];
 
 /** The integration fields AECi may hide: the owner-edit set minus the required three. */

@@ -31,7 +31,7 @@ const row = (label: string) => rows.find((entry) => entry.label === label)!;
 describe('planComparisonGroups', () => {
   // The table must never promise what the API refuses.
   it('reads every capability row from the registry', () => {
-    expect(row('Product description, website, logo and categories').free).toBe(
+    expect(row('Product description, summary, website, logo and categories').free).toBe(
       TIER_CAPABILITIES.unclaimed.includes('product.categories.edit'),
     );
     // AECI-2038: confirming data flows is on every plan.

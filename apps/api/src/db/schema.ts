@@ -257,6 +257,15 @@ export const products = sqliteTable(
     name: text('name').notNull(),
 
     description: text('description'),
+    /**
+     * The one-line summary the product hero shows (AECI-2198, `DATABASE_SCHEMA.md` §4.2).
+     * NULL falls back to the clamped first paragraph of {@link description}. Single line,
+     * at most 155 characters: the cap lives in Zod only (`PRODUCT_SUMMARY_MAX`),
+     * never a CHECK, because a CHECK recreates `products` (`docs/migrations.md` §0). It
+     * joins the description edit group and shares `description_edited_at`. Promote writes
+     * it when the key is present. Plain `ADD COLUMN`.
+     */
+    summary: text('summary'),
     website: text('website'),
     toolIntegrationsUrl: text('tool_integrations_url'),
     apiDocsUrl: text('api_docs_url'),
@@ -5018,6 +5027,13 @@ export const profileDetails = sqliteTable('profile_details', {
   onboardingCompletedAt: text('onboarding_completed_at'),
   /** Set when the user chose "Skip for now". */
   onboardingSkippedAt: text('onboarding_skipped_at'),
+  /** AECI-2208: the "How did you find AEC Integrations?" channel from About you
+   *  (`FoundViaSchema`, no CHECK), or null when not answered (`docs/ANALYTICS.md`
+   *  §11b). Audited by value in `profile.updated` (AECI-2208 ruling 1). */
+  foundVia: text('found_via'),
+  /** AECI-2208: the follow-up answer, at most 200 characters, only for a channel
+   *  that takes one. Never in an event, audit metadata or the PostHog Logs forward. */
+  foundViaDetail: text('found_via_detail'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

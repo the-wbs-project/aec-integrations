@@ -15,7 +15,9 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
   CreateVendorProductSchema,
+  PRODUCT_SUMMARY_MAX,
   VENDOR_PRODUCT_NAME_MAX,
+  normalizeSummary,
   type CreateVendorProductInput,
   type TaxonomyResponse,
   type VendorProductDuplicate,
@@ -50,12 +52,15 @@ import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
 import { CloseOnEscape } from '../shared/close-on-escape';
 
 /** The text fields, in form order. The logo and categories have their own controls. */
-const TEXT_FIELDS = ['name', 'description', 'website'] as const;
+const TEXT_FIELDS = ['name', 'summary', 'description', 'website'] as const;
 type TextField = (typeof TEXT_FIELDS)[number];
 type Draft = Record<TextField, string>;
 
-const MAX: Readonly<Record<TextField, number>> = {
+/** The `maxlength` per field. The summary has none (AECI-2198): its cap counts
+ *  the value as saved, one line, so a pasted value is never cut silently. */
+const MAX: Readonly<Record<TextField, number | null>> = {
   name: VENDOR_PRODUCT_NAME_MAX,
+  summary: null,
   description: 2000,
   website: 2048,
 };
@@ -64,7 +69,7 @@ const MAX: Readonly<Record<TextField, number>> = {
 export const MAX_CREATE_CATEGORIES = 10;
 
 function emptyDraft(): Draft {
-  return { name: '', description: '', website: '' };
+  return { name: '', summary: '', description: '', website: '' };
 }
 
 /** What the form-level alert says. `notOwned` carries a link, so the template
@@ -210,7 +215,7 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                     [value]="draft()[field]"
                     (input)="onInput(field, inputValue($event))"
                     [attr.aria-invalid]="errorFor(field) ? 'true' : null"
-                    [attr.aria-describedby]="errorFor(field) ? fieldId(field) + '-error' : null"
+                    [attr.aria-describedby]="describedBy(field)"
                     [class]="inputClass"
                   ></textarea>
                 } @else {
@@ -223,10 +228,22 @@ export type ProductCreateNotice = { kind: 'notOwned' } | { kind: 'text'; text: s
                     [value]="draft()[field]"
                     (input)="onInput(field, inputValue($event))"
                     [attr.aria-invalid]="errorFor(field) ? 'true' : null"
-                    [attr.aria-describedby]="errorFor(field) ? fieldId(field) + '-error' : null"
+                    [attr.aria-describedby]="describedBy(field)"
                     [attr.aria-required]="field === 'name' ? 'true' : null"
                     [class]="inputClass"
                   />
+                }
+                @if (field === 'summary') {
+                  <p [id]="fieldId(field) + '-hint'" class="max-w-prose" [class]="hintClass">
+                    {{ summaryHint }}
+                  </p>
+                  <p
+                    [id]="fieldId(field) + '-count'"
+                    [class]="hintClass"
+                    data-testid="summary-count"
+                  >
+                    {{ summaryCount() }}
+                  </p>
                 }
                 @if (errorFor(field); as message) {
                   <p [id]="fieldId(field) + '-error'" role="alert" [class]="errorClass">
@@ -432,12 +449,30 @@ export class VendorProductCreate implements OnInit {
 
   /** The field problems, in the portal's words, never Zod's. Shown only after a
    *  submit attempt, so an empty form does not open covered in red. */
+  /** AECI-2198: the summary's length as it will be saved, one line. */
+  private readonly summaryLength = computed(
+    () => normalizeSummary(this.draft().summary)?.length ?? 0,
+  );
+
+  /** "{n} of 155 characters", under the summary. */
+  protected readonly summaryCount = computed(() => {
+    const count = this.summaryLength();
+    const max = PRODUCT_SUMMARY_MAX;
+    return $localize`:@@vendor.productCreate.field.summary.count:${count}:COUNT: of ${max}:MAX: characters`;
+  });
+
+  protected readonly summaryHint = $localize`:@@vendor.productCreate.field.summary.hint:One sentence shown under the product name. Up to 155 characters.`;
+
   private readonly errors = computed<Partial<Record<TextField, string>>>(() => {
     if (!this.attempted()) return {};
     const draft = this.draft();
     const out: Partial<Record<TextField, string>> = {};
     if (draft.name.trim() === '') {
       out.name = $localize`:@@vendor.productCreate.error.name:Enter the product name.`;
+    }
+    if (this.summaryLength() > PRODUCT_SUMMARY_MAX) {
+      const max = PRODUCT_SUMMARY_MAX;
+      out.summary = $localize`:@@vendor.productCreate.error.summary:Keep the summary to ${max}:MAX: characters or fewer.`;
     }
     const website = draft.website.trim();
     if (website !== '' && !CreateVendorProductSchema.shape.website.safeParse(website).success) {
@@ -561,6 +596,8 @@ export class VendorProductCreate implements OnInit {
 
     const draft = this.draft();
     const body: CreateVendorProductInput = { name: draft.name.trim() };
+    const summary = normalizeSummary(draft.summary);
+    if (summary !== null) body.summary = summary;
     if (draft.description.trim() !== '') body.description = draft.description.trim();
     if (draft.website.trim() !== '') body.website = draft.website.trim();
     const logo = this.logoUrl()?.trim();
@@ -620,6 +657,8 @@ export class VendorProductCreate implements OnInit {
     switch (field) {
       case 'name':
         return $localize`:@@vendor.productCreate.field.name:Product name`;
+      case 'summary':
+        return $localize`:@@vendor.productCreate.field.summary:Summary`;
       case 'description':
         return $localize`:@@vendor.productCreate.field.description:Description`;
       case 'website':
@@ -628,11 +667,21 @@ export class VendorProductCreate implements OnInit {
   }
 
   protected fieldId(field: TextField): string {
-    return `vendor-product-create-${field}`;
+    return `vendor-product-create-${field.replace(/_/g, '-')}`;
   }
 
-  protected max(field: TextField): number {
+  protected max(field: TextField): number | null {
     return MAX[field];
+  }
+
+  /** The control's descriptions: the summary's hint and count, then the error. */
+  protected describedBy(field: TextField): string | null {
+    const ids: string[] = [];
+    if (field === 'summary') {
+      ids.push(`${this.fieldId(field)}-hint`, `${this.fieldId(field)}-count`);
+    }
+    if (this.errorFor(field)) ids.push(`${this.fieldId(field)}-error`);
+    return ids.length > 0 ? ids.join(' ') : null;
   }
 
   protected inputValue(event: Event): string {

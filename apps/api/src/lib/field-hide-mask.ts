@@ -12,7 +12,9 @@
  *     nothing is hidden, which the schema reads as none. A list item masks silently: a
  *     card shows no marker.
  *  3. **No caption speaks for a hidden value.** Its "Corrected by" entry goes, and on a
- *     product a hidden description drops the description group's "Maintained by".
+ *     product the description group's "Maintained by" goes once every member of the
+ *     group that holds a value is hidden: `description` and `summary`
+ *     (AECI-2198). One visible member keeps the caption, since it still speaks for it.
  *
  * Nothing of the hide row reaches here but the field name, so the reason, note and
  * source cannot be published by a mapper.
@@ -98,6 +100,15 @@ export function maskProductIntegrationItem(
   };
 }
 
+/** The description edit group (AECI-2198): both fields share `description_edited_at`. */
+const DESCRIPTION_GROUP = ['description', 'summary'] as const;
+
+/** True when no member of the description group with a value is still visible. */
+function descriptionGroupHidden(body: ProductDetail, hidden: readonly string[]): boolean {
+  const filled = DESCRIPTION_GROUP.filter((field) => body[field] != null && body[field] !== '');
+  return filled.length > 0 && filled.every((field) => hidden.includes(field));
+}
+
 /**
  * `GET /api/products/:slug`. The product, its endpoint rows, its powered rows (bare
  * items, silent) and the primary vendor's two facts in `vendor_facts` (silent: the
@@ -125,7 +136,7 @@ export function maskProductDetail(body: ProductDetail, hides: HidesByEntity): Pr
       body.captions && hidden.length
         ? {
             ...body.captions,
-            description: hidden.includes('description') ? null : body.captions.description,
+            description: descriptionGroupHidden(body, hidden) ? null : body.captions.description,
             corrections: withoutHidden(body.captions.corrections, hidden) ?? [],
           }
         : body.captions,

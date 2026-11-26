@@ -1,9 +1,9 @@
 ---
 title: Editing your profile and products
-description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
+description: Editing your company details, logos and each product's descriptions, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: November 23, 2026
+last_updated: November 26, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -58,7 +58,7 @@ Open **Products**, then a product. Product names are not edited in the portal, b
 
 Once your company owns its listing, an account owner can add a product we do not list yet. Open **Products** and choose **Add a product**. Members see a line asking them to ask an owner.
 
-Give the product a name. You can also add a description, a website, a logo and its categories. Categories come from the existing list, and nothing new is created. Trades, audiences, phases and "How teams use it" are added on the product's own tabs once it is listed.
+Give the product a name. You can also add a summary, a description, a website, a logo and its categories. Categories come from the existing list, and nothing new is created. Trades, audiences, phases and "How teams use it" are added on the product's own tabs once it is listed.
 
 The product goes live as soon as you add it. It is yours from the start, so our catalog updates never change it. If a product or a proposal with the same name is already on record, the portal tells you. Both stay as they are, so check whether you meant to add a second one.
 
@@ -68,7 +68,7 @@ If your company does not own its listing yet, [contact us](/contact) to have a p
 
 Once your company owns its listing, AEC Integrations no longer adds products to it on its own. When we find a new product of yours, we propose it instead. Every account owner gets an email, and the product waits on the **Proposed products** tab. Only owners see that tab.
 
-Each proposal shows the product's name, description and website, the companies it would be listed under, and its categories, audiences, phases, trades and "How teams use it" groups. A value that names no existing term on AEC Integrations is marked **Not added**. Accepting leaves it out, and nothing new is created.
+Each proposal shows the product's name, full description, summary, website, integrations page, API docs link and logo, the companies it would be listed under, and its categories, audiences, phases, trades and "How teams use it" groups. A value that names no existing term on AEC Integrations is marked **Not added**. Accepting leaves it out, and nothing new is created.
 
 - **Accept** adds the product exactly as shown. It is then yours to edit like any other product.
 - **Decline** means it is not added, and we do not send it again. If you want it listed after all, add it yourself with **Add a product**.
@@ -81,11 +81,14 @@ Each choice asks you to confirm first. After an accept, the tab lists the values
 
 | Field | Free | Managed |
 |---|---|---|
+| Summary, one line of up to 155 characters | Editable | Editable |
 | Description, up to 2,000 characters | Editable | Editable |
 | Website | Editable | Editable |
 | Logo | Editable | Editable |
 | Integrations page URL | Read-only | Editable |
 | API documentation URL | Read-only | Editable |
+
+The summary is the one line under the product's name at the top of its public page. Line breaks and repeated spaces are saved as single spaces, and the count under the field shows the length as it will be saved. Leave it empty and the page shows the start of your description there instead, cut to two lines. When the product has no integrations, search engines are offered it as the page's description too.
 
 On a Free product, the two Managed fields stay visible. Each reads "Part of Managed for this product. The current value stays published." Saving works as on your company profile.
 
@@ -124,8 +127,8 @@ Your headquarters, founded year, company size, ownership, parent company and fun
 
 Each product page has one "About this listing" panel. It sits at the end of the page. On a narrow screen it is closed until a reader opens it. Its first line reads "AEC Integrations maintained" until you edit the listing or mark it as checked. Then it reads "Vendor maintained · Updated (date)". After it, one line per group of fields says who wrote it:
 
-- **"Maintained by (your company) · updated (date)"** covers your product description, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). Each line names its group. The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
-- **"Maintained by (your company) until (date)"** replaces it on "How teams use it" and the Managed group when the product's subscription ends. Your description, website and categories stay on "updated", because you can still edit them on Free.
+- **"Maintained by (your company) · updated (date)"** covers your product description and summary, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). Each line names its group. The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
+- **"Maintained by (your company) until (date)"** replaces it on "How teams use it" and the Managed group when the product's subscription ends. Your descriptions, website and categories stay on "updated", because you can still edit them on Free.
 - **No line** means you have not changed that group yet.
 
 The line says the words are yours. It does not say we checked them. Your company page carries no such line. Its "About this listing" panel holds the first line and our corrections only. Your integrations' lines are on each integration's page, not on the product page. If you return your records to AEC Integrations, the lines on your description, the Managed group and your integrations go away, because our catalog updates can then write those fields again.

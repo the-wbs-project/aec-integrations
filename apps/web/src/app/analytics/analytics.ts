@@ -749,17 +749,20 @@ export class Analytics {
   }
 }
 
-/** What the two onboarding events may carry (AECI-1296). No free text. */
+/** What the two onboarding events may carry (AECI-1296). No free text.
+ *  `found_via` (AECI-2208) is the "How did you find us?" channel asked on
+ *  the About you form, or `null`. Never its follow-up text (`docs/ANALYTICS.md` §11b). */
 export interface OnboardingEventInput {
   readonly source: 'welcome' | 'account';
   readonly company_type: string | null;
   readonly company_size: string | null;
   readonly primary_role: string | null;
   readonly audience_count: number;
+  readonly found_via: FoundVia | null;
 }
 
-/** Copy the allowed keys only, so an object that happens to carry `firm_name`
- *  or `linkedin_url` can never leak them through a spread. */
+/** Copy the allowed keys only, so an object that happens to carry `firm_name`,
+ *  `linkedin_url` or `found_via_detail` can never leak them through a spread. */
 function onboardingProperties(input: OnboardingEventInput): Record<string, unknown> {
   return {
     source: input.source,
@@ -767,5 +770,6 @@ function onboardingProperties(input: OnboardingEventInput): Record<string, unkno
     company_size: input.company_size,
     primary_role: input.primary_role,
     audience_count: input.audience_count,
+    found_via: input.found_via,
   };
 }

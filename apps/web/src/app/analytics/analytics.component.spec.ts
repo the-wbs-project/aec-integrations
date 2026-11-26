@@ -913,3 +913,34 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     expect(JSON.stringify(everySentArgument)).not.toContain('@');
   });
 });
+
+// AECI-2208: `onboarding_completed` carries the found-via enum, copied by name.
+describe('Analytics — onboarding events copy allowed keys only', () => {
+  it('sends found_via and drops the follow-up text and other answers', async () => {
+    const { analytics, client } = setup();
+    analytics.onboardingCompleted({
+      source: 'welcome',
+      company_type: 'architect',
+      company_size: null,
+      primary_role: 'manager',
+      audience_count: 2,
+      found_via: 'ai_tool',
+      // A wider object must not leak through.
+      found_via_detail: 'best AEC directory',
+      firm_name: 'Acme Studio',
+    } as Parameters<typeof analytics.onboardingCompleted>[0]);
+    await flush();
+    const call = client.capture.mock.calls.find((c) => c[0] === 'onboarding_completed');
+    expect(call).toBeDefined();
+    const props = call![1] as Record<string, unknown>;
+    expect(props).toMatchObject({
+      source: 'welcome',
+      company_type: 'architect',
+      primary_role: 'manager',
+      audience_count: 2,
+      found_via: 'ai_tool',
+    });
+    expect(props).not.toHaveProperty('found_via_detail');
+    expect(props).not.toHaveProperty('firm_name');
+  });
+});

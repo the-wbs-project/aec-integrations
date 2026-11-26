@@ -62,11 +62,24 @@ pnpm --filter @aeci/api deploy:demo
 pnpm --filter @aeci/api deploy:production
 ```
 
-The top-level wrangler block is the local-dev config (no `--env`), so the bare `deploy`
-script is not a deploy path. The per-PR preview tier was retired 2026-10-10 (AECI-1268).
-D1 binds per-env (`aeci-app-{staging,demo,production}`); apply migrations to a deployed
-DB with `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote`. The name
-`aeci-app-preview` is the local-only SQLite binding.
+Each script runs `scripts/api-manual-deploy.sh <env>` (AECI-2069). CI is the normal path.
+These scripts are the manual fallback. The wrapper refuses to deploy unless:
+
+1. the working tree is clean and HEAD is already merged into `origin/main`, so no unmerged
+   migration reaches a shared remote D1;
+2. `scripts/d1-apply-migrations.sh` applied the tier's migrations and reference seeds;
+3. `wrangler d1 migrations list` then reports no pending migrations. Wrangler's `apply` exits 0
+   when its prompt is declined, so a declined prompt stops here and nothing deploys.
+
+The order matters: code that pins an index with `INDEXED BY` fails every query until the
+migration that creates it has run. The full list of deploy paths is `docs/migrations.md` §0
+"Every path that deploys the API Worker".
+
+The top-level wrangler block is the local-dev config (no `--env`), so there is no bare
+`deploy` script. AECI-2069 removed it and the root `deploy:api` that called it. The per-PR
+preview tier was retired 2026-10-10 (AECI-1268). D1 binds per-env
+(`aeci-app-{staging,demo,production}`). The name `aeci-app-preview` is the local-only SQLite
+binding.
 Environment topology + the Worker secret set live in `docs/environments.md`.
 
 ## Layout

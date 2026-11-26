@@ -235,6 +235,27 @@ describe('GET /api/vendor/me', () => {
     expect(body.products[0].has_connector_catalog).toBe(true);
   });
 
+  // AECI-2206: the Catalog tab shows only once the catalogue is handed to the vendor,
+  // so the product carries who maintains it.
+  it('carries connector_catalog_managed_by: null with no catalogue, then review, then vendor', async () => {
+    await t.db.update(products).set({ productRole: 'connector' }).where(eq(products.id, PRODUCT));
+    expect((await call('/api/vendor/me')).body.products[0].connector_catalog_managed_by).toBeNull();
+    await t.db.insert(connectorCatalogs).values({ id: 'recCatalog1', connectorProductId: PRODUCT });
+    expect((await call('/api/vendor/me')).body.products[0].connector_catalog_managed_by).toBe(
+      'review',
+    );
+    await t.db
+      .update(connectorCatalogs)
+      .set({ managedBy: 'vendor' })
+      .where(eq(connectorCatalogs.id, 'recCatalog1'));
+    const { body } = await call('/api/vendor/me');
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    expect(body.products[0].connector_catalog_managed_by).toBe('vendor');
+    // An application holding the same catalogue row reads null: it has no tab.
+    await t.db.update(products).set({ productRole: 'application' }).where(eq(products.id, PRODUCT));
+    expect((await call('/api/vendor/me')).body.products[0].connector_catalog_managed_by).toBeNull();
+  });
+
   it('reports seat_owner from the caller’s own profile (AECI-1387)', async () => {
     await t.db.update(profiles).set({ seatOwner: true }).where(eq(profiles.id, SEAT));
     const { body } = await call('/api/vendor/me');
@@ -809,6 +830,21 @@ describe('PATCH /api/vendor/products/:id — the edit stamps (AECI-1614)', () =>
     expect(JSON.stringify(audit!.beforeState)).not.toMatch(/EditedAt|edited_at/);
   });
 
+  // AECI-2206: both PATCH answers carry the catalogue's maintainer, as `/me` does, so a
+  // product edit never drops the Catalog tab from the row.
+  it('echoes connector_catalog_managed_by on a changed and an unchanged save', async () => {
+    await t.db.update(products).set({ productRole: 'connector' }).where(eq(products.id, PRODUCT));
+    await t.db
+      .insert(connectorCatalogs)
+      .values({ id: 'recCatalog1', connectorProductId: PRODUCT, managedBy: 'vendor' });
+    const changed = await send({ description: 'New blurb' });
+    expect(changed.status).toBe(200);
+    expect(changed.body.product.connector_catalog_managed_by).toBe('vendor');
+    const unchanged = await send({ description: 'New blurb' });
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body.product.connector_catalog_managed_by).toBe('vendor');
+  });
+
   it('does not stamp an unchanged resend, though the review date moves', async () => {
     expect((await send({ description: 'Old product blurb' })).status).toBe(200);
     const after = await stamps();
@@ -839,6 +875,35 @@ describe('PATCH /api/vendor/products/:id — the edit stamps (AECI-1614)', () =>
     await t.db.update(products).set({ usefulnessEditedAt: null }).where(eq(products.id, PRODUCT));
     expect((await send({ usefulness })).status).toBe(200);
     expect((await stamps()).usefulness).toBeNull();
+  });
+
+  // AECI-2198: the summary is in the description group, on Free.
+  it('saves a summary normalized to one line, stamps the description group, echoes it', async () => {
+    const res = await send({ summary: '  BIM authoring\nfor teams.  ' });
+    expect(res.status).toBe(200);
+    expect((res.body as { product: { summary: string } }).product.summary).toBe(
+      'BIM authoring for teams.',
+    );
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBe('BIM authoring for teams.');
+    expect((await stamps()).description).not.toBeNull();
+    const [audit] = await auditRows();
+    expect(audit!.afterState).toEqual({ summary: 'BIM authoring for teams.' });
+  });
+
+  it('refuses a summary over 155 characters with 400 and writes nothing', async () => {
+    const res = await send({ summary: 'a'.repeat(156) });
+    expect(res.status).toBe(400);
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('clears a summary with an empty string', async () => {
+    await t.db.update(products).set({ summary: 'One line.' }).where(eq(products.id, PRODUCT));
+    expect((await send({ summary: '' })).status).toBe(200);
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBeNull();
   });
 
   it('stamps nothing for a field outside every group: the website and a category', async () => {

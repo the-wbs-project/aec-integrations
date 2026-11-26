@@ -229,7 +229,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs` + `data_objects` + `partner_categories` + `agreement`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
-| `ProductDetail` | `wheel_marks` | `WheelMark[]` (= `product_id` + `logo_url` + `claim_status`), optional (AECI-2018, ruling 64). One entry per partner of the two endpoint arrays above, and one per endpoint of every row in `integrations_as_connector` (a connector's wheel shows those, QA pass on AECI-2035), in no order, read off the same rows by `wheelMarksOf` (`apps/api/src/lib/drizzle-helpers.ts`). One more entry is the page product itself, for the wheel's centre. `logo_url` is a logo the wheel may show, claimed or not (ruling 64), decided by `wheelLogoOf`: a claimed product's stored `products.logo_url`, the vendor's upload included; an unclaimed product's stored logo unless it is the vendor's upload (`logo_source = 'vendor'`), in which case `sourced_logo_url` or `null`, so an upload never outlives the claim (Vendor Terms 1.3). An unclaimed row read without `logo_source` gets `null`. **The wheel only.** The rows' own `source` / `target` links still go through `toProductLink`, which withholds an unclaimed logo, and no list, card, row, search record or other route carries this shape (`claim-end.spec.ts` pins both halves). A removal on objection nulls both columns, and its `product:{partner}` purge reaches the page, which carries that tag for every partner and for both endpoints of every powered row. `claim_status` drives only the wheel card's "Unclaimed" label. Absent from an older payload, which the wheel reads as no logo. |
+| `ProductDetail` | `wheel_marks` | `WheelMark[]` (= `product_id` + `logo_url` + `claim_status`), optional (AECI-2018, ruling 64). One entry per partner of the two endpoint arrays above, and one per endpoint of every row in `integrations_as_connector` (a connector's wheel shows those, QA pass on AECI-2035), in no order, read off the same rows by `wheelMarksOf` (`apps/api/src/lib/drizzle-helpers.ts`). One more entry is the page product itself, for the wheel's centre. `logo_url` is a logo the wheel may show, claimed or not (ruling 64), decided by `publicLogoOf`: a claimed product's stored `products.logo_url`, the vendor's upload included; an unclaimed product's stored logo unless it is the vendor's upload (`logo_source = 'vendor'`), in which case `sourced_logo_url` or `null`, so an upload never outlives the claim (Vendor Terms 1.3). An unclaimed row read without `logo_source` gets `null`. **The wheel only.** The rows' own `source` / `target` links still go through `toProductLink`, which withholds an unclaimed logo, and no list, card, row, search record or other route carries this shape (`claim-end.spec.ts` pins both halves). A removal on objection nulls both columns, and its `product:{partner}` purge reaches the page, which carries that tag for every partner and for both endpoints of every powered row. `claim_status` drives only the wheel card's "Unclaimed" label. Absent from an older payload, which the wheel reads as no logo. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (Stage 1.5 Addendum B), whether or not it is also an endpoint. There is no `context_direction`: this bucket serves the powered view, whose pair rows exclude the page product. **The list is raw (Stage 1.5 §13.4(2), AECI-2051).** A Convention-A self-reference, a row whose `powered_by` is one of its own endpoints, is in this list AND in `integrations_as_source` or `integrations_as_target`, with the same `id`. The server does not drop it. A reader that renders or counts pairs drops rows where the page product is an endpoint (`groupPoweredIntegrations`, `countListedIntegrationRows`). A reader that counts reach keeps them (`connectedProductCount`, and the connector hero wheel, which shows the same set through `connectedProducts`). `direction` is claims-aware (QA pass on AECI-2035): the public flows' direction, else the stored one. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
@@ -553,6 +553,11 @@ export const ProductUsefulnessSchema = z.object({
 
 export const ProductDetailSchema = ProductListItemSchema.extend({
   description: z.string().nullable(),
+  // AECI-2198: the hero's one line. null = the hero shows the clamped first paragraph of
+  // `description`, and the meta ladder's rung 3 falls to `description`. Masked to null
+  // while AECi hides it (`under_review` names it). Detail only: never on a list item,
+  // an Algolia record, the JSON-LD or a ranking input.
+  summary: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
@@ -917,7 +922,7 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 Errors: `NOT_FOUND` if no product matches the slug.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`. It is required, with no default (AECI-1851). The API always sends it, and the web never Zod-parses this response, so the old `claimed` default only hid a missing field. A client that meets a missing `claim_status` treats it as not claimed for the logo: no subject logo, no share-card logo. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value, by an explicit choice: they map product links with `toOwnedProductLink`. The public `toProductLink` shows a logo only when the row carries a truthy `claimed`, so a public read that forgets that column hides the logo (AECI-1851). No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
+**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`. It is required, with no default (AECI-1851). The API always sends it, and the web never Zod-parses this response, so the old `claimed` default only hid a missing field. A client that meets a missing `claim_status` treats it as not claimed for the logo: no subject logo, no share-card logo. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. While unclaimed it is a logo we may show (`publicLogoOf`, AECI-2057): when the stored logo is the vendor's upload (`logo_source = 'vendor'`), it is `sourced_logo_url`, or `null`. An upload left over from an ended claim is never returned, even before the daily removal job runs or under a hold. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value, by an explicit choice: they map product links with `toOwnedProductLink`. The public `toProductLink` shows a logo only when the row carries a truthy `claimed`, so a public read that forgets that column hides the logo (AECI-1851). No label says Claimed. Any client that renders `ProductDetail.logo_url` off the product's own page must apply `claim_status` and show the initial tile while unclaimed, as the review form rail does (AECI-1769, `aec-logo-or-initial` `claimStatus`).
 
 **Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
 statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
@@ -976,7 +981,7 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 
 Errors: `NOT_FOUND`.
 
-**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, required, with no default (AECI-1851, as for `ProductDetail`). A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
+**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, required, with no default (AECI-1851, as for `ProductDetail`). A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051). While unclaimed it is a logo we may show (`publicLogoOf`, AECI-2057): when the stored logo is the vendor's upload (`logo_source = 'vendor'`), it is `sourced_logo_url`, or `null`. An upload left over from an ended claim is never returned, even before the daily removal job runs or under a hold.
 
 ### 6.2a Slug redirects (AECI-978)
 
@@ -1120,7 +1125,7 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
 
-**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. It is required, with no default (AECI-1851, as for `ProductDetail`). The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
+**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. While unclaimed it is a logo we may show (`publicLogoOf`, AECI-2057): when the stored logo is the vendor's upload (`logo_source = 'vendor'`), it is `sourced_logo_url`, or `null`. An upload left over from an ended claim is never returned, even before the daily removal job runs or under a hold. `claim_status` is required, with no default (AECI-1851, as for `ProductDetail`). The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
 
 **Taxonomy and links on both subjects (AECI-1822, 2026-11-14).** `context_product` and `other_product` each also carry `categories`, `audiences`, `phases` and `trades` (`LinkRef[]`), plus `api_docs_url` and `tool_integrations_url` (`string | null`). They feed the empty pair page's cards and its "look it up yourself" row (`PLAN.md` §6.1). They are the same facts `GET /api/products/:slug` returns. Four differences from that read:
 
@@ -1856,6 +1861,8 @@ export interface AccountProfileDetails {
   firm_name: string | null;
   linkedin_url: string | null;
   audience_ids: string[];   // taxonomy_audiences ids, [] when none
+  found_via: FoundVia | null;        // AECI-2208; off-vocabulary reads as null
+  found_via_detail: string | null;   // AECI-2208; null when no channel
 }
 ```
 
@@ -1942,7 +1949,9 @@ PATCHes `listing_view_preference` alone without re-sending the display name, and
 an account-form save can't clobber the remembered view with a stale client copy
 it never held. The audit's `beforeState`/`afterState` mirror exactly the touched
 keys, except the About-you answers. Those are named in `metadata.about_you_fields` and
-their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8).
+their values are never audited (AECI-1869, `AUTH_AND_RLS.md` §8). The one exception is
+`found_via`: its channel is audited by value, and `found_via_detail` is only named (AECI-2208,
+ruling 1).
 
 `listing_view_preference` (AECI-988) is the remembered Cards/Table default for `/products`
 and the taxonomy browse surfaces (`?view=`). `null` = never toggled (the site
@@ -1963,8 +1972,14 @@ export const UpdateAccountSchema = z
     linkedin_url: LinkedInProfileUrlSchema.nullable().optional(),  // '' clears; normalized
     audience_ids: z.array(z.string().uuid()).max(10).optional(),   // replace-set
     onboarding: z.enum(['completed', 'skipped']).optional(),
+    // AECI-2208, "How did you find us?" on /welcome and /account (ANALYTICS.md §11b):
+    found_via: z.union([z.literal(''), FoundViaSchema]).nullable().optional(),
+    found_via_detail: z.string().trim().max(200).nullable().optional(),
   })
-  .refine((v) => Object.values(v).some((value) => value !== undefined));
+  .refine((v) => Object.values(v).some((value) => value !== undefined))
+  .refine((v) => v.found_via_detail === undefined || v.found_via !== undefined, {
+    path: ['found_via_detail'],
+  });
 ```
 
 **"About you" fields (AECI-1296).** They write the `profile_details` upsert and the
@@ -1976,6 +1991,15 @@ is written. `linkedin_url` must be `linkedin.com/in/<handle>` (scheme and `www.`
 stored as `https://www.linkedin.com/in/<handle>`. `onboarding` stamps
 `onboarding_completed_at` or `onboarding_skipped_at`. The response is read back from D1 after the
 batch. Enum values and the full rules are in `ACCOUNT_ONBOARDING_SPEC.md` §2 and §5.
+
+**"How did you find us?" (AECI-2208).** When `found_via` is present the server runs
+`normalizeFoundVia` on the pair and writes both `profile_details` columns: `''` or `null` clears
+both, and a detail sent with a channel that takes no follow-up is dropped. An unknown channel, a
+detail over 200 characters, or a `found_via_detail` without `found_via` is a 400
+`VALIDATION_FAILED`. The audit row carries the channel in its before and after state and names
+`found_via_detail` in `metadata.about_you_fields`, never its text (ruling 1, 2026-11-26). The read
+shapes return the pair in `details`, so `/account` shows the stored answer. `GET
+/api/admin/users/:id` `about` carries it too.
 
 Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
@@ -7221,11 +7245,12 @@ export const AdminAudienceFoundViaSchema = z.object({
   counts: z.array(z.object({
     channel: FoundViaSchema.nullable(),
     claims: …, listings: …, subscribers: …, feedback: …,
-    total: …,                                           // the sum of the four
+    accounts: …,                                        // AECI-2208: profile_details, the /welcome answer
+    total: …,                                           // the sum of the five
   })),
-  // The latest 100 ai_tool / search answers across the four forms, newest first.
+  // The latest 100 ai_tool / search answers across the five forms, newest first.
   details: z.array(z.object({
-    form: z.enum(['claim', 'listing', 'subscriber', 'feedback']),
+    form: z.enum(['claim', 'listing', 'subscriber', 'feedback', 'account']),
     id: z.string(),                                     // the row id on its table, as text
     channel: z.enum(['ai_tool', 'search']),
     detail: z.string(),
@@ -7243,6 +7268,12 @@ no row. No writer can produce one. `details` lists only rows with a detail, so a
 was erased on account deletion is counted but not listed. The order is `created_at DESC`, then
 `form`, then `id`. Each form's read is capped at 100 before the merge, so the list is exact. The
 detail is free text a visitor typed. The UI renders it as text.
+
+**The `account` form (AECI-2208).** `accounts` and `form: 'account'` read `profile_details`, the
+`/welcome` answer. It is windowed on that row's `created_at`, the first save or skip of the About
+you form. Its unanswered row counts every About you row with no answer, skips and `/account` saves
+included. A detail row's `id` is the `profile_id`. It is not named `signup` because `signups`
+already means mailing-list signups in this bundle.
 
 **Why this series is derived live and does not read `metrics_daily`.**
 `ADMIN_PANEL_SPEC.md` §7.1 snapshots `audience.subscribers_active` /
@@ -9100,6 +9131,8 @@ export const VendorEntitlementBlockSchema = z.object({
   // `price` ({ managed_price_cents, message }, added 2026-10-08) was removed 2026-10-17 (AECI-1357).
 });
 
+// Each VendorProductSchema entry also carries `summary: string | null`
+// (AECI-2198), beside `description`.
 // Each VendorProductSchema entry also carries (AECI-1214):
 //   plan: VendorEntitlementBlockSchema,  // THIS product's plan, from its own license (AECI-1355)
 ```
@@ -9115,7 +9148,17 @@ holds a connector catalogue for it that the vendor may maintain (`connectorCatal
 the Catalog tab's own predicate). Defaulted to `false` for deploy skew. `GET /api/vendor/me` and
 both `PATCH /api/vendor/products/:id` responses carry it. The portal shows the plan panel's
 `catalogue` state and the overview's catalogue link only for a product with it set that is not a
-Sync Service (`isCatalogueProduct`).
+Sync Service (`isCatalogueProduct`), and since AECI-2206 only when the next field is `vendor`.
+
+**`connector_catalog_managed_by` (AECI-2206).** Who maintains that catalogue:
+`'review' | 'vendor' | null` (`ConnectorManagedBySchema`, `connector_catalogs.managed_by`).
+`'review'` while AEC Integrations maintains it, `'vendor'` once an admin hands it over
+(`PATCH /api/admin/connector-catalogs/:id`, §6.10). `null` when `has_connector_catalog` is false,
+and always `null` off a `connector` product. Defaulted to `null` for deploy skew, which reads as no
+tab. Same predicate and same three responses as `has_connector_catalog`
+(`connectorCatalogManagedBy` in `lib/vendor-connector-catalog.ts`). The portal shows the Catalog
+tab (`showsCatalogTab`), the overview's catalog link and the plan panel's `catalogue` state only on
+`'vendor'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16).
 
 **`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 
@@ -9904,8 +9947,13 @@ export const VendorProposalSchema = z.object({
   proposed_at: z.string(),
   product: z.object({
     name: z.string(),
-    description_excerpt: z.string().nullable(),  // first 400 characters
+    description: z.string().nullable(),          // AECI-2212: whole, an accept publishes it
+    description_excerpt: z.string().nullable(),  // deprecated: first 400 characters, removed by AECI-2223
+    summary: z.string().nullable(),              // AECI-2198: whole, an accept publishes it
     website: z.string().nullable(),
+    tool_integrations_url: z.string().nullable(), // AECI-2212: as the accept stores it
+    api_docs_url: z.string().nullable(),         // AECI-2212: as the accept stores it
+    logo_url: z.string().nullable(),             // AECI-2212: as the accept stores it
     product_role: z.string(),
   }),
   vendors: z.array(z.object({                   // every vendor the payload names, in order
@@ -9926,6 +9974,8 @@ export const AcceptVendorProposalResponseSchema = z.object({
   dropped: z.array(z.object({ facet: /* as above */, value: z.string() })),
 });
 ```
+
+**The previewed text fields (AECI-2212).** The list and the accept read the payload through one parse. It turns a whitespace-only `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl` or `logoUrl` into `null` and keeps each of those fields otherwise as sent. The card shows those fields and the normalized summary; accept also stores other product metadata through `productEditableData`. `description_excerpt` stays for one deploy, because the API ships before the web Worker and an open tab keeps the old bundle. The card reads `description` and falls back to the excerpt. AECI-2223 removes it.
 
 **Terms are resolved find-only (ruling Q6).** Categories, audiences and phases match a stored
 term by slug, then by `slugify(name)`, as promote matches them. Trades add the alias pass. A
@@ -9991,6 +10041,7 @@ one that cannot be accepted, and a product AECi never found.
 export const CreateVendorProductSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
+  summary: ProductSummarySchema.optional(), // AECI-2198, see §7.2
   website: editableUrl.optional(),               // http:// or https:// only
   logo_url: LogoUrlSchema.optional(),            // an uploaded /api/logos/… path
   category_slugs: z.array(termSlug).max(10).optional(),
@@ -10531,7 +10582,7 @@ Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow
 
 An owner seat's 30-day election to blank the text the vendor wrote after Managed ends. Order of checks: ownership `404` first, then `requireSeatOwner()`, then the window. `POST` is `rateLimit('write')` after the guard. The `GET` has no limiter.
 
-`GET` returns `{ eligible_fields, closes_at, elected_at }` (`RemovalElectionResponseSchema`). `closes_at` is null when no window is open, and `eligible_fields` is then empty. `elected_at` is the latest election on the product either way. The fields are `description`, `usefulness`, `tool_integrations_url` and `api_docs_url`.
+`GET` returns `{ eligible_fields, closes_at, elected_at }` (`RemovalElectionResponseSchema`). `closes_at` is null when no window is open, and `eligible_fields` is then empty. `elected_at` is the latest election on the product either way. The fields are `description`, `summary` (AECI-2198), `usefulness`, `tool_integrations_url` and `api_docs_url`. A vendor-created product's summary qualifies when the create named it, as its description does.
 
 `POST` takes `{}` (strict) and blanks every eligible field in one batch. It writes a `product.authored_content_removed` audit row with before and after state. `usefulness_source` and `maintained_by` do not change. After commit it purges `product:{slug}`, `vendor:{slug}` and `index:products`, sends an ownership message with reason `vendor_edit`, and moves the freshness cursor. It returns `{ removed_fields, elected_at }`.
 
@@ -10550,6 +10601,7 @@ Edits one product the caller's vendor owns. `name`/`slug` are **not** editable �
 export const UpdateVendorProductSchema = z
   .object({
     description: longText.nullable().optional(),
+    summary: ProductSummarySchema.optional(), // AECI-2198, see §7.2
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
@@ -10589,7 +10641,7 @@ It is gated on its own **`product.usefulness.edit`** capability rather than `pro
 
 | Field | Capability | Plan |
 |---|---|---|
-| `description`, `website`, `logo_url` | `product.listing.edit` | every plan |
+| `description`, `summary`, `website`, `logo_url` | `product.listing.edit` | every plan |
 | `category_slugs` | `product.categories.edit` | every plan |
 | `tool_integrations_url`, `api_docs_url` | `product.edit` | Managed |
 | `trade_slugs`, `audience_slugs`, `phase_slugs` | `product.taxonomy.edit` | Managed |
@@ -10754,7 +10806,7 @@ Rows: `connector_evidenced_pairs` with `connector_product_id = :id`, and `integr
 
 #### `GET /api/vendor/products/:id/connector-catalog`
 
-Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`.
+Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`. **Unchanged by AECI-2206:** it still answers for a `review`-managed catalogue. Since then the portal shows the tab only on a `vendor`-managed one, and only the tab's component calls this read, so the portal no longer reads a catalogue whose tab is hidden.
 
 | Gate | Success |
 |---|---|
@@ -11963,6 +12015,8 @@ When schemas don't specify, defaults apply:
 - Short text fields: max 200 chars
 - Long text fields: max 2000 chars
 - Identifiers and slugs: max 100 chars
+
+One field overrides them: `products.summary` (AECI-2198, `ProductSummarySchema` in `packages/shared/src/api/summary.ts`). Promote and both vendor routes trim it, collapse every run of whitespace, line breaks included, to one space, read an empty result as `null`, and refuse a result over **155** characters (`PRODUCT_SUMMARY_MAX`, the meta-description length) with `400 VALIDATION_FAILED`. It is never truncated. The cap is Zod-only: the column has no CHECK.
 
 ### 7.3 Numeric ranges
 

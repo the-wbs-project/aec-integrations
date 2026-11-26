@@ -126,6 +126,76 @@ describe('VendorProductForm', () => {
     expect(saveButton(fixture)?.disabled).toBe(true);
   });
 
+  // AECI-2198: the summary is one line with a hint and a live count.
+  describe('the summary (AECI-2198)', () => {
+    const SHORT_ID = `vendor-product-${PRODUCT.id}-summary`;
+    const control = (fixture: ComponentFixture<VendorProductForm>) =>
+      fixture.nativeElement.querySelector(`#${SHORT_ID}`) as HTMLInputElement;
+    const count = (fixture: ComponentFixture<VendorProductForm>) =>
+      (
+        fixture.nativeElement.querySelector(`#${SHORT_ID}-count`) as HTMLElement
+      ).textContent!.trim();
+
+    it('is a labelled one-line input above the description, tied to its hint and count', () => {
+      const fixture = create();
+      const input = control(fixture);
+      expect(input.tagName).toBe('INPUT');
+      expect(input.type).toBe('text');
+      expect(input.value).toBe(PRODUCT.summary);
+      const label = fixture.nativeElement.querySelector(`label[for="${SHORT_ID}"]`) as HTMLElement;
+      expect(label.textContent!.trim()).toBe('Summary');
+      expect(input.getAttribute('aria-describedby')?.split(' ')).toEqual([
+        `${SHORT_ID}-hint`,
+        `${SHORT_ID}-count`,
+      ]);
+      const ids = [...fixture.nativeElement.querySelectorAll('input, textarea')].map(
+        (el) => (el as HTMLElement).id,
+      );
+      expect(ids.indexOf(SHORT_ID)).toBeLessThan(ids.indexOf(DESCRIPTION_ID));
+      expect(count(fixture)).toBe(`${PRODUCT.summary!.length} of 155 characters`);
+    });
+
+    it('counts the value as saved and sends it as one line', async () => {
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      const fixture = create();
+      setInput(fixture, SHORT_ID, '  Clash detection \t  for BIM teams.  ');
+      expect(count(fixture)).toBe('30 of 155 characters');
+      saveButton(fixture)!.click();
+      await settle(fixture);
+      expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
+        summary: 'Clash detection for BIM teams.',
+      });
+    });
+
+    it('treats a whitespace-only change as no edit', () => {
+      const fixture = create();
+      setInput(fixture, SHORT_ID, `${PRODUCT.summary}   `);
+      expect(saveButton(fixture)?.disabled).toBe(true);
+    });
+
+    it('clears with an empty value', async () => {
+      updateProduct.mockResolvedValue({ product: PRODUCT } as UpdateVendorProductResponse);
+      const fixture = create();
+      setInput(fixture, SHORT_ID, '');
+      saveButton(fixture)!.click();
+      await settle(fixture);
+      expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, { summary: null });
+    });
+
+    it('holds Save and explains an over-length value, without cutting it', () => {
+      const fixture = create();
+      setInput(fixture, SHORT_ID, 'a'.repeat(156));
+      expect(control(fixture).value).toHaveLength(156);
+      expect(control(fixture).getAttribute('aria-invalid')).toBe('true');
+      expect(saveButton(fixture)?.disabled).toBe(true);
+      const error = fixture.nativeElement.querySelector(`#${SHORT_ID}-error`) as HTMLElement;
+      expect(error.textContent).toContain('155 characters or fewer');
+      expect(control(fixture).getAttribute('aria-describedby')?.split(' ')).toContain(
+        `${SHORT_ID}-error`,
+      );
+    });
+  });
+
   it('surfaces a retryable error when the text save fails', async () => {
     updateProduct.mockRejectedValue(new Error('boom'));
     const fixture = create();
@@ -181,6 +251,7 @@ describe('VendorProductForm — the Free plan', () => {
 
   it('opens description and website, and keeps the two doc URLs readonly', () => {
     const fixture = build();
+    expect(field(fixture, 'summary').readOnly).toBe(false);
     expect(field(fixture, 'description').readOnly).toBe(false);
     expect(field(fixture, 'website').readOnly).toBe(false);
     // readonly, not disabled: the Managed value stays readable (§6.18).

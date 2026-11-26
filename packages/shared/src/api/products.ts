@@ -100,7 +100,7 @@ export type ProductListItem = z.infer<typeof ProductListItemSchema>;
  * `integrations_as_source` / `integrations_as_target` still carry `logo_url: null` for
  * an unclaimed partner, and no list, card, row or search record carries this shape.
  *
- * `logo_url` is a logo we may show (`wheelLogoOf` in the API): a claimed product's stored
+ * `logo_url` is a logo we may show (`publicLogoOf` in the API): a claimed product's stored
  * logo, the vendor's upload included; for an unclaimed product, the logo we sourced
  * ourselves, never a vendor upload left over from an ended claim (Vendor Terms 1.3,
  * ADR 0051). A removal on objection clears both, and the purge of `product:{partner}` it
@@ -147,6 +147,13 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   /** AECI-1618. Unclaimed pages carry the wording beside the logo. */
   claim_status: SubjectClaimStatusSchema,
   description: z.string().nullable(),
+  /**
+   * The one-line hero summary (AECI-2198). `null` means the hero falls back to the
+   * clamped first paragraph of `description`, and the meta description to
+   * `description`. Masked to `null` while AECi hides it (§11d.7). Never an Algolia
+   * field, a search-card field or a ranking input.
+   */
+  summary: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),

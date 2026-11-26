@@ -144,3 +144,24 @@ describe('ranking firewall: operator-only activity tables', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * AECI-2198: `products.summary` is the hero's one line and the meta
+ * description's fallback. It is not a search field, a search-card field or a ranking
+ * input. `routes/products.ts` is in the firewalled set and serves the detail page
+ * through `lib/drizzle-helpers.ts`, which is not, so the field may appear there and
+ * nowhere in this scan.
+ */
+describe('ranking firewall: the summary', () => {
+  it('no search, ranking, home-stats or listing module names it', () => {
+    const offenders = [...firewalled(API_SRC), ...firewalled(SHARED_SRC)].flatMap(
+      ({ rel, full }) => {
+        const src = readFileSync(full, 'utf8');
+        return ['summary', 'summary']
+          .filter((name) => src.includes(name))
+          .map((name) => `${rel}: ${name}`);
+      },
+    );
+    expect(offenders).toEqual([]);
+  });
+});

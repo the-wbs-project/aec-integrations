@@ -384,7 +384,7 @@ What replaced it:
 
 ## Refresh-staging runbook
 
-The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) **redeploys the staging Workers and smoke-tests them**. It was **gutted with the Postgres-app-DB decommission (AECI-278)**: it no longer does any `pg_dump` / `pg_restore` / `supabase db push` / GRANT-RLS re-assert / Postgres drift check — there is no Postgres app DB to refresh. Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) it **never touches the auth schema** either — auth is one shared project across all environments, and the test accounts are seeded into the shared auth project out of band (see "Test accounts" / `scripts/seed-staging-users.sql`).
+The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) **applies pending staging D1 migrations, redeploys the staging Workers and smoke-tests them**. It must be dispatched from `main`; any other ref fails the first step, because the migrate step would land a branch's unmerged migrations on the shared staging D1 (AECI-2069). It was **gutted with the Postgres-app-DB decommission (AECI-278)**: it no longer does any `pg_dump` / `pg_restore` / `supabase db push` / GRANT-RLS re-assert / Postgres drift check — there is no Postgres app DB to refresh. Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) it **never touches the auth schema** either — auth is one shared project across all environments, and the test accounts are seeded into the shared auth project out of band (see "Test accounts" / `scripts/seed-staging-users.sql`).
 
 **Refreshing staging _app data_ is now a separate, D1-native operation.** The Access-gated [`apps/datatool`](../apps/datatool) Worker clones one environment's D1 into another (replace-mirror of all tables) and reindexes Algolia; the staging D1 (`aeci-app-staging`) is seeded/cloned that way, not from a Postgres dump.
 
@@ -396,9 +396,10 @@ Trigger the redeploy from the GitHub Actions UI:
 
 What happens, in order:
 
-1. Checkout `main`; install pnpm + Node.
-2. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-3. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; then via `scripts/verify-version.sh` poll until **both** `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the workflow's commit SHA (60-second budget). `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
+1. Fail unless dispatched from `main`. Checkout `main`; install pnpm + Node.
+2. Apply pending D1 migrations and reconcile the reference seeds on `aeci-app-staging` via `scripts/d1-apply-migrations.sh`. Usually a no-op, because `deploy.yml` already migrated on the push. It matters when that push's migrate step failed.
+3. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
+4. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; then via `scripts/verify-version.sh` poll until **both** `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the workflow's commit SHA (60-second budget). `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
 
 **When to press it:**
 - You want staging running the latest `main` SHA.
@@ -407,6 +408,8 @@ What happens, in order:
 
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
+| `must be dispatched from main` | First step | The run was started on another branch. Re-run it with the branch set to `main`. |
+| `still failing after 5 attempts` | Apply D1 migrations | A migration is broken, or the Cloudflare D1 API is down. Nothing deployed. Read the wrangler error above the retry lines. |
 | Smoke test times out at 60s | Smoke step | Worker deploy completed but propagation lagging, or the Cloudflare Access service token (CF_ACCESS_CLIENT_ID/SECRET) rotated. Check `docs/access.md` §2. |
 | Staging data looks stale / empty | (not this workflow) | App data is no longer refreshed here — use the `apps/datatool` Worker to clone/seed the staging D1 + reindex Algolia. |
 

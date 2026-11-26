@@ -148,15 +148,34 @@ import { RoleBadge } from './role-badge';
         }
       </div>
 
-      <!-- AECI-1720 restore C (mock-up 6, .lede): the start of the product's own
-           description under the name, at --t-20 / 1.5 in the secondary on-brand ink,
-           clamped to two lines. It is the description's first paragraph, its lines joined
-           by a space, never new text. The full
-           description is in the About band, so this copy is aria-hidden and a screen
-           reader hears it once. The clamp is CSS on server-rendered text, so nothing
-           shifts on hydration. No description, or one AECi hid while it checks it
-           (the payload nulls it), prints nothing. -->
-      @if (lede(); as text) {
+      <!-- The hero lede, three states (AECI-2198, DESIGN.md "Lede").
+           1. A summary: the vendor's or AECi's one line, printed whole with no
+              clamp at --t-20 / 1.5, stepping to --t-16 below 640px as the vendor hero
+              lede does. It is text no other part of the page carries, so a screen
+              reader reads it.
+           2. A summary AECi hid while it checks it: the under-review line in
+              its slot (§11d.7), and no fallback text.
+           3. No summary (AECI-1720 restore C, mock-up 6 .lede): the start of
+              the product's own description, at --t-20 / 1.5, clamped to two lines. It is
+              the description's first paragraph, its lines joined by a space, never new
+              text. The full description is in the About band, so this copy is
+              aria-hidden and a screen reader hears it once. The clamp is CSS on
+              server-rendered text, so nothing shifts on hydration. No description, or
+              one AECi hid while it checks it (the payload nulls it), prints nothing. -->
+      @if (p.summary; as summary) {
+        <p
+          class="max-w-[32em] break-words text-t-16 text-(--text-on-brand-secondary) sm:text-t-20 sm:leading-normal"
+          data-testid="product-hero-summary"
+        >
+          {{ summary }}
+        </p>
+      } @else if (underReview('summary')) {
+        <aec-under-review
+          tone="on-brand"
+          data-testid="summary-under-review"
+          [label]="summaryLabel"
+        />
+      } @else if (lede(); as text) {
         <p
           class="line-clamp-2 max-w-[32em] text-t-20 leading-normal text-(--text-on-brand-secondary)"
           aria-hidden="true"
@@ -311,7 +330,8 @@ export class ProductHero {
   /**
    * The hero lede (AECI-1720 restore C, mock-up 6 `.lede`): the description's first
    * paragraph, split the way the About band splits it, its lines joined by a space.
-   * `null` with no description, which includes one AECi hid while it checks it.
+   * `null` with no description, which includes one AECi hid while it checks it. The
+   * hero shows it only when the product has no summary (AECI-2198).
    */
   protected readonly lede = computed(() => {
     const first = descriptionParagraphs(this.product().description)[0];
@@ -327,6 +347,7 @@ export class ProductHero {
     return poweredEmptyLead(connectorKindFor(p.product_role, p.connector_kind));
   });
   protected readonly websiteLabel = correctionLabel('website');
+  protected readonly summaryLabel = correctionLabel('summary');
 
   protected readonly crumbs = computed<BreadcrumbItem[]>(() => [
     homeCrumb(),

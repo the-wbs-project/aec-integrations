@@ -79,7 +79,13 @@ import {
 import type { AnySQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { feedback, listingRequests, mailingList, vendorRequests } from '../db/schema';
+import {
+  feedback,
+  listingRequests,
+  mailingList,
+  profileDetails,
+  vendorRequests,
+} from '../db/schema';
 import { countAll, enumerateDays, note, type UtcWindow } from './admin-analytics';
 import { textAsc, textDir } from './collation';
 import { likeContains } from './sql-like';
@@ -518,15 +524,17 @@ export async function listSubscribers(
 // ─── How people found us (AECI-1063) ─────────────────────────────────────────
 
 /**
- * The four forms that ask "How did you find AEC Integrations?", each with the
+ * The five forms that ask "How did you find AEC Integrations?", each with the
  * columns this section reads. `claim` is `vendor_requests` of kind `claim`: a
- * correction never asks. Every form is windowed on its own `created_at`, so a
- * subscriber counts on the signup day even when a later re-subscribe filled the
- * answer (`docs/ANALYTICS.md` §11b).
+ * correction never asks. `account` is `profile_details`, the About you answer
+ * (AECI-2208). Every form is windowed on its own `created_at`, so a subscriber
+ * counts on the signup day even when a later re-subscribe filled the answer, and
+ * an account counts on the day its About you row was first written
+ * (`docs/ANALYTICS.md` §11b).
  */
 interface FoundViaSource {
   form: AdminFoundViaForm;
-  key: 'claims' | 'listings' | 'subscribers' | 'feedback';
+  key: 'claims' | 'listings' | 'subscribers' | 'feedback' | 'accounts';
   table: SQLiteTable;
   id: AnySQLiteColumn;
   foundVia: AnySQLiteColumn;
@@ -573,15 +581,24 @@ const FOUND_VIA_SOURCES: readonly FoundViaSource[] = [
     detail: feedback.foundViaDetail,
     createdAt: feedback.createdAt,
   },
+  {
+    form: 'account',
+    key: 'accounts',
+    table: profileDetails,
+    id: profileDetails.profileId,
+    foundVia: profileDetails.foundVia,
+    detail: profileDetails.foundViaDetail,
+    createdAt: profileDetails.createdAt,
+  },
 ];
 
 /**
  * The §5.4 "How people found us" block: one count row per channel (in
  * `FOUND_VIA` order, then the unanswered `null` row), zero-filled, and the latest
- * `ADMIN_FOUND_VIA_DETAIL_LIMIT` `ai_tool` / `search` answers across the four
+ * `ADMIN_FOUND_VIA_DETAIL_LIMIT` `ai_tool` / `search` answers across the five
  * forms, newest first.
  *
- * Eight reads, all independent: a grouped count and a capped detail read per form.
+ * Ten reads, all independent: a grouped count and a capped detail read per form.
  * Each detail read is capped at the limit before the merge, so the merged list is
  * exact: no row outside a form's own top N can be in the overall top N.
  *
@@ -622,6 +639,7 @@ export async function audienceFoundVia(db: Db, w: UtcWindow): Promise<AdminAudie
     listings: 0,
     subscribers: 0,
     feedback: 0,
+    accounts: 0,
     total: 0,
   }));
   const rowFor = new Map<FoundVia | null, AdminFoundViaCountRow>(

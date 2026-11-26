@@ -142,6 +142,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     rating_onboarding_avg: null,
     created_at: '2024-06-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
+    summary: null,
     description: 'Construction management platform.',
     website: null,
     tool_integrations_url: null,

@@ -17,11 +17,13 @@ import {
 import { productNavItemsFor } from './vendor-nav';
 import type { VendorPortalStore } from './vendor-portal-store';
 
-/** An Integration platform AECi holds a catalogue for: the §8.9 seat's product. */
+/** An Integration platform whose catalogue is handed to the vendor: the §8.9 seat's
+ *  product (AECI-2044, AECI-2206). */
 const connector = {
   product_role: 'connector',
   connector_kind: 'integration_platform',
   has_connector_catalog: true,
+  connector_catalog_managed_by: 'vendor',
 };
 const application = { product_role: 'application', has_connector_catalog: false };
 
@@ -38,16 +40,31 @@ describe('isCatalogueSeat', () => {
   });
 
   it('is false for a pure platform vendor whose connector has no catalogue', () => {
-    expect(isCatalogueSeat(null, [{ ...connector, has_connector_catalog: false }])).toBe(false);
+    expect(
+      isCatalogueSeat(null, [
+        { ...connector, has_connector_catalog: false, connector_catalog_managed_by: null },
+      ]),
+    ).toBe(false);
     // A payload from before AECI-2044, with no catalogue field, reads closed.
     expect(isCatalogueSeat(null, [{ product_role: 'connector' }])).toBe(false);
+  });
+
+  it('is false while AECi still maintains the catalogue (AECI-2206)', () => {
+    const aeci = { ...connector, connector_catalog_managed_by: 'review' };
+    expect(isCatalogueSeat(null, [aeci])).toBe(false);
+    expect(isCatalogueSeat(null, [{ ...aeci, connector_kind: null }])).toBe(false);
+    expect(isCatalogueProduct(aeci)).toBe(false);
   });
 
   it('is false for a Sync Service, which may buy Managed (ruling 6)', () => {
     const sync = { product_role: 'connector', connector_kind: 'sync_service' };
     expect(isCatalogueSeat(null, [sync])).toBe(false);
     // Even if a catalogue row exists for it, a Sync Service is not the seat's product.
-    expect(isCatalogueSeat(null, [{ ...sync, has_connector_catalog: true }])).toBe(false);
+    expect(
+      isCatalogueSeat(null, [
+        { ...sync, has_connector_catalog: true, connector_catalog_managed_by: 'vendor' },
+      ]),
+    ).toBe(false);
   });
 
   it('is false for a mixed Free vendor such as Rivets: applications and a Sync Service', () => {
@@ -169,44 +186,58 @@ describe('integrationCanAuthor', () => {
   });
 });
 
-/** AECI-2045: the Catalog tab follows a catalogue on a Sync Service, and today's rule elsewhere. */
+/**
+ * AECI-2206 (ruling, Chris, 2026-11-26): the Catalog tab shows only once the catalogue
+ * is handed to the vendor, on every connector kind. Hidden while AECi maintains it and
+ * when there is none.
+ */
 describe('showsCatalogTab', () => {
-  const tab = (connector_kind: string | null, has_connector_catalog: boolean) =>
-    showsCatalogTab({ product_role: 'connector', connector_kind, has_connector_catalog });
+  const KINDS = ['integration_platform', 'sync_service', null] as const;
+  const tab = (connector_kind: string | null, managedBy: string | null) =>
+    showsCatalogTab({
+      product_role: 'connector',
+      connector_kind,
+      has_connector_catalog: managedBy !== null,
+      connector_catalog_managed_by: managedBy,
+    });
 
-  it('hides it on a Sync Service with no catalogue', () => {
-    expect(tab('sync_service', false)).toBe(false);
+  it.each(KINDS)('shows it on a %s connector whose catalogue the vendor maintains', (kind) => {
+    expect(tab(kind, 'vendor')).toBe(true);
   });
 
-  it('shows it on a Sync Service that has a catalogue (Agave)', () => {
-    expect(tab('sync_service', true)).toBe(true);
+  it.each(KINDS)('hides it on a %s connector whose catalogue AECi maintains', (kind) => {
+    expect(tab(kind, 'review')).toBe(false);
   });
 
-  it('keeps it on an Integration platform or a blank kind, catalogue or not', () => {
-    expect(tab('integration_platform', false)).toBe(true);
-    expect(tab('integration_platform', true)).toBe(true);
-    expect(tab(null, false)).toBe(true);
+  it.each(KINDS)('hides it on a %s connector with no catalogue', (kind) => {
+    expect(tab(kind, null)).toBe(false);
+  });
+
+  it('reads a payload from before AECI-2206 as no tab', () => {
+    expect(showsCatalogTab({ product_role: 'connector', has_connector_catalog: true })).toBe(false);
   });
 
   it('never shows it off a connector product', () => {
-    expect(showsCatalogTab({ product_role: 'application' })).toBe(false);
+    expect(
+      showsCatalogTab({ product_role: 'application', connector_catalog_managed_by: 'vendor' }),
+    ).toBe(false);
     expect(showsCatalogTab({ product_role: 'hybrid', connector_kind: 'sync_service' })).toBe(false);
   });
 
   it('drives the product row', () => {
     const paths = (fields: Parameters<typeof productNavItemsFor>[0]) =>
       productNavItemsFor(fields).map((item) => item.path);
-    expect(paths({ product_role: 'connector', connector_kind: 'sync_service' })).not.toContain(
-      'catalogue',
-    );
+    expect(
+      paths({ product_role: 'connector', connector_catalog_managed_by: 'review' }),
+    ).not.toContain('catalogue');
     expect(
       paths({
         product_role: 'connector',
         connector_kind: 'sync_service',
-        has_connector_catalog: true,
+        connector_catalog_managed_by: 'vendor',
       }),
     ).toContain('catalogue');
-    expect(paths('connector')).toContain('catalogue');
+    expect(paths('connector')).not.toContain('catalogue');
     expect(paths('application')).not.toContain('catalogue');
   });
 });

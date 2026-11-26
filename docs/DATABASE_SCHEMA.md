@@ -317,6 +317,7 @@ create table products (
   slug text unique not null,
   name text not null,
   description text,
+  summary text, -- AECI-2198 (0136): the hero's one line, NULL = the clamped first paragraph of description. Single line, <= 155 chars after trim and whitespace collapse; the cap is Zod-only (PRODUCT_SUMMARY_MAX), NO CHECK. Shares description_edited_at. Promote writes it when the key is present. Hideable, not lockable. Never Algolia, a card, JSON-LD or a ranking input
   website text,
 
   -- Documentation and integrations
@@ -420,7 +421,7 @@ Not indexed: it is read with the row, never filtered on.
 
 | Column | Moves when | Cleared when |
 |---|---|---|
-| `description_edited_at` | a vendor write changes `description` | return to AECi, unless an owned co-owner still holds the product |
+| `description_edited_at` | a vendor write changes `description` or `summary` (AECI-2198: one edit group) | return to AECi, unless an owned co-owner still holds the product |
 | `profile_edited_at` | a vendor write changes `website` or the set of categories | as `description_edited_at` |
 | `usefulness_edited_at` | a vendor write changes `usefulness` | return to AECi, only while `usefulness_source` is NULL (a proposal accept). A set source is one-way (ADR 0033) |
 | `managed_edited_at` | a vendor write changes `tool_integrations_url` or `api_docs_url`, or the set of trades, audiences or phases | as `description_edited_at` |
@@ -1353,6 +1354,8 @@ create table profile_details (
   linkedin_url text,             -- private, normalized https://www.linkedin.com/in/<handle>
   onboarding_completed_at text,  -- set by a save
   onboarding_skipped_at text,    -- set by "Skip for now" or "Not now"
+  found_via text,                -- AECI-2208 (0137): FoundViaSchema channel from the About you form, or null
+  found_via_detail text,         -- AECI-2208 (0137): follow-up, <=200, only for a follow-up channel
   created_at text not null,
   updated_at text not null
 );
@@ -1374,14 +1377,22 @@ create index profile_audiences_audience_idx on profile_audiences(audience_id);
   (`packages/shared/src/api/profile-details.ts`). A list changes without a migration.
 - **Domain state.** Every write goes through `PATCH /api/account` with its `profile.updated`
   audit row in the same batch. `ensureProfileRow` never writes here.
-- **No values in the audit record (AECI-1869).** The `profile.updated` row names the touched
-  answers in `metadata.about_you_fields` and never holds their values. Erasure keeps audit rows,
+- **No values in the audit record (AECI-1869), one exception.** The `profile.updated` row names
+  the touched answers in `metadata.about_you_fields` and never holds their values. The exception
+  is `found_via` (AECI-2208, Chris's ruling 1 of 2026-11-26): its channel is in the before and
+  after state, by value. `found_via_detail` is only named. Erasure keeps audit rows,
   and the Privacy Policy says the answers go with the account. Older rows require
   `scripts/ops/2026-11-about-you-audit-scrub/` after deployment to each environment.
   Its README tracks completion (`AUTH_AND_RLS.md` §8).
-- **Private.** No search, ranking, Algolia or public read. The admin user detail is the one
-  reader besides the user's own `/account`.
+- **Private.** No search, ranking, Algolia or public read. The user's `/account` and the admin
+  user detail read the answers; the admin audience report also reads found-via counts and
+  selected follow-up answers.
 - **Erasure** is by cascade (`AUTH_AND_RLS.md` §8).
+- **Self-reported attribution (AECI-2208).** Migration `0137` adds `found_via` and
+  `found_via_detail`, two nullable `ADD COLUMN`s with no CHECK, so no recreate. They hold the
+  About you answer to "How did you find AEC Integrations?" (`ANALYTICS.md` §11b), asked on
+  `/welcome` and `/account`. The row cascades on erasure. The audit record keeps the channel, by
+  value, and never the follow-up text.
 
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
@@ -2171,7 +2182,7 @@ is invisible rather than a constraint violation:
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
 | `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. Since AECI-1305 the vendor claim nudge does the same for the accounts it is about to email (`metadata.source` `vendor-claim-nudge`). `metadata` holds no token. |
 | `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`, or `{ marketingMuted }` for the marketing opt-out (AECI-1305). `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. AECI-1305 also writes it, actor `system` and `metadata.marketingTokenMinted`, when the claim nudge mints a marketing token on an existing row. Marketing rows carry `vendor_id` null: they are about the account, not a listing. No token is ever audited. |
-| `profile.updated` | `profile` | AECI-202, AECI-1296 — `routes/account.ts` | Every `PATCH /api/account`. `entity_id` is the profile id. `before_state` and `after_state` hold the touched keys among `display_name`, `listing_view_preference` and `onboarding`, or are NULL when none was touched. The About-you answers are named in `metadata.about_you_fields` and their values are never stored (AECI-1869, `AUTH_AND_RLS.md` §8). Rows the 2026-11 scrub changed carry `metadata.about_you_scrubbed`. |
+| `profile.updated` | `profile` | AECI-202, AECI-1296 — `routes/account.ts` | Every `PATCH /api/account`. `entity_id` is the profile id. `before_state` and `after_state` hold the touched keys among `display_name`, `listing_view_preference`, `onboarding` and `found_via` (the channel enum or NULL, AECI-2208 ruling 1), or are NULL when none was touched. The other About-you answers, `found_via_detail` included, are named in `metadata.about_you_fields` and their values are never stored (AECI-1869, `AUTH_AND_RLS.md` §8). Rows the 2026-11 scrub changed carry `metadata.about_you_scrubbed`. |
 | `audit_log.about_you_scrubbed` | `audit_log` | AECI-1869 — `scripts/ops/2026-11-about-you-audit-scrub/apply.sql` | Actor `system`. One row per environment, written by the one-time scrub that removed About-you values from earlier `profile.updated` rows. `entity_id` is NULL. `metadata.rows` is the number of rows changed. |
 | `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 

@@ -5,11 +5,13 @@
  */
 import { Component, provideZonelessChangeDetection, signal, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LinkRef } from '@aeci/shared';
 
+import { FoundViaField } from '../../shared/found-via/found-via-field';
 import { AccountApi } from '../account-api';
 import { ProfileDetailsForm } from './profile-details-form';
 import {
@@ -344,6 +346,40 @@ describe('ProfileDetailsForm', () => {
   });
 });
 
+// AECI-2208: question 8, the shared found-via field, inside the form.
+describe('ProfileDetailsForm: How did you find us?', () => {
+  it('renders the field last, filled from the draft, with no live region of its own', async () => {
+    const { el } = await setup({ ...EMPTY_DRAFT, found_via: 'search', found_via_detail: 'aec' });
+    const field = el.querySelector('aec-found-via-field')!;
+    expect(field).not.toBeNull();
+    expect(el.querySelector('#t-found-via-trigger')?.textContent).toContain(
+      'Google or another search engine',
+    );
+    expect(el.querySelector<HTMLInputElement>('#t-found-via-detail')!.value).toBe('aec');
+    expect(field.querySelector('[role="status"]')).toBeNull();
+    const linkedin = el.querySelector('#t-linkedin')!;
+    expect(linkedin.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('writes the choice and detail to the draft and relays the follow-up announcement', async () => {
+    const { fixture, el, host } = await setup();
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as unknown as { choose(v: string | null): void };
+    field.choose('ai_tool');
+    fixture.detectChanges();
+    expect(host.draft().found_via).toBe('ai_tool');
+    expect(host.said.at(-1)).toBe('A follow-up question appeared: What did you ask it?');
+    const detail = el.querySelector<HTMLInputElement>('#t-found-via-detail')!;
+    detail.value = 'best directory';
+    detail.dispatchEvent(new Event('input'));
+    expect(host.draft().found_via_detail).toBe('best directory');
+    // Clearing the choice empties the detail too.
+    field.choose(null);
+    fixture.detectChanges();
+    expect(host.draft()).toMatchObject({ found_via: '', found_via_detail: '' });
+  });
+});
+
 describe('profile-details-model', () => {
   it('clears the vendor-hidden answers when the company type is software vendor', () => {
     const patch = draftToPatch({
@@ -353,6 +389,8 @@ describe('profile-details-model', () => {
       firm_name: 'Old Firm',
       linkedin_url: ' linkedin.com/in/ada ',
       audience_ids: ['x'],
+      found_via: 'linkedin',
+      found_via_detail: '',
     });
     expect(patch).toEqual({
       company_type: 'software_vendor',
@@ -361,7 +399,37 @@ describe('profile-details-model', () => {
       firm_name: null,
       linkedin_url: 'linkedin.com/in/ada',
       audience_ids: [],
+      // The found-via answer is asked of everyone, so the vendor branch keeps it.
+      found_via: 'linkedin',
+      found_via_detail: '',
     });
+  });
+
+  // AECI-2208: the found-via pair. `''` clears both; the detail rides its channel only.
+  it('sends the found-via pair, trimmed, and clears it with an empty choice', () => {
+    expect(
+      draftToPatch({ ...EMPTY_DRAFT, found_via: 'ai_tool', found_via_detail: '  a prompt  ' }),
+    ).toMatchObject({ found_via: 'ai_tool', found_via_detail: 'a prompt' });
+    expect(
+      draftToPatch({ ...EMPTY_DRAFT, found_via: '', found_via_detail: 'stale' }),
+    ).toMatchObject({ found_via: '', found_via_detail: '' });
+  });
+
+  it('seeds the found-via pair from the account read, and from an older API', () => {
+    const base = {
+      company_type: null,
+      company_size: null,
+      primary_role: null,
+      firm_name: null,
+      linkedin_url: null,
+      audience_ids: [],
+    };
+    expect(
+      draftFromDetails({ ...base, found_via: 'event', found_via_detail: 'AU 2026' }),
+    ).toMatchObject({ found_via: 'event', found_via_detail: 'AU 2026' });
+    expect(
+      draftFromDetails(base as unknown as Parameters<typeof draftFromDetails>[0]),
+    ).toMatchObject({ found_via: '', found_via_detail: '' });
   });
 
   it("never saves a role from the other group's list", () => {
@@ -410,6 +478,8 @@ describe('profile-details-model', () => {
       firm_name: null,
       linkedin_url: null,
       audience_ids: [],
+      found_via: null,
+      found_via_detail: null,
     });
     expect(draft.company_type).toBe('undisclosed');
     expect(draft.primary_role).toBe('undisclosed');

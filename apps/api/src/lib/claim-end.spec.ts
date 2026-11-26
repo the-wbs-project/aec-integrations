@@ -18,6 +18,7 @@ import {
   productDetailConfig,
   productListConfig,
   productLinkColumns,
+  productPairSubjectConfig,
   publicProductLinkConfig,
   toIntegrationListItem,
   toProductDetail,
@@ -26,10 +27,11 @@ import {
   toOwnedProductLink,
   toProductLink,
   toProductListItem,
+  toProductPairResponse,
   toVendorDetail,
   toVendorListItem,
   vendorDetailConfig,
-  wheelLogoOf,
+  publicLogoOf,
   vendorListConfig,
 } from './drizzle-helpers';
 import { integrations } from '../db/schema';
@@ -401,6 +403,112 @@ describe('the public mappers', () => {
 // AECI-2018, ruling 64 (2026-11-24): a wheel tile shows a product's logo whenever we hold
 // one, claimed or not. It widens the logo rule for the wheel ONLY, so these pin both
 // halves: the wheel's own field carries the logo, and every other read is unchanged.
+// AECI-2057: the page's own subject on the product, pair and vendor pages. Vendor Terms
+// 1.3: permission to show an uploaded logo ends with the claim. The daily removal job
+// restores the sourced logo later, and a hold can delay it to day 13, so for that window
+// the stored column still holds the upload. No subject shows it.
+describe('the page subject after the claim ends (AECI-2057)', () => {
+  const UPLOAD = 'https://cdn.example/vendor-upload.png';
+  const SOURCED = 'https://cdn.example/aeci-sourced.png';
+  const VENDOR_UPLOAD = 'https://cdn.example/acme-upload.png';
+  const VENDOR_SOURCED = 'https://cdn.example/acme-sourced.png';
+  const endClaim = () =>
+    t.db.update(vendors).set({ claimEndedAt: NOW }).where(eq(vendors.id, VENDOR));
+  const hold = () =>
+    t.db.update(vendors).set({ brandAssetsHoldAt: NOW }).where(eq(vendors.id, VENDOR));
+  const setProduct = (values: Partial<typeof products.$inferInsert>) =>
+    t.db.update(products).set(values).where(eq(products.id, PRODUCT));
+  const setVendor = (values: Partial<typeof vendors.$inferInsert>) =>
+    t.db.update(vendors).set(values).where(eq(vendors.id, VENDOR));
+
+  const productPage = async () =>
+    toProductDetail(
+      (await t.db.query.products.findFirst({
+        ...productDetailConfig,
+        where: eq(products.id, PRODUCT),
+      }))!,
+      [],
+    );
+  const pairSubject = async () => {
+    const read = (id: string) =>
+      t.db.query.products.findFirst({ ...productPairSubjectConfig, where: eq(products.id, id) });
+    const pair = toProductPairResponse((await read(PRODUCT))!, (await read(PARTNER))!, [], []);
+    return pair.context_product;
+  };
+  const vendorPage = async () =>
+    toVendorDetail(
+      (await t.db.query.vendors.findFirst({
+        ...vendorDetailConfig,
+        where: eq(vendors.id, VENDOR),
+      }))!,
+    );
+
+  const subjects = [
+    ['the product page', productPage],
+    ['the pair page', pairSubject],
+  ] as const;
+
+  for (const [name, subject] of subjects) {
+    it(`${name}: shows the upload while claimed`, async () => {
+      await setProduct({ logoUrl: UPLOAD, logoSource: 'vendor', sourcedLogoUrl: SOURCED });
+      expect(await subject()).toMatchObject({ logo_url: UPLOAD, claim_status: 'claimed' });
+    });
+
+    it(`${name}: shows the sourced logo, never the upload, once the claim ends`, async () => {
+      await setProduct({ logoUrl: UPLOAD, logoSource: 'vendor', sourcedLogoUrl: SOURCED });
+      await endClaim();
+      expect(await subject()).toMatchObject({ logo_url: SOURCED, claim_status: 'unclaimed' });
+      await hold();
+      expect((await subject()).logo_url).toBe(SOURCED);
+      await setProduct({ sourcedLogoUrl: null });
+      expect((await subject()).logo_url).toBeNull();
+    });
+
+    it(`${name}: keeps promote's logo and an AECi correction when unclaimed`, async () => {
+      await endClaim();
+      expect((await subject()).logo_url).toBe(LOGO);
+      await setProduct({ logoUrl: SOURCED, logoSource: 'admin' });
+      expect((await subject()).logo_url).toBe(SOURCED);
+    });
+  }
+
+  it('the vendor page: shows the upload while claimed', async () => {
+    await setVendor({
+      logoUrl: VENDOR_UPLOAD,
+      logoSource: 'vendor',
+      sourcedLogoUrl: VENDOR_SOURCED,
+    });
+    expect(await vendorPage()).toMatchObject({
+      logo_url: VENDOR_UPLOAD,
+      claim_status: 'claimed',
+    });
+  });
+
+  it('the vendor page: shows the sourced logo, never the upload, once the claim ends', async () => {
+    await setVendor({
+      logoUrl: VENDOR_UPLOAD,
+      logoSource: 'vendor',
+      sourcedLogoUrl: VENDOR_SOURCED,
+    });
+    await endClaim();
+    expect(await vendorPage()).toMatchObject({
+      logo_url: VENDOR_SOURCED,
+      claim_status: 'unclaimed',
+    });
+    await hold();
+    expect((await vendorPage()).logo_url).toBe(VENDOR_SOURCED);
+    await setVendor({ sourcedLogoUrl: null });
+    expect((await vendorPage()).logo_url).toBeNull();
+  });
+
+  it("the vendor page: keeps promote's logo and an AECi correction when unclaimed", async () => {
+    await endClaim();
+    expect((await vendorPage()).logo_url).toBe('https://cdn.example/acme.png');
+    await setVendor({ logoUrl: VENDOR_SOURCED, logoSource: 'admin' });
+    expect((await vendorPage()).logo_url).toBe(VENDOR_SOURCED);
+  });
+});
+
 describe("the integrations wheel's marks (ruling 64)", () => {
   const PARTNER_LOGO = 'https://cdn.example/p.png';
   const UPLOAD = 'https://cdn.example/vendor-upload.png';
@@ -501,8 +609,8 @@ describe("the integrations wheel's marks (ruling 64)", () => {
 
   it('fails closed: an unclaimed product read without logo_source shows no logo', () => {
     const bare = { id: PARTNER, name: 'Partner', slug: 'partner', logoUrl: UPLOAD };
-    expect(wheelLogoOf(bare, false)).toBeNull();
-    expect(wheelLogoOf(bare, true)).toBe(UPLOAD);
+    expect(publicLogoOf(bare, false)).toBeNull();
+    expect(publicLogoOf(bare, true)).toBe(UPLOAD);
   });
 
   it("carries the page product's own mark for the centre, by the same rule", async () => {

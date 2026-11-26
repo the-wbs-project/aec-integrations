@@ -320,6 +320,7 @@ export class AccountPage {
           company_size: patch.company_size ?? null,
           primary_role: patch.primary_role ?? null,
           audience_count: patch.audience_ids?.length ?? 0,
+          found_via: patch.found_via || null,
         });
       }
     } catch {
@@ -344,6 +345,7 @@ export class AccountPage {
         company_size: null,
         primary_role: null,
         audience_count: 0,
+        found_via: null,
       });
     } catch {
       /* best effort, see above */

@@ -43,7 +43,7 @@ export function planCardsCopy(locale: string): PlanCardsCopy {
       includes: $localize`:@@app.docs.plans.free.includes:Includes`,
       highlights: [
         $localize`:@@app.docs.plans.free.h1:Keep your company details and logo current`,
-        $localize`:@@app.docs.plans.free.h2:Keep each product's description, website and categories current`,
+        $localize`:@@app.docs.plans.free.h2:Keep each product's description, summary, website and categories current`,
         $localize`:@@app.docs.plans.free.h3:Claim and maintain the integrations you build`,
         $localize`:@@app.docs.plans.free.dataFlows:Confirm the data each integration moves`,
         $localize`:@@app.docs.plans.free.h4:Invite your colleagues`,

@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: November 25, 2026
+last_updated: November 26, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -61,7 +61,7 @@ Your seat belongs to your account on AEC Integrations, the one you sign in with.
 On every plan, including Free, you can:
 
 - see everything in the vendor portal, except the **Billing** tab, which only owners see,
-- edit your company details, and each product's description, website, logo and categories,
+- edit your company details, and each product's description, summary, website, logo and categories,
 - mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Your checklists](/docs/vendors/checklists)),
 - manage seats and your subscriptions, if you are an owner,
 - add a product, and accept or decline a proposed one, if you are an owner ([Adding a product](/docs/vendors/editing-profile-and-products#adding-a-product)),

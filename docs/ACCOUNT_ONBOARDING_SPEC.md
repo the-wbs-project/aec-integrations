@@ -112,6 +112,14 @@ One screen. Only the display name is required. "Skip for now" is always availabl
 | 5 | Which audiences describe you? | Multi-select from `taxonomy_audiences`, at most 10 | Not a software company | `profile_audiences` |
 | 6 | Firm name | Text, at most 100 characters, private | Not a software company | `profile_details.firm_name` |
 | 7 | LinkedIn profile | URL, optional, private | Everyone | `profile_details.linkedin_url` |
+| 8 | How did you find AEC Integrations? | Single choice, some with a follow-up text box (`ANALYTICS.md` §11b) | Everyone | `profile_details.found_via`, `found_via_detail` |
+
+**Question 8 (AECI-2208, ruled 2026-11-26).** It is the shared "How did you find us?" field the claim,
+listing, mailing-list and feedback forms use, with the same seven channels and follow-ups. It is
+the last question of the shared form, so it shows on `/welcome` and, filled with the stored answer,
+on `/account` (Chris's ruling 2 of 2026-11-26, reversing the first build's `/welcome`-only scope).
+Existing accounts, seat invitees and self-healed profiles never see `/welcome`. They can answer on
+`/account`. A person who answered on another form is asked again.
 
 **Claim-email disclosure (counsel Q30, AECI-1595).** When question 2 is answered "AEC software"
 (`software_vendor`), a hint under it reads "If your company hasn't claimed its listing, we may
@@ -199,7 +207,8 @@ It does not rebuild `profiles`. `DATABASE_SCHEMA.md` §7.1 has the columns.
 
 - **`profile_details`.** One row per profile, keyed by `profile_id` (FK to `profiles`,
   `ON DELETE CASCADE`). The five answers plus `onboarding_completed_at` and
-  `onboarding_skipped_at`. All nullable.
+  `onboarding_skipped_at`. All nullable. Migration `0137` (AECI-2208) adds `found_via` and
+  `found_via_detail`, two nullable `ADD COLUMN`s with no CHECK, for question 8.
 - **`profile_audiences`.** `(profile_id, audience_id)`, both FKs with cascade. Modelled on
   `product_audiences`.
 
@@ -231,7 +240,8 @@ A completed save after a skip reads as `completed`.
 
 **`GET /api/account`** adds three fields:
 
-- `details`: the five answers plus `audience_ids`. All `null` (and `[]`) until answered.
+- `details`: the five answers plus `audience_ids`, `found_via` and `found_via_detail`. All `null`
+  (and `[]`) until answered.
 - `onboarding`: `pending`, `completed` or `skipped`.
 - `suggested_display_name`: the provider name from the verified session JWT,
   `user_metadata.full_name` else `user_metadata.name`. `null` when absent, which is the usual case
@@ -247,20 +257,30 @@ left alone.
 - `linkedin_url`: §2.3. A blank string clears it.
 - `audience_ids`: uuids, at most 10, replace-set. `[]` clears the set. Duplicates collapse.
 - `onboarding`: `completed` or `skipped`. Stamps the matching timestamp.
+- `found_via`: `''`, a channel or `null`, and `found_via_detail`: text, at most 200 characters
+  (AECI-2208). When `found_via` is present the pair goes through `normalizeFoundVia` and both
+  columns are written: `''` or `null` clears both, and a detail is kept only for a channel with a
+  follow-up. A `found_via_detail` without `found_via` is a 400. `GET` returns the pair in
+  `details` (`null` when unanswered, or when the stored channel is outside the vocabulary).
 
 At least one field must be present. Unknown audience ids are a 400 `VALIDATION_FAILED` with
 `field: 'audience_ids'`. They are found by a read before the batch, so nothing is written.
 
 The write is one `db.batch`: the `profiles` update if needed, the `profile_details` upsert, the
 audience delete and insert, and one `profile.updated` audit row. The audit row never holds an
-About-you value (AECI-1869). It names the answers the request touched in `metadata.about_you_fields`.
-Its before and after state carry only the other touched keys, `display_name`,
-`listing_view_preference` and `onboarding`. Erasure keeps audit rows, and the Privacy Policy says
-the answers go with the account (`AUTH_AND_RLS.md` §8). `rateLimit('write')` already covers the route.
+About-you value (AECI-1869), with one exception. It names the answers the request touched in
+`metadata.about_you_fields`. Its before and after state carry only the other touched keys,
+`display_name`, `listing_view_preference` and `onboarding`, plus `found_via`. **The exception
+(AECI-2208, Chris's ruling 1 of 2026-11-26):** the question 8 channel is audited by value, the enum
+or `null`. Its follow-up text never is: it is only named, as `found_via_detail`, because audit rows
+are forwarded to PostHog Logs (`ANALYTICS.md` §11b). Erasure keeps audit rows. The Privacy Policy
+says the answers go with the account, except that the audit record keeps the question 8 choice and
+not the typed text (`AUTH_AND_RLS.md` §8). `rateLimit('write')` already covers the route.
 
 **Admin.** `GET /api/admin/users` rows carry `company_type` and `company_size`.
 `GET /api/admin/users/:id` carries `about`: every answer, LinkedIn included, the audience names A
-to Z, and the onboarding state. `ADMIN_PANEL_SPEC.md` §5.8.
+to Z, the onboarding state, and `found_via` / `found_via_detail`. `ADMIN_PANEL_SPEC.md` §5.8.
+`GET /api/admin/audience` counts question 8 as its own form, `account` (`ANALYTICS.md` §11b).
 
 ## 6. The sign-in redirect
 
@@ -289,11 +309,12 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - **Behaviour.** SSR paints a loading state only. After hydration the page reads
   `GET /api/account`. If `onboarding` is not `pending`, it goes straight to `next`. Otherwise the
   display name is the stored name, else the suggested name, else empty.
-- **Save** sends the answers with `onboarding: 'completed'`, then goes to `next`. Save is disabled
+- **Save** sends the answers with `onboarding: 'completed'`, then goes to `next`. Question 8 goes
+  with them, as a clear when unanswered, like every answer. It never blocks Save. Save is disabled
   only while a write is in flight, so Enter in any field submits. A Save with an invalid display
   name or LinkedIn link writes nothing. It shows each error, gives the field a `--status-error`
   border, and moves focus to the first bad field, top to bottom.
-- **Skip** sends `onboarding: 'skipped'`, then goes to `next`. A failed skip still leaves. Skip
+- **Skip** sends `onboarding: 'skipped'`, then goes to `next`. It never sends question 8. A failed skip still leaves. Skip
   must never trap the user. Starting a skip clears a shown save failure.
 - **Leaving.** The client navigation to `next` falls back to a full page load when it resolves
   `false` or throws. If the user is still on the page after that, Skip and Save are enabled again.
@@ -302,7 +323,8 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - **Announcements.** One polite live region (`role="status"`, visually hidden) is in the SSR HTML and
   stays for the page's life. It announces "Loading…", the form being ready, the fields a software
   vendor is not asked (and their return), and each audience count change. When the form appears,
-  focus moves to the `h1`.
+  focus moves to the `h1`. Question 8's follow-up box is announced here too: the shared found-via
+  field runs with its own region off (`[liveRegion]="false"`) and relays its message.
 - **No Terms gate on this page (AECI-1637).** Signing in is the acceptance of the Terms of
   Service (ruling of 2026-11-13). The sign-in that lands here already recorded it, so nothing
   overlays this page and nothing blocks its writes. Since 2026-11-19 (counsel Q63, ruling 53)
@@ -311,7 +333,7 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
   `/welcome` is never preceded by it (`AUTH_AND_RLS.md` §3.1b, `STAGE_1_SPEC.md` §27.4).
 - **Copy.** The lede reads "A few questions about where you work. Reviewers get their review forms
   filled in from this. You can change any of it on your account page." It works for a vendor and a
-  reviewer alike.
+  reviewer alike. Since ruling 2 it is true of question 8 too.
 - **Layout (AECI-987).** The 7xl canvas with the form + context rail (`DESIGN.md` §5 → Layout shells).
   The rail says the role and firm fill in review forms (§8), that the firm name stays private
   while the role shows on published reviews (§9), and that any answer can be changed later on
@@ -322,6 +344,10 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 - An "About you" section sits under the display name. It uses the same `ProfileDetailsForm`. Its
   own Save button sends the answers. The first save while `pending` also sends
   `onboarding: 'completed'`.
+- Question 8 shows filled with the stored answer (AECI-2208, ruling 2). Save sends the pair with
+  the other answers. Clearing the choice sends `found_via: ''`, which stores NULL in both columns.
+  The follow-up box has no error state: its `maxlength` is the server's 200, so the focus-on-error
+  rule has nothing to catch.
 - While `onboarding` is `pending`, a "Tell us about yourself" card sits above the profile.
   "Answer now" moves focus to the section. "Not now" records a skip, so the card does not return.
 - Existing users are never redirected.
@@ -330,7 +356,9 @@ The return is cleaned by `sanitizeReturnPath` first. `/welcome` cleans `next` ag
 
 ### 7.3 Shared form component
 
-`apps/web/src/app/account/profile-details/profile-details-form.ts` holds questions 2 to 7.
+`apps/web/src/app/account/profile-details/profile-details-form.ts` holds questions 2 to 8.
+Question 8 is the shared `aec-found-via-field`, last, with `[liveRegion]="false"`: its follow-up
+announcement goes out on the form's `announce`, so each page keeps one live region.
 Single choices use `AecSelect` (Angular Aria, ADR 0010). Audiences are a filterable checkbox list
 in a `fieldset`, sorted with `compareText`. At 10 picks the unchosen boxes are disabled. A chosen
 term stays visible under any filter.
@@ -370,11 +398,14 @@ check.
   vendor's seat roster, and on admin screens. The `/welcome` and `/account` forms carry no hint
   that says otherwise.
 - The firm name and LinkedIn link are private. Search, Algolia, ranking and every public page
-  never read these tables.
+  never read these tables. So is the question 8 answer, which only the user's own `/account`, the
+  admin user detail and the `/admin/audience` report show. The report includes counts and the
+  selected AI-tool and search follow-up answers.
 - The privacy policy (`apps/web/src/content/legal/privacy-policy.md`, version 1.1) names the
   fields, their purposes and their retention.
 - Account deletion removes both tables by `ON DELETE CASCADE`. `AUTH_AND_RLS.md` §8 lists the
-  inbound FKs, now twenty.
+  inbound FKs, now twenty. The question 8 channel and follow-up go with the row. The audit record
+  keeps the channel for its own period, never the follow-up (§5, ruling 1).
 - **The deletion screen says what is kept (AECI-1616, counsel Q10).** The Delete account section
   on `/account` and its confirmation dialog both carry: "If you sent messages to another company
   in a private conversation, they stay with the conversation for 2 years after its last message,
@@ -403,11 +434,11 @@ Two PostHog events, both consent-gated like every other product event. `ANALYTIC
 
 | Event | When | Properties |
 |---|---|---|
-| `onboarding_completed` | A save that completes onboarding, on `/welcome` or `/account` | `source`, `company_type`, `company_size`, `primary_role`, `audience_count`. `undisclosed` is a legal answer value |
+| `onboarding_completed` | A save that completes onboarding, on `/welcome` or `/account` | `source`, `company_type`, `company_size`, `primary_role`, `audience_count`, `found_via`. `undisclosed` is a legal answer value. `found_via` is the channel or `null` |
 | `onboarding_skipped` | Skip on `/welcome`, or "Not now" on the `/account` card | Same keys. The answers are `null` and the count is 0 |
 
-The firm name and LinkedIn URL are never sent. `Analytics.onboardingCompleted` copies the allowed
-keys only, so a wider object cannot leak them.
+The firm name, the LinkedIn URL and the found-via follow-up are never sent.
+`Analytics.onboardingCompleted` copies the allowed keys only, so a wider object cannot leak them.
 
 ## 11. Deferred
 
@@ -415,5 +446,10 @@ These were proposed and are not in this build: the software the user uses now, w
 the site, trades for trade contractors, buying role, market sectors, country, and years in the
 industry.
 
-Onboarding still does not ask "How did you find AEC Integrations?". Since AECI-1063 (2026-10-29)
-the claim, listing, mailing-list and feedback forms ask it instead (`docs/ANALYTICS.md` §11b).
+The software the user uses now is specced as its own feature, not an onboarding question:
+`docs/MY_STACK_SPEC.md`.
+
+"How did you find AEC Integrations?" left this list on 2026-11-26. AECI-1063 (2026-10-29) asked it
+on the claim, listing, mailing-list and feedback forms and left onboarding out. AECI-2208 added it as
+question 8 (§2), on `/welcome` and `/account`, because a reviewer who signs up sees none of those
+forms.

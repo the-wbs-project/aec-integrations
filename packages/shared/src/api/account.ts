@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import { FOUND_VIA_DETAIL_MAX, FoundViaSchema, type FoundVia } from './found-via';
 import {
   CompanySizeSchema,
   CompanyTypeSchema,
@@ -54,6 +55,12 @@ export const DISPLAY_NAME_MAX_LENGTH = 80;
  * that is what an emptied text input sends. `audience_ids` REPLACES the stored
  * set; `[]` clears it. `onboarding` records the form's outcome and is sent once,
  * by the save or the skip on `/welcome` or the `/account` card.
+ *
+ * `found_via` / `found_via_detail` (AECI-2208) are the "How did you find AEC
+ * Integrations?" answer, asked on `/welcome` and `/account` (`docs/ANALYTICS.md` §11b). They
+ * move as a pair: when `found_via` is present the server runs `normalizeFoundVia`
+ * and writes both columns, so `''` or `null` clears both. A `found_via_detail`
+ * without `found_via` is rejected, because a detail alone has no channel.
  */
 export const UpdateAccountSchema = z
   .object({
@@ -85,9 +92,23 @@ export const UpdateAccountSchema = z
       .max(MAX_PROFILE_AUDIENCES, 'Pick at most 10 audiences.')
       .optional(),
     onboarding: z.enum(['completed', 'skipped']).optional(),
+    found_via: z
+      .union([z.literal(''), FoundViaSchema])
+      .nullable()
+      .optional(),
+    found_via_detail: z
+      .string()
+      .trim()
+      .max(FOUND_VIA_DETAIL_MAX, `Keep this under ${FOUND_VIA_DETAIL_MAX} characters.`)
+      .nullable()
+      .optional(),
   })
   .refine((v) => Object.values(v).some((value) => value !== undefined), {
     message: 'Provide at least one updatable field.',
+  })
+  .refine((v) => v.found_via_detail === undefined || v.found_via !== undefined, {
+    message: 'Send found_via with found_via_detail.',
+    path: ['found_via_detail'],
   });
 export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
 
@@ -168,6 +189,11 @@ export interface AccountProfileDetails {
   linkedin_url: string | null;
   /** `taxonomy_audiences.id` values. Empty when none are chosen. */
   audience_ids: string[];
+  /** AECI-2208: the "How did you find AEC Integrations?" channel, or `null`. A
+   *  stored value outside the vocabulary reads as `null`. */
+  found_via: FoundVia | null;
+  /** AECI-2208: the follow-up answer, or `null`. */
+  found_via_detail: string | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

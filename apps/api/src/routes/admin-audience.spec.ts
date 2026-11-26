@@ -22,7 +22,15 @@ import { AdminAudienceResponseSchema, type AdminAudienceResponse } from '@aeci/s
 import { and, isNull, lt, or, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, feedback, listingRequests, mailingList, vendorRequests } from '../db/schema';
+import {
+  auditLog,
+  feedback,
+  listingRequests,
+  mailingList,
+  profileDetails,
+  profiles,
+  vendorRequests,
+} from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -484,6 +492,21 @@ describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
       // A detail-channel row with its detail erased: counted, but not listed.
       { tools: 'x', foundVia: 'ai_tool', foundViaDetail: null, createdAt: IN },
     ]);
+    // AECI-2208: the /welcome answer on profile_details, windowed on its created_at.
+    const p = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    await t.db.insert(profiles).values([{ id: p(201) }, { id: p(202) }, { id: p(203) }]);
+    await t.db.insert(profileDetails).values([
+      {
+        profileId: p(201),
+        foundVia: 'ai_tool',
+        foundViaDetail: 'signup prompt',
+        createdAt: '2026-08-08T00:00:00.000Z',
+      },
+      // Saved or skipped without answering.
+      { profileId: p(202), createdAt: IN },
+      // Outside the window.
+      { profileId: p(203), foundVia: 'ai_tool', foundViaDetail: 'old signup', createdAt: OUT },
+    ]);
   }
 
   it('counts each channel per form inside the window, with the unanswered row', async () => {
@@ -496,7 +519,8 @@ describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
       listings: 0,
       subscribers: 1,
       feedback: 1,
-      total: 3,
+      accounts: 1,
+      total: 4,
     });
     expect(row('search')).toEqual({
       channel: 'search',
@@ -504,6 +528,7 @@ describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
       listings: 1,
       subscribers: 0,
       feedback: 1,
+      accounts: 0,
       total: 2,
     });
     expect(row('linkedin')).toMatchObject({ claims: 1, total: 1 });
@@ -514,7 +539,8 @@ describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
       listings: 0,
       subscribers: 1,
       feedback: 0,
-      total: 2,
+      accounts: 1,
+      total: 3,
     });
     expect(row('colleague')).toMatchObject({ total: 0 });
   });
@@ -523,6 +549,7 @@ describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
     await seedFoundVia();
     const r = await audience(RANGE);
     expect(r.found_via.details.map((d) => [d.form, d.channel, d.detail, d.created_at])).toEqual([
+      ['account', 'ai_tool', 'signup prompt', '2026-08-08T00:00:00.000Z'],
       ['subscriber', 'ai_tool', 'sub prompt', '2026-08-07T00:00:00.000Z'],
       ['claim', 'ai_tool', 'claim prompt', '2026-08-06T00:00:00.000Z'],
       ['listing', 'search', 'listing query', '2026-08-04T00:00:00.000Z'],

@@ -155,6 +155,19 @@ describe('VendorConnectorCatalogue — the list', () => {
     expect(filters).toEqual({ page: 1, perPage: 25, state: null, search: '' });
   });
 
+  // AECI-2206: the intro says what the tab is, defines reach, and points elsewhere for
+  // the integrations the product delivers.
+  it('explains itself: the app list, reach in one sentence, and the Integrations tab', async () => {
+    const fixture = await create();
+    const intro = text(el(fixture).querySelector('[data-catalogue-intro]'));
+    expect(intro).toContain('Agave publishes a list of the apps it works with.');
+    expect(intro).toContain('which product on AEC Integrations each app is');
+    expect(intro).toContain(
+      'Reach is how many products it can be connected to through a connector.',
+    );
+    expect(intro).toContain('They are on its Integrations tab.');
+  });
+
   it('shows the summary, one row per listing, and each match in words', async () => {
     const fixture = await create();
     expect(text(el(fixture).querySelector('[data-catalogue-summary]'))).toBe(

@@ -5945,3 +5945,49 @@ describe('promote refreshes every vendor whose reach moved (AECI-1897)', () => {
     expect(replay.removedVendorIds).toEqual([uuid(10)]);
   });
 });
+
+/**
+ * AECI-2198: `product.summary` (`REVIEW_APP_PROMOTE_API.md` §3.3). Omitted
+ * leaves the column untouched, null clears it, a value is normalized to one line, and a
+ * value over 155 characters refuses the whole payload before any write.
+ */
+describe('AECI-2198 promote summary', () => {
+  const productId = uuid(930);
+
+  beforeEach(async () => {
+    await seedProduct(productId, 'summarised', 'Summarised');
+  });
+
+  const read = async () =>
+    (await t.db.query.products.findFirst({ where: eq(products.id, productId) }))!.summary;
+  const push = (extra: Record<string, unknown>) =>
+    promote({ product: { ref: 'p', supabaseId: productId, name: 'Summarised', ...extra } });
+
+  it('writes a value normalized to one line', async () => {
+    expect((await push({ summary: '  One line\nfor teams.  ' })).status).toBe(200);
+    expect(await read()).toBe('One line for teams.');
+  });
+
+  it('leaves the column untouched when the payload omits the key', async () => {
+    await t.db.update(products).set({ summary: 'Kept.' }).where(eq(products.id, productId));
+    expect((await push({ description: 'New long text.' })).status).toBe(200);
+    expect(await read()).toBe('Kept.');
+  });
+
+  it('clears the column when the payload sends null', async () => {
+    await t.db.update(products).set({ summary: 'Gone.' }).where(eq(products.id, productId));
+    expect((await push({ summary: null })).status).toBe(200);
+    expect(await read()).toBeNull();
+  });
+
+  it('refuses a value over 155 characters with 400 VALIDATION_FAILED and writes nothing', async () => {
+    const res = await push({ summary: 'a'.repeat(156), description: 'Changed.' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
+    const row = await t.db.query.products.findFirst({ where: eq(products.id, productId) });
+    expect(row!.summary).toBeNull();
+    expect(row!.description).not.toBe('Changed.');
+  });
+});

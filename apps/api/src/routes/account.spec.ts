@@ -193,6 +193,8 @@ describe('GET /api/account', () => {
         firm_name: null,
         linkedin_url: null,
         audience_ids: [],
+        found_via: null,
+        found_via_detail: null,
       },
       onboarding: 'pending',
       suggested_display_name: null,
@@ -1454,6 +1456,170 @@ describe('PATCH /api/account: About you (AECI-1296)', () => {
     expect(
       (await run(createUpdateAccountHandler(t.factory), 'patch', { company_type: 'bank' })).status,
     ).toBe(400);
+  });
+});
+
+describe('PATCH /api/account: How did you find us (AECI-2208)', () => {
+  it('stores the normalised pair with the completing save', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      display_name: 'Ada',
+      found_via: 'ai_tool',
+      found_via_detail: '  best AEC integration directory  ',
+      onboarding: 'completed',
+    });
+    expect(res.status).toBe(200);
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({
+      foundVia: 'ai_tool',
+      foundViaDetail: 'best AEC integration directory',
+    });
+    expect(details!.onboardingCompletedAt).not.toBeNull();
+    // The account read shape carries it, so `/account` can show the answer.
+    expect(await res.json()).toMatchObject({
+      details: { found_via: 'ai_tool', found_via_detail: 'best AEC integration directory' },
+    });
+    const read = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await read.json()).toMatchObject({
+      details: { found_via: 'ai_tool', found_via_detail: 'best AEC integration directory' },
+    });
+  });
+
+  it('reads an unanswered or off-vocabulary channel as null, with no detail', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const empty = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await empty.json()).toMatchObject({
+      details: { found_via: null, found_via_detail: null },
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: USER, foundVia: 'newspaper', foundViaDetail: 'the Times' });
+    const odd = await run(createGetAccountHandler(t.factory), 'get');
+    expect(await odd.json()).toMatchObject({
+      details: { found_via: null, found_via_detail: null },
+    });
+  });
+
+  it('drops a detail sent with a channel that takes no follow-up', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      found_via: 'linkedin',
+      found_via_detail: 'a post',
+    });
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({ foundVia: 'linkedin', foundViaDetail: null });
+  });
+
+  it("clears both columns on '' and stores a blank detail as null", async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: USER, foundVia: 'search', foundViaDetail: 'aec directory' });
+    await run(createUpdateAccountHandler(t.factory), 'patch', { found_via: '' });
+    expect((await t.db.select().from(profileDetails))[0]).toMatchObject({
+      foundVia: null,
+      foundViaDetail: null,
+    });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      found_via: 'other',
+      found_via_detail: '   ',
+    });
+    expect((await t.db.select().from(profileDetails))[0]).toMatchObject({
+      foundVia: 'other',
+      foundViaDetail: null,
+    });
+  });
+
+  it('is optional: a completing save without it leaves both columns null', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    const res = await run(createUpdateAccountHandler(t.factory), 'patch', {
+      primary_role: 'IT',
+      onboarding: 'completed',
+    });
+    expect(res.status).toBe(200);
+    const [details] = await t.db.select().from(profileDetails);
+    expect(details).toMatchObject({ foundVia: null, foundViaDetail: null });
+    const [audit] = await t.db.select().from(auditLog);
+    expect(asState(audit!.metadata).about_you_fields).toEqual(['primary_role']);
+    expect(asState(audit!.afterState)).not.toHaveProperty('found_via');
+  });
+
+  it('leaves an earlier answer alone when a later PATCH omits it', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      found_via: 'event',
+      found_via_detail: 'AU 2026',
+    });
+    await run(createUpdateAccountHandler(t.factory), 'patch', { firm_name: 'Acme' });
+    expect((await t.db.select().from(profileDetails))[0]).toMatchObject({
+      foundVia: 'event',
+      foundViaDetail: 'AU 2026',
+      firmName: 'Acme',
+    });
+  });
+
+  it('rejects an unknown channel, an overlong detail and a detail alone, writing nothing', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    for (const body of [
+      { found_via: 'newspaper' },
+      { found_via: 'other', found_via_detail: 'x'.repeat(201) },
+      { found_via_detail: 'no channel' },
+    ]) {
+      const res = await run(createUpdateAccountHandler(t.factory), 'patch', body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
+    }
+    expect(await t.db.select().from(profileDetails)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  // Ruling 1 (2026-11-26): the one AECI-1869 carve-out. The channel is audited by
+  // value; the follow-up text is named only, in the row and in the Logs forward.
+  it('audits the channel by value and names the detail, never its text', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      found_via: 'search',
+      found_via_detail: 'procore revit sync',
+      onboarding: 'completed',
+    });
+    await run(createUpdateAccountHandler(t.factory), 'patch', { found_via: '' });
+    const rows = await t.db.select().from(auditLog).orderBy(auditLog.createdAt, auditLog.id);
+    expect(rows).toHaveLength(2);
+    expect(asState(rows[0]!.metadata)).toEqual({
+      source: 'account',
+      about_you_fields: ['found_via_detail'],
+    });
+    expect(asState(rows[0]!.beforeState)).toEqual({ onboarding: 'pending', found_via: null });
+    expect(asState(rows[0]!.afterState)).toEqual({ onboarding: 'completed', found_via: 'search' });
+    // Clearing records the channel leaving.
+    expect(asState(rows[1]!.beforeState)).toEqual({ found_via: 'search' });
+    expect(asState(rows[1]!.afterState)).toEqual({ found_via: null });
+    const stored = JSON.stringify(rows.map((r) => [r.beforeState, r.afterState, r.metadata]));
+    expect(stored).not.toContain('procore');
+    const forwarded = JSON.stringify(vi.mocked(logToPosthog).mock.calls);
+    expect(forwarded).not.toContain('procore');
+  });
+
+  it('removes both columns with the profile on account deletion', async () => {
+    await t.db.insert(profiles).values({ id: USER });
+    await run(createUpdateAccountHandler(t.factory), 'patch', {
+      found_via: 'ai_tool',
+      found_via_detail: 'who reviews AEC integrations',
+    });
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profileDetails)).toHaveLength(0);
+    const stored = JSON.stringify(await t.db.select().from(auditLog)).toLowerCase();
+    // The typed text is gone everywhere. The channel stays in the audit record by
+    // ruling 1, which the Privacy Policy's Retention list states.
+    expect(stored).not.toContain('who reviews');
+    expect(stored).toContain('ai_tool');
   });
 });
 

@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +11,7 @@ import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { AccountApi } from './account-api';
 import { AccountPage } from './account';
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { ProfileDetailsForm } from './profile-details/profile-details-form';
 
 const PROFILE: AccountProfileResponse = {
@@ -615,6 +617,97 @@ describe('AccountPage', () => {
     expect(done.el.querySelector('[data-testid="about-you"]')).not.toBeNull();
   });
 
+  // AECI-2208 (ruling 2): "How did you find us?" is the last About you question on
+  // /account too, filled with the stored answer.
+  describe('How did you find us?', () => {
+    const DETAILS = {
+      company_type: 'engineer' as const,
+      company_size: null,
+      primary_role: 'IT' as const,
+      firm_name: null,
+      linkedin_url: null,
+      audience_ids: [],
+      found_via: 'ai_tool' as const,
+      found_via_detail: 'best estimating integrations',
+    };
+
+    it('shows the field filled with the stored answer', async () => {
+      const api = makeApiMock();
+      api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'completed', details: DETAILS });
+      const { el } = await setup(api);
+      const about = el.querySelector('[data-testid="about-you"]')!;
+      const field = about.querySelector('aec-found-via-field');
+      expect(field).not.toBeNull();
+      expect(field!.textContent).toContain('ChatGPT, Claude, Perplexity or another AI tool');
+      expect(about.querySelector<HTMLInputElement>('[data-testid="found-via-detail"]')!.value).toBe(
+        'best estimating integrations',
+      );
+      // It relays to the About you live region rather than adding its own.
+      expect(field!.querySelector('[role="status"]')).toBeNull();
+    });
+
+    it('sends the pair with the About you save', async () => {
+      const api = makeApiMock();
+      api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'completed', details: DETAILS });
+      api.updateProfile.mockImplementation(async () => ({
+        ...PROFILE,
+        onboarding: 'completed',
+        details: DETAILS,
+      }));
+      const { fixture, el } = await setup(api);
+      (el.querySelector('[data-testid="about-you"]') as HTMLFormElement).dispatchEvent(
+        new Event('submit'),
+      );
+      await settle();
+      fixture.detectChanges();
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          found_via: 'ai_tool',
+          found_via_detail: 'best estimating integrations',
+        }),
+      );
+      // Already completed, so no onboarding event fires.
+      expect(onboardingCompletedSpy).not.toHaveBeenCalled();
+    });
+
+    it('clearing the choice sends a clear for both columns', async () => {
+      const api = makeApiMock();
+      api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'completed', details: DETAILS });
+      api.updateProfile.mockImplementation(async () => ({
+        ...PROFILE,
+        onboarding: 'completed',
+        details: { ...DETAILS, found_via: null, found_via_detail: null },
+      }));
+      const { fixture, el } = await setup(api);
+      const field = fixture.debugElement.query(By.directive(FoundViaField))
+        .componentInstance as unknown as { choose(v: string | null): void };
+      field.choose(null);
+      fixture.detectChanges();
+      expect(el.querySelector('[data-testid="found-via-detail"]')).toBeNull();
+      (el.querySelector('[data-testid="about-you"]') as HTMLFormElement).dispatchEvent(
+        new Event('submit'),
+      );
+      await settle();
+      fixture.detectChanges();
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ found_via: '', found_via_detail: '' }),
+      );
+    });
+
+    it('announces the follow-up box in the About you live region', async () => {
+      const api = makeApiMock();
+      api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'completed' });
+      const { fixture, el } = await setup(api);
+      const field = fixture.debugElement.query(By.directive(FoundViaField))
+        .componentInstance as unknown as { choose(v: string | null): void };
+      field.choose('search');
+      fixture.detectChanges();
+      expect(el.querySelector('[data-testid="about-status"]')!.textContent?.trim()).toBe(
+        'A follow-up question appeared: What did you search for?',
+      );
+    });
+  });
+
   it('"Not now" records a skip and hides the card', async () => {
     const api = makeApiMock();
     api.getProfile.mockResolvedValue({ ...PROFILE, onboarding: 'pending' });
@@ -639,6 +732,8 @@ describe('AccountPage', () => {
         firm_name: 'Acme',
         linkedin_url: null,
         audience_ids: [],
+        found_via: null,
+        found_via_detail: null,
       },
     });
     api.updateProfile.mockImplementation(async () => ({ ...PROFILE, onboarding: 'completed' }));
@@ -657,7 +752,7 @@ describe('AccountPage', () => {
       }),
     );
     expect(onboardingCompletedSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'account', company_type: 'engineer' }),
+      expect.objectContaining({ source: 'account', company_type: 'engineer', found_via: null }),
     );
     expect(el.querySelector('[data-testid="onboarding-card"]')).toBeNull();
   });

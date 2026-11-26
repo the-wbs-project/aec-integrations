@@ -66,7 +66,7 @@ Rules:
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   the review app via `POST /api/promote`).
 - **Per-env apply** (**all four tiers**) is wired into CI: the deploy lanes
-  (`deploy.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`) run
+  (`deploy.yml`, `refresh-staging.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`) run
   `scripts/d1-apply-migrations.sh <db> <env>`, which
   applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
   reconciles the three reference-data seeds. The helper **retries each remote D1
@@ -360,6 +360,36 @@ regenerated body was verified byte-identical to the hand-authored original and e
 destructive statements — the check that matters, given the generator has previously re-emitted
 `DROP TABLE claims` when a snapshot chain was renamed rather than regenerated.
 
+### Every path that deploys the API Worker (AECI-2069)
+
+Every path that ships API Worker code applies the tier's pending migrations first. The order is
+load-bearing. `lib/seo-queue.ts` pins `INDEXED BY page_views_crawl_path_idx`, created by
+`0134_crawl_path_index.sql`. SQLite refuses a query whose pinned index does not exist. Code ahead
+of that migration 500s `GET /api/admin/seo/queue` and loses the nightly `seo.*` and `queue.*`
+snapshot metrics, which cannot be rebuilt for a missed day. Any later `INDEXED BY`, new column
+read or new table read carries the same dependency.
+
+| Path | Trigger | Migrates before the API deploys? |
+|---|---|---|
+| `deploy.yml` `deploy-staging` | push to `main` | Yes. "Apply D1 migrations (staging)", then "Deploy API", same job. A failed migrate stops the job. |
+| `refresh-staging.yml` | dispatch, `main` only | Yes, since AECI-2069. Before that it deployed with no migrate step. |
+| `promote-to-demo.yml` `deploy-demo-workers` | dispatch | Yes. "Apply D1 migrations (demo)", then "Deploy API (demo)". |
+| `promote-to-prod.yml` `deploy-prod-workers` | dispatch + approval | Yes. "Apply D1 migrations (production)", then "Deploy API (production)". |
+| `apps/api` `deploy:{staging,demo,production}` | manual | Yes, since AECI-2069, through `scripts/api-manual-deploy.sh`. It refuses a dirty tree or a HEAD not merged into `origin/main`, runs `scripts/d1-apply-migrations.sh`, then refuses to deploy unless `wrangler d1 migrations list` reports none pending. That last check exists because `apply` exits 0 when its prompt is declined. Tests: `scripts/api-manual-deploy.test.mjs`. The bare `deploy` and root `deploy:api` were removed. |
+| PR preview | — | Retired (AECI-1268). No path deploys a branch's API Worker or applies a branch's migration to a remote D1. |
+| `wrangler rollback` (auto-rollback steps, failure runbooks) | failure | Not needed. It ships older code, and §3.2 keeps older code valid on the newer schema. |
+| `scripts/ops/2026-09-wbs-account-move/{cutover,deploy-rehearsal}.sh` | one-off, finished | No. Historical. Do not reuse them as a deploy path. |
+
+A new deploy path must call `scripts/d1-apply-migrations.sh` before its `wrangler deploy` of
+`apps/api`. Add it to this table.
+
+**Residual: replica lag.** Reads use the `'first-unconstrained'` session (§ "Read replication"
+below), and production has read replicas. A replica can trail the primary's new index for a
+short window after the migrate step. The admin SEO route can 500 in that window and then
+recovers on its own. The nightly snapshot runs hours after any deploy, so it is not exposed.
+No code change covers this. If a pinned-index read ever serves a public route, pin that read to
+`'first-primary'` or ship the index one deploy ahead of the code.
+
 ### Read replication (D1 Sessions API — AECI-250)
 
 The Worker reads/writes D1 through the **Sessions API**: `getDb(env, opts?)`
@@ -640,7 +670,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 
 ## 8. CI / CD
 
-For the **app database (D1)** this is the live story, not this legacy section: CI applies migrations with `wrangler d1 migrations apply` on merge to `main` (**staging**, in the `deploy-staging` job; the `migrate-preview` job was retired 2026-10-10, AECI-1268), on demo promote (**demo**) and on prod approval (**production**) — all three remote tiers, all through `scripts/d1-apply-migrations.sh`. See [§0](#0-d1--drizzle-the-target-workflow) and `docs/CICD_PLAN.md` §5.
+For the **app database (D1)** this is the live story, not this legacy section: CI applies migrations with `wrangler d1 migrations apply` on merge to `main` (**staging**, in the `deploy-staging` job; the `migrate-preview` job was retired 2026-10-10, AECI-1268), on a `refresh-staging` dispatch (**staging**), on demo promote (**demo**) and on prod approval (**production**) — all three remote tiers, all through `scripts/d1-apply-migrations.sh`. The per-path table is §0 "Every path that deploys the API Worker". See [§0](#0-d1--drizzle-the-target-workflow) and `docs/CICD_PLAN.md` §5.
 
 The legacy `supabase db push` flow described here applied to the Postgres app schema and is retired (AECI-278). Any remaining Supabase **Auth** baseline reconciliation is the manual `supabase migration repair` decommission step (§10), not a CI auto-apply.
 

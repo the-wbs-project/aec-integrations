@@ -3,7 +3,8 @@
  * Managed ends on a product, an owner seat may blank the text the vendor wrote. Vendor
  * Terms promise this.
  *
- * Description, the "How teams use it" narrative and the two doc URLs only. Tags stay as
+ * Description, the summary (AECI-2198), the "How teams use it" narrative and
+ * the two doc URLs only. Tags stay as
  * catalog data, and reviews are not the vendor's. The window is computed from the license
  * end date, so nothing has to close it. `usefulness_source` and `maintained_by` stay, so
  * promote cannot refill the fields.
@@ -58,13 +59,23 @@ const DAY_MS = 86_400_000;
 
 const FIELD_COLUMN = {
   description: 'description',
+  summary: 'summary',
   usefulness: 'usefulness',
   tool_integrations_url: 'toolIntegrationsUrl',
   api_docs_url: 'apiDocsUrl',
 } as const satisfies Record<
   RemovalElectionField,
-  'description' | 'usefulness' | 'toolIntegrationsUrl' | 'apiDocsUrl'
+  'description' | 'summary' | 'usefulness' | 'toolIntegrationsUrl' | 'apiDocsUrl'
 >;
+
+/** The scalar columns the audit trail can prove a vendor wrote, with their wire names
+ *  (a vendor create's audit row lists wire names, not values). */
+const AUTHORED_COLUMNS = [
+  ['description', 'description'],
+  ['summary', 'summary'],
+  ['toolIntegrationsUrl', 'tool_integrations_url'],
+  ['apiDocsUrl', 'api_docs_url'],
+] as const;
 
 function utcDay(iso: string): number {
   const at = new Date(iso);
@@ -117,12 +128,17 @@ async function vendorAuthoredColumns(db: Db, productId: string): Promise<Set<str
     )
     .orderBy(desc(auditLog.createdAt), desc(auditLog.id));
   const current = await db.query.products.findFirst({
-    columns: { description: true, toolIntegrationsUrl: true, apiDocsUrl: true },
+    columns: {
+      description: true,
+      summary: true,
+      toolIntegrationsUrl: true,
+      apiDocsUrl: true,
+    },
     where: eq(products.id, productId),
   });
   const authored = new Set<string>();
   if (!current) return authored;
-  for (const column of ['description', 'toolIntegrationsUrl', 'apiDocsUrl'] as const) {
+  for (const [column, wire] of AUTHORED_COLUMNS) {
     for (const row of rows) {
       if ((row.source as { source?: unknown } | null)?.source !== AUDIT_SOURCE) continue;
       const after = (row.after ?? {}) as Record<string, unknown>;
@@ -132,8 +148,8 @@ async function vendorAuthoredColumns(db: Db, productId: string): Promise<Set<str
       }
       // A vendor-created product (AECI-1424): the create row lists wire fields, no values.
       const created = Array.isArray(after.fields) ? (after.fields as unknown[]) : [];
-      if (row.action === 'product.created' && column === 'description') {
-        if (created.includes('description')) authored.add(column);
+      if (row.action === 'product.created' && (column === 'description' || column === 'summary')) {
+        if (created.includes(wire)) authored.add(column);
         break;
       }
     }

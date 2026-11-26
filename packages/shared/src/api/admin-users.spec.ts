@@ -70,6 +70,8 @@ function detail(overrides: Record<string, unknown> = {}) {
       linkedin_url: null,
       audiences: [],
       onboarding: 'pending',
+      found_via: null,
+      found_via_detail: null,
     },
     ...overrides,
   };

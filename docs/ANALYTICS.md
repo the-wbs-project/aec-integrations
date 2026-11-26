@@ -149,7 +149,7 @@ summed with it.
 | `external_link_clicked` | the `[aecTrackExternalLink]` directive on outbound detail-page anchors | `destination`, `source`, `owner_vendor_id`, `link_origin`, `source_entity_type`, `source_entity_id`, `link_purpose` | **The one that matters most.** The outbound click to a vendor is what the product actually sells; see §6. `source` is `product_detail`, `vendor_detail`, `vendor_detail_social` or `pair_detail`. The five ownership properties arrived in AECI-933 and are always present: an unknown owner is `null`, never omitted. A pair's `source_entity_id` is its canonical `a:b` key. The values and the owner rule per surface are `VENDOR_PERFORMANCE_SPEC.md` §3.2. Events before AECI-933 shipped carry only `destination` and `source`. |
 | `review_submitted` | `reviews/review-form.ts` on submit success | `product_id` | Body text deliberately absent (§2). |
 | `review_update_submitted` | the "Add an update" form on `/account`, on submit success (AECI-1613) | `product_id`, `rerated` | `rerated` is `true` when the update carries new ratings. Body text deliberately absent (§2), as for `review_submitted`. A consented-slice count: `review_updates` is the full count. |
-| `onboarding_completed` | `welcome/welcome.ts` on save, and `account/account.ts` on the first "About you" save while onboarding is pending (AECI-1296) | `source`, `company_type`, `company_size`, `primary_role`, `audience_count` | `source` is `welcome` or `account`. The answers are the stored slugs (`ACCOUNT_ONBOARDING_SPEC.md` §2.1) or `null`. `undisclosed` ("I'd rather not say") is a legal slug and differs from `null` (not answered). **The firm name and LinkedIn URL are never sent** (§2): `Analytics.onboardingCompleted` copies the allowed keys only. A consented-slice count: `profile_details.onboarding_completed_at` is the full count. |
+| `onboarding_completed` | `welcome/welcome.ts` on save, and `account/account.ts` on the first "About you" save while onboarding is pending (AECI-1296) | `source`, `company_type`, `company_size`, `primary_role`, `audience_count`, `found_via` | `source` is `welcome` or `account`. **Since AECI-2208 (2026-11-26)** it carries `found_via`: the "How did you find us?" channel from the About you form, on `/welcome` or `/account`, or `null`. Never the follow-up text (§11b). The answers are the stored slugs (`ACCOUNT_ONBOARDING_SPEC.md` §2.1) or `null`. `undisclosed` ("I'd rather not say") is a legal slug and differs from `null` (not answered). **The firm name and LinkedIn URL are never sent** (§2): `Analytics.onboardingCompleted` copies the allowed keys only. A consented-slice count: `profile_details.onboarding_completed_at` is the full count. |
 | `onboarding_skipped` | "Skip for now" on `/welcome`, and "Not now" on the `/account` onboarding card (AECI-1296) | Same keys as `onboarding_completed` | The answers are `null` and `audience_count` is 0, because a skip stores none. `profile_details.onboarding_skipped_at` is the full count. |
 | `claim_requested` | `requests/request-form-body.ts` (the claim page and drawer) and `shared/claim-dialog/claim-dialog-flow.ts` (the claim dialog, AECI-1293), on submit success | `target_type`, `slug`, `request_id`, `confirmation_required`, `found_via` | See the deviation note below. From AECI-1293 to AECI-1365 (2026-10-12 to 2026-10-15) the event also carried `plan_interest` (`free`, `managed`, `not_sure` or `none`). AECI-1365 removed the plan question, so events after it carry no key. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`. `true` means the claim waits on the emailed link, so the event counts a submit, not a sent claim, and `request_id` is the pending id the claim takes on confirm. `claim_confirmed` counts the clicks. Events before 2026-10-21 carry no key and were all sent claims. **Since AECI-1063 (2026-10-29)** it carries `found_via`: the "How did you find us?" channel, or `null` when not answered. Only the allow-listed enum is copied, never the follow-up text (§11b). Events before 2026-10-29 carry no key. |
 | `claim_confirmed` | `claims/claim-confirm.ts`, when the "Confirm and send" button on `/claims/confirm` gets an answer (AECI-1435) | `kind`, `outcome` | `kind` is `claim`, `listing`, or `null` when the link resolved to nothing. `outcome` is `confirmed`, `already_confirmed`, `rejected`, `expired`, `not_found`, `gone` or `error`. `rejected` (2026-10-21) is a claim the AECI-1420 account check refused at confirm. Never the token, the email, or the other company's name (§2). The URL's `token` is stripped by the `before_send` sanitizer. Funnel: `claim_requested` with `confirmation_required: true` → `claim_confirmed` with `outcome: confirmed`. `request_confirmations` and `vendor_requests` are the full count. |
@@ -806,9 +806,11 @@ visit. The privacy policy says so.
 
 ## 11b. Self-reported attribution
 
-**Answer first.** Four forms, on five surfaces, ask one optional question: "How did you find AEC Integrations?". Some
+**Answer first.** Five forms, on seven surfaces, ask one optional question: "How did you find AEC Integrations?". Some
 answers open a short follow-up text box. The answers live in D1 on the row each form writes. PostHog
-gets the channel enum only. AECI-1063 built it. Chris ruled the scope on 2026-10-29.
+gets the channel enum only. AECI-1063 built it on four forms. Chris ruled the scope on 2026-10-29.
+AECI-2208 added the About you form, on `/welcome` and `/account`, on 2026-11-26, reversing that
+scope's onboarding exclusion.
 
 **Why.** Automatic attribution records UTM tags and the referrer (`buildAttribution` in
 `apps/web/src/app/shared/landing/landing-api.ts`). AI answer engines, word of mouth, LinkedIn and
@@ -823,8 +825,19 @@ AECI-1057.
 | Typed-in listing (claim dialog) | `POST /api/requests/listing` | `listing_requests` |
 | Mailing band, `/updates` | `POST /api/subscribe` | `mailing_list` |
 | Feedback form | `POST /api/feedback` | `feedback` |
+| About you on `/welcome` and `/account` (AECI-2208) | `PATCH /api/account` | `profile_details` |
 
-A correction does not ask. Onboarding does not ask (`ACCOUNT_ONBOARDING_SPEC.md` §11).
+A correction does not ask. On `/account` the field shows the stored answer
+(`ACCOUNT_ONBOARDING_SPEC.md` §2, question 8). `GET /api/account` returns the pair in `details`.
+
+**The About you differences.** `PATCH /api/account` has present-key semantics, so the two fields
+are `.optional()`, not `.default('')`. When `found_via` is present the server runs
+`normalizeFoundVia` and writes both columns. A `found_via_detail` without `found_via` is a 400.
+The `profile.updated` audit row keeps the channel by value in its before and after state, and
+names `found_via_detail` in `metadata.about_you_fields` without its text. That is the one
+exception to the AECI-1869 rule that no About-you value enters the audit record (Chris's ruling 1
+of 2026-11-26). The Privacy Policy's Retention list says the audit record keeps the choice, not
+the typed text. `onboarding_completed` carries the enum.
 
 **The contract.**
 
@@ -833,8 +846,8 @@ A correction does not ask. Onboarding does not ask (`ACCOUNT_ONBOARDING_SPEC.md`
 | Channel wire values | `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other` |
 | Choices with a follow-up | `ai_tool` ("What did you ask it?"), `search` ("What did you search for?"), `vendor`, `event`, `other` ("Tell us more") |
 | Follow-up length | 200 characters after trimming. Longer is `400 VALIDATION_FAILED`. |
-| Wire fields | `found_via: '' \| <channel>` and `found_via_detail: string`. Both default to `''`, so the keys may be omitted. |
-| Columns | `found_via text NULL`, `found_via_detail text NULL` on each of the four tables. No CHECK. |
+| Wire fields | `found_via: '' \| <channel>` and `found_via_detail: string`. The four original forms default both to `''`; account PATCH accepts optional, nullable fields with present-key semantics as described above. |
+| Columns | `found_via text NULL`, `found_via_detail text NULL` on each of the five tables. No CHECK. `profile_details` gained them in migration `0137`. |
 | Shared code | `packages/shared/src/api/found-via.ts`: `FOUND_VIA`, `FoundViaSchema`, `FOUND_VIA_FOLLOW_UP`, `FOUND_VIA_DETAIL_MAX`, `foundViaFields`, `normalizeFoundVia` |
 
 **Normalisation.** The server runs `normalizeFoundVia` before every write.
@@ -853,25 +866,31 @@ reactivation. An active address that sends no answer makes no new write, as befo
 **Erasure.** Deleting an account nulls `found_via_detail` on every row of the four tables whose
 address matches the session email, case-insensitively. The match columns are `mailing_list.email`,
 `feedback.email`, `vendor_requests.submitter_email` and `listing_requests.submitter_email`. The
-channel enum stays, so the counts survive. It runs in the erasure batch (`AUTH_AND_RLS.md` §8). A
+channel enum stays, so the counts survive. It runs in the erasure batch (`AUTH_AND_RLS.md` §8).
+The About you answer is different: `profile_details` is deleted with the profile by
+`ON DELETE CASCADE`, so the person drops out of the `account` counts. The `profile.updated` audit
+rows keep the channel, never the detail, for the audit record's retention period. A
 pending anonymous claim carries the answer in `request_confirmations.payload`. Erasure deletes that row
 already.
 
 **D1 is the source of truth.** The columns are the record. The enum may ride `claim_requested`,
-`listing_requested` and `mailing_list_signup` as `found_via` (§4). It never carries the detail. The
+`listing_requested`, `mailing_list_signup` and `onboarding_completed` as `found_via` (§4). It never carries the detail. The
 `vendor_request.created` and `listing_request.created` audit rows carry `found_via` (the enum, or
 `null`) in their metadata, and never the detail, because audit rows are forwarded to PostHog Logs.
+The `profile.updated` row carries it in `before_state` / `after_state` instead (AECI-2208).
 
 **Where operators read it.**
 
 - Per row: "Found us via" on the claim detail and queue, the listing-request queue, the
-  `/admin/subscribers` roster and the feedback inbox. The admin responses carry `found_via` and
+  `/admin/subscribers` roster, the feedback inbox and the admin user detail (AECI-2208). The admin responses carry `found_via` and
   `found_via_detail`.
 - In aggregate: the `found_via` block on `GET /api/admin/audience` (`API_CONTRACTS.md` §6.10). It
   counts each channel per form inside the window, plus an unanswered row. It lists the latest 100
   `ai_tool` and `search` answers with their form and date. Each form is windowed on its own
   `created_at`. A subscriber counts on the signup day, even when a later re-subscribe filled the
-  answer.
+  answer. The `account` form (AECI-2208) is `profile_details`, windowed on the row's `created_at`:
+  the first save or skip of the About you form. Its unanswered row counts every About you row
+  without an answer, including skips and `/account` saves.
 
 **Why no CHECK.** A CHECK change on SQLite is a drizzle-kit table recreate. `vendor_requests` and
 `listing_requests` have `SET NULL` children that hold the vendor terms evidence, and a recreate would
