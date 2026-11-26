@@ -27,7 +27,7 @@ Confirming data flows means answering Yes or No for each type of data an integra
 
 ## What no plan changes
 
-No plan changes where you rank or appear, or whether a review is published. Search order follows the same published rules for every listing. Completeness breaks ties, and every detail that counts toward it is editable on Free. [How ranking works](/docs/trust/how-ranking-works) sets out the rule.
+Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and phases tagged on its product, which can help it match more searches and appear on more category pages. No plan changes whether a review is published. Search order follows the same published rules for every listing. Completeness breaks ties, and every detail that counts toward it is editable on Free. [How ranking works](/docs/trust/how-ranking-works) sets out the rule.
 
 ## Where to go next
 

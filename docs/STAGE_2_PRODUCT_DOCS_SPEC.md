@@ -74,7 +74,9 @@
 > - **New buyer page** `getting-started/checking-before-you-buy` (B4). `claiming-your-listing` opens
 >   with what buyers see when a vendor claims (B5).
 > - **The plan panel line** is "No plan changes where you rank or appear, or whether a review is
->   published." (B2). The Plans list drops "what we verify" and ends on how an agreement label is
+>   published." (B2). *(Superseded 2026-11-26, AECI-2230: the line now reads "Payment never
+>   changes the order in which products are listed or returned in search, or whether a review is
+>   published.")* The Plans list drops "what we verify" and ends on how an agreement label is
 >   worked out.
 > - **"Cannot be bought" is stated in full once**, on `how-ranking-works` (B6). Elsewhere a page
 >   says how the order or label is worked out and links there. "Not bought" on `agreement-states`

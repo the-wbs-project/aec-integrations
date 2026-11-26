@@ -159,11 +159,11 @@ export const LEGAL_AGREEMENT_TEXT_SHA256 = {
     '1.0': '628113b220f006e9918498e538bf6c86e9d69046da70dc32ec4f16d8f8a71d52',
     '1.1': '9ab3fe5b38411a45e2d0c6e5134c4e44fe9b7b44ba385af669901c2e214b1ca0',
     '1.2': '5a9592f8db571b06352dede158bb442c2ebd5a7cc4ad29e8211391577dcae043',
-    '1.3': 'e94bca9b5bdbad730326c28f61f91f04c394474d2b55f8d10a03a366c5ffcdd4',
+    '1.3': '1260bad4f5329dc082c2434fb2b227483fbdb9cbb8eba204b64fe80429631adb',
   },
   managed_plan: {
     '1.0': '3f8e28e5e4309330aa9b5f1dd6cc51a572317c6f4691564fbb6f65b23797032d',
-    '1.1': '10615f853902c330628ebec9ce72c643cdc8b89a6708169f2333a792ff021dd1',
+    '1.1': 'ed83b28562faa8de2ead93743bbc282b13024b4e53adc1c6eae0ecc45ae41231',
   },
 } as const satisfies Record<LegalAgreementDocument, Record<string, string>>;
 
@@ -380,10 +380,10 @@ export const TERMS_CHANGE_BOX_LABEL = 'I have read and accept the updated Terms 
  * (`agreement_acceptances.plans_page_version`) and the SHA-256 of that version's snapshot
  * file (`plans_page_sha256`), so the record points at the page as it stood.
  */
-export const PLANS_PAGE_CURRENT_VERSION = '1.5';
+export const PLANS_PAGE_CURRENT_VERSION = '1.6';
 
 /** Every Plans version that was ever current, oldest first. The current one is last. */
-export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1', '1.2', '1.3', '1.4', '1.5'] as const;
+export const PLANS_PAGE_KNOWN_VERSIONS = ['1.0', '1.1', '1.2', '1.3', '1.4', '1.5', '1.6'] as const;
 
 /**
  * SHA-256 (lowercase hex) of each Plans version's snapshot file under
@@ -398,6 +398,7 @@ export const PLANS_PAGE_SHA256: Record<string, string> = {
   '1.3': '77d287d2955f34d4da76d05c40d0c467d2111b37c96602b9cd0201af7f32100e',
   '1.4': '946f6a799e36451a9eacffe34cec32bdd17090f6f296a5750b9e5c628c8d5046',
   '1.5': '521679dec809992c1ffb887c5e45b5481afeab66def47ffee3ba418e44c800df',
+  '1.6': '2deb2876ae14dffd923f99ad2d0a7e86049447070ef019263c2aac22c56ed1d6',
 };
 
 /** Whether `version` was ever a published Plans version. */

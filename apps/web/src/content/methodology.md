@@ -86,9 +86,9 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 ## No pay-for-placement
 
-Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up. [How ranking works](/docs/trust/how-ranking-works) names what does decide the order.
+Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and phases tagged on its product, which can help it match more searches and appear on more category pages. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up. [How ranking works](/docs/trust/how-ranking-works) names what does decide the order.
 
-Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These are the details that feed search, so no payment is needed to improve them. Every claimed vendor can also confirm or dispute the data its integrations move, on any plan. A Managed plan affects one further thing, and this is the complete list:
+Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These details feed search, and no payment is needed to edit them. Every claimed vendor can also confirm or dispute the data its integrations move, on any plan. A Managed plan affects one further thing, and this is the complete list:
 
 - which other product details a vendor may edit.
 
@@ -96,7 +96,7 @@ Every claimed vendor, on any plan, can also post a public reply to a review of i
 
 A vendor on Managed can also write the "How teams use it" section of its product pages. That text publishes without review by us. When the vendor wrote it, the page's "About this listing" panel says "Maintained by", the vendor's name and the date.
 
-A vendor plan never affects position in search or in any listing, whether a review is published or removed, or whether a listing exists at all.
+A vendor plan never affects the order in which products are listed or returned in search, whether a review is published or removed, or whether a listing exists at all.
 
 A vendor's reply to a review never affects ranking. It does not change the review, its rating, or the order of anything in search or in any listing.
 

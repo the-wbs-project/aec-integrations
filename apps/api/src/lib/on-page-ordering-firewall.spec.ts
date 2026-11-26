@@ -2,7 +2,8 @@
  * The on-page ordering firewall (AECI-1814, `STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion
  * 8; ruling R1 on AECI-1732).
  *
- * The Terms say ranking is "never influenced by payment". The other firewall tests
+ * The Terms say "Payment never changes the order in which products are listed or
+ * returned in search" (ruling 65, AECI-2230). The other firewall tests
  * cover search attributes, sort keys and `listing_tier` inputs. This one covers the
  * order of lists on a page: no on-page sort, default order or featured subset may read
  * an input that only a capability outside the Free set can change.

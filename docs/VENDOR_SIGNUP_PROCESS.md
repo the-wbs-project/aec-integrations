@@ -397,8 +397,8 @@ flowchart TD
 - **Vendor terms** (at claim): who "you" means (claimant and company, authority to bind), who may
   claim, truthfulness, content rights and licence to publish (incl. name and logo permission, no
   confidential content), AECi may edit or remove content, no vendor-arranged reviews, claimed is
-  not endorsed, plans never affect ranking or reviews, hand-back, seats and revocation, ending a
-  claim, personal data, liability, indemnity, governing law, how changes bind (30-day email),
+  not endorsed, what a plan does to listing order and reviews, hand-back, seats and revocation,
+  ending a claim, personal data, liability, indemnity, governing law, how changes bind (30-day email),
   general terms (precedence, notices, assignment, severability).
 - **Managed plan agreement** (at checkout): what a subscription is and does, prices and the two
   billing options, annual renewal and 45-day notice, monthly cancel-any-time, 14-day refund on first and renewal charges,

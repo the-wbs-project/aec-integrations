@@ -135,11 +135,12 @@ export function planLabel(name: PlanName): string {
 
 /**
  * Decision 10, word for word (§13.1), as reworded on 2026-10-09 (AECI-1265,
- * marketing review B2: "or what we verify" dropped). Every plan panel carries
- * it. One string with one id, so no panel can drift from it.
+ * marketing review B2: "or what we verify" dropped), and again on 2026-11-26
+ * (AECI-2230, counsel Q71, ruling 65: payment never changes the order).
+ * Every plan panel carries it. One string with one id, so no panel can drift from it.
  */
 export function noPlanChangesLine(): string {
-  return $localize`:@@vendor.plan.decision10:No plan changes where you rank or appear, or whether a review is published.`;
+  return $localize`:@@vendor.plan.decision10:Payment never changes the order in which products are listed or returned in search, or whether a review is published.`;
 }
 
 /**

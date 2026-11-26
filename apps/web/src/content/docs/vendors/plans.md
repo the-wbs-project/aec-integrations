@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-version: 1.5
+version: 1.6
 last_updated: November 26, 2026
 ---
 
@@ -55,7 +55,7 @@ Your plan also never decides:
 - whether a listing exists,
 - how an agreement label is worked out. Both companies' answers count the same.
 
-Each plan panel in your portal says the same: "No plan changes where you rank or appear, or whether a review is published." [How ranking works](/docs/trust/how-ranking-works) sets out the full rule and how we check it.
+Each plan panel in your portal says the same: "Payment never changes the order in which products are listed or returned in search, or whether a review is published." [How ranking works](/docs/trust/how-ranking-works) sets out the full rule and how we check it.
 
 ## When a Managed plan ends
 
@@ -99,7 +99,8 @@ Cancel monthly billing in **Manage billing in Stripe** on the Billing tab, or by
 
 We record this page as a dated version. A checkout or a granted subscription records the version current when you accepted.
 
-- [Version 1.5](/docs/vendors/plans/v1.5) (this version): recorded November 26, 2026. Adds each product's summary, the one line under its name, to the fields every plan edits and to the text an owner can remove after a subscription ends.
+- [Version 1.6](/docs/vendors/plans/v1.6) (this version): recorded November 26, 2026. Quotes the plan panel's new line: payment never changes the order in which products are listed or returned in search, or whether a review is published.
+- [Version 1.5](/docs/vendors/plans/v1.5): recorded November 26, 2026. Adds each product's summary, the one line under its name, to the fields every plan edits and to the text an owner can remove after a subscription ends.
 - [Version 1.4](/docs/vendors/plans/v1.4): recorded November 25, 2026. Says that a subscription already on a product that can no longer hold one keeps renewing there until it is released or ends.
 - [Version 1.3](/docs/vendors/plans/v1.3): recorded November 24, 2026. Says which products can hold a subscription: a Sync Service can, an integration platform cannot.
 - [Version 1.2](/docs/vendors/plans/v1.2): recorded November 24, 2026. Confirming data flows moves from Managed to every plan.

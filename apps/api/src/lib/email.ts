@@ -1122,7 +1122,7 @@ export function sendClaimApprovedEmail(
     "Managed adds more to each product. It is sold as subscriptions on your company's billing account, and each subscription goes on one product. You can subscribe a product later from Billing in your vendor portal.";
 
   const accountStatus =
-    'A vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and no plan changes where you rank or appear.';
+    'A vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and payment never changes the order in which products are listed or returned in search.';
 
   const shared = (link: LinkTagger) => ({
     preheader: `You can now manage ${name} on AEC Integrations.`,

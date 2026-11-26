@@ -609,7 +609,10 @@ describe('sendClaimApprovedEmail', () => {
     // No Managed-only promise, and no AECI-1215 Managed variant.
     expect(text).not.toContain('attestation');
     // Account-state framing, not a product endorsement (no pay-for-placement).
-    expect(text).toContain('no plan changes where you rank or appear');
+    expect(text).toContain(
+      'payment never changes the order in which products are listed or returned in search',
+    );
+    expect(text).not.toContain('where you rank or appear');
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
     expect(text).not.toContain('—');
     expect(text).not.toContain('The AEC Integrations team');

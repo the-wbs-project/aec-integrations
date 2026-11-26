@@ -22,8 +22,10 @@ its terms.
 
 1. **Listing is free forever, and buyers never pay.** Claiming a company costs nothing. Every
    claimed company gets Free seats.
-2. **Price never touches ranking.** No plan, discount or deal changes where a product ranks,
-   whether it appears, or whether a review is published (`PRODUCT.md`, "No pay-for-placement").
+2. **Price never touches ranking.** No plan, discount or deal changes the order in which
+   products are listed or returned in search, or whether a review is published (`PRODUCT.md`,
+   "No pay-for-placement"). A paid plan can put a product on more category pages, because it
+   lets a vendor edit its trades, audiences and phases (counsel ruling 65, AECI-2230).
 3. **Managed is priced per product, not per seat or per company.** Seats have no price and no
    limit.
 4. **Prices are public.** The list price is on the site. Prices are in US dollars and exclude tax.

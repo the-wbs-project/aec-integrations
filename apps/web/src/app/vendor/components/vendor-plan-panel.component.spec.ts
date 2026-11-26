@@ -37,7 +37,8 @@ import { expectVendorDocsLink } from './vendor-docs-link.testing';
 const DAY_MS = 86_400_000;
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
 // Reworded by AECI-1265 (marketing review B2): "or what we verify" is gone.
-const DECISION_10 = 'No plan changes where you rank or appear, or whether a review is published.';
+const DECISION_10 =
+  'Payment never changes the order in which products are listed or returned in search, or whether a review is published.';
 const PRICE_LINE = 'Managed is $25 a month or $250 a year per product.';
 
 beforeEach(() => {
@@ -331,7 +332,9 @@ describe('VendorPlanPanel: copy every panel carries', () => {
   });
 
   it.each(ALL)('leaks no arrangement detail (%s)', (_name, plan, role) => {
-    expect(text(create(plan, role))).not.toMatch(
+    // Decision 10's line says "Payment never changes the order" (ruling 65, AECI-2230).
+    // It is the ranking promise, not an arrangement detail, so it is checked on its own.
+    expect(text(create(plan, role)).replace(DECISION_10, '')).not.toMatch(
       /invoice|purchase order|\bPO\b|payment|billing|per year|\/yr/i,
     );
   });

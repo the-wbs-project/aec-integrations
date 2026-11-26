@@ -241,8 +241,12 @@ describe('LegalPage', () => {
   const ONE_DIRECTIONAL =
     'This section limits what we can owe you. It does not limit what you owe us.';
   const OLD_ONE_DIRECTIONAL = 'that exclusion applies only to claims against us';
-  // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
-  const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
+  // Ruling 65 (AECI-2230, counsel Q71): the ranking promise both agreements carry.
+  const RANKING =
+    'Payment never changes the order in which products are listed or returned in search. ' +
+    'A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and ' +
+    'phases tagged on its product, which can help it match more searches and appear on more ' +
+    'category pages. No plan changes whether a review is published.';
 
   function paragraphs(article: Element): string[] {
     return Array.from(article.querySelectorAll('p')).map((p) =>
@@ -291,8 +295,9 @@ describe('LegalPage', () => {
         expect(article.textContent).toContain(ONE_DIRECTIONAL);
         expect(article.textContent).not.toContain('This limit covers our liability only');
         expect(article.textContent).not.toContain(OLD_ONE_DIRECTIONAL);
-        expect(article.textContent).toContain(RANKING);
-        expect(h2s(article)).toContain('Plans never affect ranking or reviews');
+        expect(paragraphs(article).some((p) => p.startsWith(RANKING))).toBe(true);
+        expect(article.textContent).not.toContain('where you rank or appear');
+        expect(h2s(article)).toContain('Plans, listing order and reviews');
         expect(article.textContent?.toLowerCase()).not.toContain('arbitration');
         expect(article.textContent?.toLowerCase()).not.toContain('class action');
         // Sits under the ToS and references it rather than restating it.
@@ -309,7 +314,7 @@ describe('LegalPage', () => {
         'Truthfulness',
         'Your content and our license to publish it',
         'We may edit or remove content',
-        'Plans never affect ranking or reviews',
+        'Plans, listing order and reviews',
         'When Managed ends on a product',
         'Seats and revocation',
         'Disputes',
@@ -345,7 +350,7 @@ describe('LegalPage', () => {
       'If you give up your claim',
       'Limit of liability',
       'Changes to this agreement',
-      'Plans never affect ranking or reviews',
+      'Plans, listing order and reviews',
       'Renewal notice',
       'No promise of results',
       'Term and survival',

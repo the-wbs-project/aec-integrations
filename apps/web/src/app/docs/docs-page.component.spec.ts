@@ -78,7 +78,9 @@ describe('DocsPageComponent', () => {
     const prose = host.querySelector('.aec-prose')!;
     expect(prose.querySelector('a[href="/search"]')).not.toBeNull();
     expect(prose.querySelectorAll('ul').length).toBeGreaterThan(2);
-    expect(prose.textContent).toContain('No plan, at any price, changes');
+    expect(prose.textContent).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
   });
 
   it('shows only Next on the first page of a section', () => {

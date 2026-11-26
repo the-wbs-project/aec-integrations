@@ -692,12 +692,14 @@ describe('docs manifest', () => {
   });
 
   // AECI-1265 B2: the panel line and the Plans list, as approved 2026-10-09.
+  // AECI-2230 (ruling 65): the panel line now ties the promise to order.
   it('quotes the reworded plan panel line and the Why buyers trust the order list', () => {
     const page = getDocsPage('vendors', 'plans')!;
     const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
     expect(text).toContain(
-      'No plan changes where you rank or appear, or whether a review is published.',
+      'Payment never changes the order in which products are listed or returned in search, or whether a review is published.',
     );
+    expect(text).not.toContain('where you rank or appear');
     expect(text).toContain(
       "how an agreement label is worked out. Both companies' answers count the same.",
     );
@@ -765,7 +767,10 @@ describe('docs manifest', () => {
       );
     }
     const ranking = getDocsPage('trust', 'how-ranking-works')!.html;
-    expect(ranking).toContain('No plan, at any price, changes');
+    expect(ranking).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
+    expect(ranking).not.toContain('never where it appears');
   });
 
   // AECI-1265 B7: the connector contest list uses the labels the form shows.
@@ -846,7 +851,9 @@ describe('docs manifest', () => {
     // The two signals that order search, and the ruled review-count tie-break.
     expect(text).toContain('completeness decides');
     expect(text).toContain('the number of published reviews');
-    expect(text).toContain('No plan, at any price, changes');
+    expect(text).toContain(
+      'Payment never changes the order in which products are listed or returned in search.',
+    );
   });
 
   it('carries no screenshots at v0', () => {

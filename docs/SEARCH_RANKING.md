@@ -541,7 +541,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 
 ## 7a. Substantiation and retention (AECI-1621)
 
-The Terms say ranking is never influenced by payment. Under Florida's unfair trade practices law (FDUTPA, Fla. Stat. 501.204) that claim is defended with records held when it was made (counsel Q23, `LEGAL_COUNSEL_RECORD.md`). This section lists every such record and where it lives. **Each one is kept at least four years**, the limitations period counsel named, and longer under a litigation hold (`runbooks/legal.md` "Litigation hold notice").
+The Terms say "Payment never changes the order in which products are listed or returned in search" (since 2026-11-26, AECI-2230, counsel ruling 65). Under Florida's unfair trade practices law (FDUTPA, Fla. Stat. 501.204) that claim is defended with records held when it was made (counsel Q23, `LEGAL_COUNSEL_RECORD.md`). This section lists every such record and where it lives. **Each one is kept at least four years**, the limitations period counsel named, and longer under a litigation hold (`runbooks/legal.md` "Litigation hold notice").
 
 | Record | Where it lives | How it is kept |
 |---|---|---|
