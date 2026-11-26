@@ -137,12 +137,33 @@ test('the request form: Escape with the select open closes only the list', async
   await page.goto(PROCORE);
   await untilAppStable(page);
   await open(page, '[data-testid="request-correction"]', '[data-testid="request-form"]');
+  // Count every Escape keydown that reaches the form, before the directive sees it.
+  await page.locator('[data-testid="request-form"]').evaluate((form) => {
+    const w = window as unknown as { formEscapes: number };
+    w.formEscapes = 0;
+    form.addEventListener(
+      'keydown',
+      (e) => {
+        if ((e as KeyboardEvent).key === 'Escape') w.formEscapes += 1;
+      },
+      true,
+    );
+  });
+  const formEscapes = () =>
+    page.evaluate(() => (window as unknown as { formEscapes: number }).formEscapes);
   const select = page.locator('#request-field');
   await select.click();
-  // Chromium reports the native list as open, and still sends the Escape to the page.
   await expect.poll(() => select.evaluate((el) => el.matches(':open'))).toBe(true);
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await expect.poll(() => select.evaluate((el) => el.matches(':open'))).toBe(false);
+  const reached = await formEscapes();
+  // The guard only matters while Chromium passes this Escape to the page. If a later
+  // Chromium stops doing that, this test proves nothing, so it says so rather than pass.
+  test.skip(
+    reached === 0,
+    'This Chromium no longer sends Escape on an open native select to the page, so the :open guard is not exercised.',
+  );
+  expect(reached).toBe(1);
   await expect(page.locator('[data-testid="request-form"]')).toBeVisible();
   // With the list closed, the next Escape is the form's.
   await page.locator('#change-requests-form-title').click();

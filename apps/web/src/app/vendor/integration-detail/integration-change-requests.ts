@@ -1304,15 +1304,16 @@ export class IntegrationChangeRequests {
     this.focus(contestItemId(contest.id));
   }
 
-  /** Cancel or Escape: focus returns to the button that opened the form (§6.17.9). The
-   *  toolbar's "Request a correction" is re-created when the form closes, so it is
-   *  found again. The section heading is the last resort. */
+  /** Cancel or Escape: focus returns to the button that opened the form (§6.17.9),
+   *  found again by its `data-testid` (`request-<field>`, `ask-owner`,
+   *  `request-correction`) once the page re-renders, as the answer form does. Then the
+   *  toolbar button, and the section heading as the last resort. */
   protected closeForm(): void {
     const opener = this.state.closeRequestForm();
     afterNextRender(
       () => {
         const target =
-          (opener?.isConnected ? opener : null) ??
+          (opener ? this.document.querySelector<HTMLElement>(`[data-testid="${opener}"]`) : null) ??
           this.document.querySelector<HTMLElement>('[data-testid="request-correction"]') ??
           this.document.getElementById('change-requests-heading');
         target?.focus();

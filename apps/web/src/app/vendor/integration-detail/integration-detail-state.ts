@@ -185,20 +185,21 @@ export class IntegrationDetailState {
     this.jumpHandler?.(target);
   }
 
-  /** The button that opened the request form, so Cancel and Escape can return to it. */
-  private requestOpener: HTMLElement | null = null;
+  /** The `data-testid` of the button that opened the request form, so Cancel and
+   *  Escape can find it again after its row re-renders. */
+  private requestOpener: string | null = null;
 
   /** Open the request form with a field chosen, and move to it (§6.17.3). `opener` is
    *  the clicked button (`$event.currentTarget`); focus returns there on Cancel. */
   openRequestForm(field: OfferedContestField | null, opener: EventTarget | null = null): void {
     this.requestQuery.set('');
-    this.requestOpener = isFocusable(opener) ? opener : null;
+    this.requestOpener = openerTestId(opener);
     this.requestForm.set({ field, seq: ++this.formSeq });
     this.jumpHandler?.('change-requests-form');
   }
 
-  /** Close the request form. Returns the button that opened it, if one was recorded. */
-  closeRequestForm(): HTMLElement | null {
+  /** Close the request form. Returns the opener's `data-testid`, if one was recorded. */
+  closeRequestForm(): string | null {
     const opener = this.requestOpener;
     this.requestOpener = null;
     this.requestForm.set(null);
@@ -614,10 +615,9 @@ export function answerErrorMessage(err: unknown): string {
   return genericAnswerError();
 }
 
-function isFocusable(target: EventTarget | null): target is HTMLElement {
-  return (
-    target !== null &&
-    typeof (target as Partial<HTMLElement>).focus === 'function' &&
-    'isConnected' in target
-  );
+function openerTestId(target: EventTarget | null): string | null {
+  const getAttribute = (target as Partial<Element> | null)?.getAttribute;
+  return typeof getAttribute === 'function'
+    ? (getAttribute.call(target, 'data-testid') ?? null)
+    : null;
 }

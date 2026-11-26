@@ -391,6 +391,7 @@ describe('the request form', () => {
     const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
     // A "Request a change" button on an Overview row, outside this section.
     const opener = document.createElement('button');
+    opener.setAttribute('data-testid', 'request-description');
     document.body.appendChild(opener);
     try {
       state.openRequestForm('description', opener);
@@ -410,6 +411,32 @@ describe('the request form', () => {
       expect(document.activeElement).toBe(opener);
     } finally {
       opener.remove();
+    }
+  });
+
+  it('finds a re-rendered opener again by its data-testid (AECI-2133)', async () => {
+    const api = makeApi([INTEGRATION_PROCORE_DETAIL], PROCORE_CONTESTS);
+    const { state } = await setup(api, INTEGRATION_PROCORE_DETAIL);
+    const fixture = await mount(IntegrationChangeRequests, INTEGRATION_PROCORE_DETAIL);
+    const first = document.createElement('button');
+    first.setAttribute('data-testid', 'request-description');
+    document.body.appendChild(first);
+    let second: HTMLButtonElement | null = null;
+    try {
+      state.openRequestForm('description', first);
+      await settle(fixture);
+      // The Overview row re-renders: its button is a new element with the same testid.
+      first.remove();
+      second = document.createElement('button');
+      second.setAttribute('data-testid', 'request-description');
+      document.body.appendChild(second);
+      el(fixture).querySelector<HTMLTextAreaElement>('#request-reason')!.dispatchEvent(escape());
+      await settle(fixture);
+      expect(state.requestForm()).toBeNull();
+      expect(document.activeElement).toBe(second);
+    } finally {
+      first.remove();
+      second?.remove();
     }
   });
 
