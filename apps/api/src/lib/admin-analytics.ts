@@ -760,6 +760,12 @@ export interface BreakdownPage {
   rows: AdminBreakdownRow[];
   /** Distinct groups in the window (the paginated `total`). */
   groups: number;
+  /**
+   * The population's total for the window, read off the grouped statement
+   * (AECI-2225), or `undefined` when the dimension's groups do not partition the
+   * population (`product`) and the caller must count it separately.
+   */
+  windowTotal?: AdminCount;
 }
 
 /**
@@ -781,6 +787,20 @@ export interface BreakdownPage {
 const GROUPS_IN_RESULT = sql<number>`count(*) over ()`.mapWith(Number);
 
 /**
+ * The window's row total, read off the same grouped statement (AECI-2225).
+ *
+ * `sum(count(*)) over ()` adds every group's count, NULL bucket included, so on a
+ * dimension whose groups partition the population it IS `window_total`. That
+ * holds for every dimension except `product`, where a pair-page view counts once
+ * per endpoint and most views name no product. Before this, each of the six
+ * breakdowns the Traffic screen loads ran a separate `count(*)` over the same
+ * window, the same figure six times. On demo that was ~0.4 s of D1 time per copy
+ * for the 30-day bot window, and it is what tipped one filter click past D1's
+ * per-database budget (`D1 DB is overloaded`).
+ */
+const WINDOW_ROWS_IN_RESULT = sql<number>`sum(count(*)) over ()`.mapWith(Number);
+
+/**
  * `total` for one page. A page past the end has no row to carry the window
  * value, and `total` must still be the distinct-group count (`API_CONTRACTS.md`),
  * so only that case re-runs the statement for its first row. An empty first page
@@ -794,6 +814,18 @@ async function groupsTotal(
   if (rows[0]) return rows[0].groups;
   if (page === 1) return 0;
   return (await firstRow())[0]?.groups ?? 0;
+}
+
+/** {@link groupsTotal}'s twin for the window row total: same page-past-the-end
+ *  rule, same single re-run of the first row. */
+async function windowRowsTotal(
+  rows: readonly { windowRows: number }[],
+  page: number,
+  firstRow: () => Promise<readonly { windowRows: number }[]>,
+): Promise<number> {
+  if (rows[0]) return rows[0].windowRows;
+  if (page === 1) return 0;
+  return (await firstRow())[0]?.windowRows ?? 0;
 }
 
 /**
@@ -897,7 +929,12 @@ export async function breakdown(
   // and this query is paginated, so the second term is what keeps the order total.
   const pageOf = (limit: number, off: number) =>
     db
-      .select({ key: column, views: count(), groups: GROUPS_IN_RESULT })
+      .select({
+        key: column,
+        views: count(),
+        groups: GROUPS_IN_RESULT,
+        windowRows: WINDOW_ROWS_IN_RESULT,
+      })
       .from(pageViews)
       .where(base)
       .groupBy(column)
@@ -918,7 +955,12 @@ export async function breakdown(
       )
     : null;
 
-  const groups = await groupsTotal(rows, page, () => pageOf(1, 0));
+  // A page past the end re-runs the first row once and serves both totals off it.
+  // Memoised as a settled Promise: a Drizzle builder re-executes on every await.
+  let firstRowMemo: Promise<Awaited<ReturnType<typeof pageOf>>> | undefined;
+  const firstRow = () => (firstRowMemo ??= Promise.resolve(pageOf(1, 0)));
+  const groups = await groupsTotal(rows, page, firstRow);
+  const windowRows = await windowRowsTotal(rows, page, firstRow);
 
   // `dimension=asn` groups a numeric column, so the key is stringified for the
   // contract (`AdminBreakdownRowSchema.key` is `string | null` across every
@@ -947,6 +989,12 @@ export async function breakdown(
       asn_registry:
         annotations && typeof r.key === 'number' ? (annotations.get(r.key) ?? null) : null,
     })),
+    // The filtered map holds every group (it is not paginated), so its sum is the
+    // filtered window total, again with no extra statement.
+    windowTotal: {
+      total: windowRows,
+      excluding_internal: filtered ? [...filtered.values()].reduce((a, b) => a + b, 0) : null,
+    },
   };
 }
 

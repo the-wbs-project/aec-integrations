@@ -6476,6 +6476,14 @@ was captured by the 00:15 cron, `live` when none was, `mixed` otherwise. **`mixe
 is the normal case, not an edge** — the cron captures the prior COMPLETE UTC day,
 so any window reaching today has an uncovered day by construction.
 
+**The live read spans only the uncovered days (AECI-2225).** When any day is
+uncovered, one live query runs from the first uncovered day to the last, not over
+the whole window. Every live series is a per-day bucket and a captured day takes its
+stored value regardless, so the covered days cost D1 time for nothing. With a warm
+snapshot a 30-day `traffic.*` read becomes a read of today alone. `exclude_internal=1`
+and `basis=net` skip the snapshot, so for them every day is uncovered and the live
+read still spans the whole window.
+
 **`source: 'snapshot'` does not mean "final" (AECI-827 / ADR 0027).** `NOT_INTERNAL`'s
 operator retro-join is anchored on each page view's own timestamp with a symmetric
 ±`OPERATOR_PAIR_LOOKBACK_DAYS` window, so the three raw `traffic.*` values for a
@@ -6634,6 +6642,11 @@ page (`count(*) over ()`, AECI-1492), so a page past the end still reports it. `
 for the whole window — the same figure for every dimension — so a row's share is
 computable without a second request; for `dimension=product` the groups therefore
 sum to less than it (most views are not product pages), which is deliberate.
+On the other five dimensions the groups partition the population, NULL bucket
+included, so `window_total` is read off the same grouped statement as
+`sum(count(*)) over ()` rather than counted again (AECI-2225). Its
+`excluding_internal` half is the sum of the filtered pass, which is not paginated.
+Only `dimension=product` still runs a separate window count.
 
 **NULL groups are shown, not dropped** (`key: null`): a row with no
 `referrer_source` or `cf_country` gets its own bucket, so the groups reconcile

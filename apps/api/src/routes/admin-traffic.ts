@@ -24,7 +24,8 @@
  * would return a single empty bucket.
  *
  * **`window_total` is the population's total for the whole window**, the same
- * figure for every dimension. For `dimension=product` the groups therefore sum to
+ * figure for every dimension. On every dimension but `product` it is read off the
+ * grouped statement rather than counted again (AECI-2225). For `dimension=product` the groups therefore sum to
  * LESS than it (most views are not product pages); that is intentional and lets
  * the UI show "product pages were N% of traffic" without a second request.
  */
@@ -82,11 +83,14 @@ export function createAdminTrafficBreakdownHandler(
     // decides the population here rather than trusting the caller.
     const traffic = query.dimension === 'bot' ? 'bot' : query.traffic;
 
-    const [page, windowTotal, biasNotes] = await Promise.all([
+    const [page, biasNotes] = await Promise.all([
       breakdown(db, query.dimension, w, traffic, filter, query.page, query.perPage),
-      countViewsBoth(db, w, traffic, filter),
       trafficNotes(db, w, { sources: query.dimension === 'source' }),
     ]);
+    // Five dimensions read the window total off the grouped statement (AECI-2225).
+    // `product` cannot, because its groups do not partition the population, so it
+    // still counts the window separately.
+    const windowTotal = page.windowTotal ?? (await countViewsBoth(db, w, traffic, filter));
 
     const notes: AdminNote[] = [...biasNotes, internalFilterNote(filter)];
     if (isPartial(w, now)) {

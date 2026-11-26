@@ -144,14 +144,33 @@ export class AdminTraffic {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
+  /** Bumped on every load, so a slower, older load can never overwrite a newer one. */
+  private loadSeq = 0;
+
+  /** The window (range + internal filter) the shown day series and crawler
+   *  breakdown were read for, or null before the first full load lands. */
+  private windowShown: string | null = null;
+
+  private windowKey(from: string, to: string, excludeInternal: boolean): string {
+    return `${from}|${to}|${excludeInternal}`;
+  }
+
   /**
-   * All nine reads in parallel. They share a window and are independent, so
-   * serialising them would multiply the slowest round trip by nine for no gain;
-   * a single `Promise.all` also means one error state rather than nine partial
-   * ones, which is the honest thing to show for a page whose sections must
+   * The reads behind the screen, in parallel. They share a window and are
+   * independent, so serialising them would multiply the slowest round trip for no
+   * gain; a single `Promise.all` also means one error state rather than several
+   * partial ones, which is the honest thing to show for a page whose sections must
    * reconcile against the same `window_total`.
+   *
+   * `scope: 'population'` is the Traffic type toggle (AECI-2225). It re-reads only
+   * the five breakdowns that take `traffic`. The three day series and the crawler
+   * breakdown do not depend on it (`dimension=bot` forces the bot population), so
+   * re-reading them spent D1 time for an identical answer. Every one of these reads
+   * is a live aggregate over `page_views`, and one toggle used to fire nine of
+   * them, enough to exhaust D1's per-database budget (`D1 DB is overloaded`).
    */
-  private async load(): Promise<void> {
+  private async load(scope: 'all' | 'population' = 'all'): Promise<void> {
+    const seq = ++this.loadSeq;
     const { from, to } = this.utcRange();
     const traffic = this.population();
     const excludeInternal = this.excludeInternal();
@@ -159,31 +178,49 @@ export class AdminTraffic {
     this.loadFailed.set(false);
     this.loading.set(true);
     try {
-      const [human, bot, visitors, sources, pages, products, countries, crawlers, networks] =
-        await Promise.all([
-          this.api.timeseries({ metric: 'traffic.page_views_human', from, to, excludeInternal }),
-          this.api.timeseries({ metric: 'traffic.page_views_bot', from, to, excludeInternal }),
-          this.api.timeseries({ metric: 'traffic.unique_visitors', from, to, excludeInternal }),
-          this.breakdown('source', from, to, traffic, excludeInternal),
-          this.breakdown('path', from, to, traffic, excludeInternal),
-          this.breakdown('product', from, to, traffic, excludeInternal),
-          this.breakdown('country', from, to, traffic, excludeInternal),
-          this.breakdown('bot', from, to, traffic, excludeInternal),
-          this.breakdown('asn', from, to, traffic, excludeInternal),
-        ]);
-      this.humanSeries.set(human);
-      this.botSeries.set(bot);
-      this.visitorSeries.set(visitors);
+      const byPopulation = Promise.all([
+        this.breakdown('source', from, to, traffic, excludeInternal),
+        this.breakdown('path', from, to, traffic, excludeInternal),
+        this.breakdown('product', from, to, traffic, excludeInternal),
+        this.breakdown('country', from, to, traffic, excludeInternal),
+        this.breakdown('asn', from, to, traffic, excludeInternal),
+      ]);
+      const windowOnly =
+        scope === 'all'
+          ? Promise.all([
+              this.api.timeseries({
+                metric: 'traffic.page_views_human',
+                from,
+                to,
+                excludeInternal,
+              }),
+              this.api.timeseries({ metric: 'traffic.page_views_bot', from, to, excludeInternal }),
+              this.api.timeseries({ metric: 'traffic.unique_visitors', from, to, excludeInternal }),
+              this.breakdown('bot', from, to, traffic, excludeInternal),
+            ])
+          : null;
+      const [[sources, pages, products, countries, networks], windowReads] = await Promise.all([
+        byPopulation,
+        windowOnly,
+      ]);
+      if (seq !== this.loadSeq) return;
       this.sources.set(sources);
       this.pages.set(pages);
       this.products.set(products);
       this.countries.set(countries);
-      this.crawlers.set(crawlers);
       this.networks.set(networks);
+      if (windowReads) {
+        const [human, bot, visitors, crawlers] = windowReads;
+        this.humanSeries.set(human);
+        this.botSeries.set(bot);
+        this.visitorSeries.set(visitors);
+        this.crawlers.set(crawlers);
+        this.windowShown = this.windowKey(from, to, excludeInternal);
+      }
     } catch {
-      this.loadFailed.set(true);
+      if (seq === this.loadSeq) this.loadFailed.set(true);
     } finally {
-      this.loading.set(false);
+      if (seq === this.loadSeq) this.loading.set(false);
     }
   }
 
@@ -230,7 +267,12 @@ export class AdminTraffic {
   protected setPopulation(next: AdminTrafficPopulation): void {
     if (this.population() === next) return;
     this.population.set(next);
-    void this.load();
+    // Re-read only the population's breakdowns when the series on screen already
+    // belong to this window. Otherwise (first load still running, superseded, or a
+    // range change not yet landed) re-read everything.
+    const { from, to } = this.utcRange();
+    const current = this.windowShown === this.windowKey(from, to, this.excludeInternal());
+    void this.load(current ? 'population' : 'all');
   }
 
   /** Presentational only — deliberately does NOT reload (§9.5). */

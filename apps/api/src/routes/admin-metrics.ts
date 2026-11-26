@@ -183,12 +183,19 @@ export function createAdminTimeseriesHandler(
       filter.applied || net ? new Map() : await snapshotSeries(db, query.metric, w);
     const uncovered = days.filter((day) => !snapshot.has(day));
 
-    // One live query covering the whole window, run only when something is
-    // missing from the snapshot — which, because today is never captured, is the
-    // common case rather than the exception.
+    // One live query, run only when something is missing from the snapshot —
+    // which, because today is never captured, is the common case rather than the
+    // exception. It spans the first to the last UNCOVERED day, not the whole
+    // window (AECI-2225): every live series is a per-day bucket, and a captured day
+    // takes its stored value below anyway, so walking `page_views` for covered days
+    // was pure cost. With a warm snapshot that narrows a 30-day traffic read to
+    // today alone. When the snapshot is skipped (`exclude_internal`, `net`) every
+    // day is uncovered and the span is the whole window, as before.
+    const liveWindow =
+      uncovered.length > 0 ? utcRangeWindow(uncovered[0]!, uncovered[uncovered.length - 1]!) : w;
     const live =
       uncovered.length > 0 && !snapshotOnly
-        ? await metricSeries(db, query.metric, w, filter, query.basis)
+        ? await metricSeries(db, query.metric, liveWindow, filter, query.basis)
         : { perDay: new Map<string, number>(), perDayFiltered: null };
     const { perDay, perDayFiltered } = live;
 

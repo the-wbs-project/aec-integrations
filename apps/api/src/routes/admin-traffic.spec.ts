@@ -345,6 +345,54 @@ describe('GET /api/admin/traffic/breakdown — one statement per page (AECI-1492
   });
 });
 
+describe('GET /api/admin/traffic/breakdown — window_total off the grouped statement (AECI-2225)', () => {
+  /** Every `page_views` statement that does NOT group: the window counts. */
+  async function ungroupedCounts(query: string): Promise<string[]> {
+    const original = t.raw.prepare.bind(t.raw);
+    const seen: string[] = [];
+    const spy = vi.spyOn(t.raw, 'prepare').mockImplementation((sql: string) => {
+      if (/from\s+"page_views"/i.test(sql) && !/group by/i.test(sql)) seen.push(sql);
+      return original(sql);
+    });
+    try {
+      await breakdown(query);
+    } finally {
+      spy.mockRestore();
+    }
+    return seen;
+  }
+
+  beforeEach(seed);
+
+  it('runs no separate window count on the five partitioning dimensions', async () => {
+    for (const dimension of ['source', 'country', 'path', 'bot', 'asn']) {
+      const seen = await ungroupedCounts(`dimension=${dimension}&${RANGE}`);
+      // What remains are the note counts: unclassified rows, plus missing
+      // referrers on `source`. A separate window count would add one more.
+      expect(seen.length, dimension).toBe(dimension === 'source' ? 2 : 1);
+    }
+  });
+
+  it('product still counts the window separately, because its groups do not partition it', async () => {
+    const seen = await ungroupedCounts(`dimension=product&${RANGE}`);
+    // The unclassified-rows note count, plus the window count.
+    expect(seen).toHaveLength(2);
+  });
+
+  it('reports the same window_total on every dimension and population', async () => {
+    for (const traffic of ['human', 'bot', 'all'] as const) {
+      const expected = (await breakdown(`dimension=product&${RANGE}&traffic=${traffic}`))
+        .window_total;
+      for (const dimension of ['source', 'country', 'path', 'asn']) {
+        const body = await breakdown(`dimension=${dimension}&${RANGE}&traffic=${traffic}`);
+        expect(body.window_total, `${dimension}/${traffic}`).toEqual(expected);
+      }
+    }
+    const bots = await breakdown(`dimension=product&${RANGE}&traffic=bot`);
+    expect((await breakdown(`dimension=bot&${RANGE}`)).window_total).toEqual(bots.window_total);
+  });
+});
+
 describe('GET /api/admin/traffic/breakdown — pagination over groups', () => {
   beforeEach(async () => {
     // Nine distinct countries with a strictly decreasing view count, so ordering
@@ -387,12 +435,21 @@ describe('GET /api/admin/traffic/breakdown — pagination over groups', () => {
     const body = await breakdown(`dimension=country&${RANGE}&perPage=4&page=5`);
     expect(body.data).toEqual([]);
     expect(body.total).toBe(9);
+    // AECI-2225: window_total rides the same fallback, so it is still every row.
+    expect(body.window_total).toEqual({ total: 45, excluding_internal: null });
+  });
+
+  it('reports the whole window as window_total, not just the page (AECI-2225)', async () => {
+    const body = await breakdown(`dimension=country&${RANGE}&perPage=4`);
+    expect(body.data.reduce((n, r) => n + r.views, 0)).toBe(9 + 8 + 7 + 6);
+    expect(body.window_total).toEqual({ total: 45, excluding_internal: null });
   });
 
   it('reports `total: 0` for a window with no rows', async () => {
     const body = await breakdown(`dimension=country&from=2026-08-01&to=2026-08-01`);
     expect(body.data).toEqual([]);
     expect(body.total).toBe(0);
+    expect(body.window_total).toEqual({ total: 0, excluding_internal: null });
   });
 
   it('caps perPage at 100 (PageQuerySchema)', async () => {
