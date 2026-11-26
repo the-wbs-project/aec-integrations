@@ -2996,7 +2996,7 @@ they rest on:
   shows its endpoint rows and falls back to the products it reaches. A `connector` with
   neither shows the panel with the powered section's empty sentence, so its right half is
   never blank. Logos come from `wheel_marks`, which now carries every endpoint of the powered
-  rows (ruling 64's rule, `wheelLogoOf`).
+  rows (ruling 64's rule, `publicLogoOf`).
 - **A powered row's `direction` is claims-aware.** It is the public flows' direction when the
   row has any, else the stored one (`effectiveContextDirection`, read from the row's source).
   The pair page and the endpoint rows already used this rule. The connector page used the

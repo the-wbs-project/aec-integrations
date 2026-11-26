@@ -252,7 +252,7 @@ const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: tru
  */
 const partnerProductLinkConfig = {
   ...publicProductLinkConfig,
-  // AECI-2018: which logo the integrations wheel may show (`wheelLogoOf`). Internal:
+  // AECI-2018: which logo the integrations wheel may show (`publicLogoOf`). Internal:
   // `toProductLink` never emits either column.
   columns: { ...productLinkColumns, logoSource: true, sourcedLogoUrl: true },
   with: {
@@ -499,7 +499,7 @@ const poweredClaimsConfig = {
 } as const;
 
 /**
- * An endpoint of a powered row. The two columns `wheelLogoOf` reads ride along
+ * An endpoint of a powered row. The two columns `publicLogoOf` reads ride along
  * (QA pass on AECI-2035, 2026-11-24): a connector's hero wheel shows the products its
  * pairs reach, so `wheelMarksOf` needs each endpoint's logo we may show. Internal:
  * `toProductLink` never emits either column, so the row itself keeps the logo rule.
@@ -1155,6 +1155,9 @@ export const productPairSubjectConfig = {
     // plan-table read, exactly as `productDetailConfig` selects them.
     managedEditedAt: true,
     managedEndedAt: true,
+    // AECI-2057: the subject logo we may show (`publicLogoOf`).
+    logoSource: true,
+    sourcedLogoUrl: true,
   },
   with: {
     ...productListConfig.with,
@@ -1424,7 +1427,7 @@ export const productDetailConfig = {
     syncSetup: true,
     syncFactsSourceUrl: true,
     syncFactsRecordedAt: true,
-    // AECI-2018: the logo the wheel's centre may show (`wheelLogoOf`).
+    // AECI-2018: the logo the wheel's centre may show (`publicLogoOf`).
     logoSource: true,
     sourcedLogoUrl: true,
   },
@@ -1623,6 +1626,9 @@ export const vendorDetailConfig = {
     maintainedBy: true,
     // Company facts (AECI-1310) — detail only, never on a list or search row.
     ...companyFactColumns,
+    // AECI-2057: the subject logo we may show (`publicLogoOf`).
+    logoSource: true,
+    sourcedLogoUrl: true,
   },
   extras: vendorListConfig.extras,
   with: {
@@ -1777,13 +1783,13 @@ export interface RawOwnedProductLink {
   slug: string;
   logoUrl: string | null;
 }
-/** AECI-2018: the two columns `wheelLogoOf` reads. Absent on a read that did not select
+/** AECI-2018: the two columns `publicLogoOf` reads. Absent on a read that did not select
  *  them, which the wheel treats as "no logo we may show" for an unclaimed product. */
-interface RawWheelLogoColumns {
+interface RawLogoSourceColumns {
   logoSource?: string | null;
   sourcedLogoUrl?: string | null;
 }
-interface RawProductLink extends RawOwnedProductLink, RawWheelLogoColumns {
+interface RawProductLink extends RawOwnedProductLink, RawLogoSourceColumns {
   /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). Absent
    *  reads as unclaimed, so `toProductLink` hides the logo (AECI-1851). */
   claimed?: number | boolean;
@@ -2132,7 +2138,7 @@ function listedIntegrationCount(raw: RawProductPairSubjectRow): number {
 }
 
 /** A pair page's subject row (AECI-1822): the list row plus links and taxonomy. */
-export interface RawProductPairSubjectRow extends RawProductListRow {
+export interface RawProductPairSubjectRow extends RawProductListRow, RawLogoSourceColumns {
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
   /** AECI-1827. Optional so a hand-built fixture without them reads as no caption. */
@@ -2151,7 +2157,7 @@ export interface RawProductPairSubjectRow extends RawProductListRow {
   productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
 }
 export interface RawProductDetailRow
-  extends RawProductListRow, RawMaintenanceColumns, RawWheelLogoColumns {
+  extends RawProductListRow, RawMaintenanceColumns, RawLogoSourceColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   description: string | null;
   /** AECI-2198. Optional so a hand-built fixture without it reads as NULL. */
@@ -2251,7 +2257,7 @@ export interface RawVendorListRow {
   integrationCount: number;
 }
 export interface RawVendorDetailRow
-  extends RawVendorListRow, RawMaintenanceColumns, CompanyFactRow {
+  extends RawVendorListRow, RawMaintenanceColumns, CompanyFactRow, RawLogoSourceColumns {
   description: string | null;
   website: string | null;
   linkedinUrl: string | null;
@@ -3125,7 +3131,8 @@ function toPairSubject(
   const base = toProductListItem(raw);
   return {
     ...base,
-    logo_url: raw.logoUrl,
+    // AECI-2057: a logo we may show, never an upload left over from an ended claim.
+    logo_url: publicLogoOf(raw, isProductClaimed(raw)),
     claim_status: claimStatusOf(isProductClaimed(raw)),
     // AECI-1822: the same four lists, in the same order, as `toProductDetail` (AECI-1242).
     // A product's own terms follow the curated order, not A to Z: PLAN §7.8 governs lists
@@ -3865,7 +3872,10 @@ function evidencedPairsForEndpoint(
 }
 
 /**
- * The logo the integrations wheel may show for one product (AECI-2018, ruling 64).
+ * The logo a public read may show for one product or company (AECI-2018, ruling 64).
+ * The integrations wheel uses it for every mark, and the product, pair and vendor pages
+ * use it for their own subject (AECI-2057). Lists, cards, rows and search still hide an
+ * unclaimed logo outright (`toProductLink`, ADR 0051 decision 4).
  *
  * Ruling 64 lets a wheel tile show a product's logo whenever we hold one, claimed or
  * not. "Hold" means a logo we may lawfully show (Vendor Terms 1.3, ADR 0051):
@@ -3880,7 +3890,10 @@ function evidencedPairsForEndpoint(
  *
  * It fails closed: an unclaimed row read without `logo_source` shows no logo.
  */
-export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, claimed: boolean) {
+export function publicLogoOf(
+  row: { logoUrl: string | null } & RawLogoSourceColumns,
+  claimed: boolean,
+): string | null {
   if (claimed) return row.logoUrl;
   if (row.logoSource === undefined) return null;
   if (row.logoSource === 'vendor') return row.sourcedLogoUrl ?? null;
@@ -3893,7 +3906,7 @@ export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, clai
  * of the rows it powers or delivers as the connector (a connector's wheel shows those,
  * QA pass on AECI-2035), and one for the page product itself, which the wheel's centre
  * shows. Each carries the logo the wheel
- * may show (`wheelLogoOf`) and the product's claim state.
+ * may show (`publicLogoOf`) and the product's claim state.
  *
  * Ruling 64 widens the AECI-1769 rule for the wheel only, so this is the one public field
  * that carries an unclaimed product's logo off its own page. The rows themselves still go
@@ -3906,11 +3919,11 @@ export function wheelLogoOf(row: RawOwnedProductLink & RawWheelLogoColumns, clai
  */
 function wheelMarksOf(raw: RawProductDetailRow): WheelMark[] {
   const marks = new Map<string, WheelMark>();
-  const add = (product: RawOwnedProductLink & RawWheelLogoColumns, claimed: boolean) => {
+  const add = (product: RawOwnedProductLink & RawLogoSourceColumns, claimed: boolean) => {
     if (marks.has(product.id)) return;
     marks.set(product.id, {
       product_id: product.id,
-      logo_url: wheelLogoOf(product, claimed),
+      logo_url: publicLogoOf(product, claimed),
       claim_status: claimStatusOf(claimed),
     });
   };
@@ -4008,8 +4021,9 @@ export function toProductDetail(
       company_size: vendorFacts?.company_size?.value ?? null,
       ownership_type: vendorFacts?.ownership_type?.value ?? null,
     },
-    // AECI-1618: this page's subject keeps its logo, with the wording beside it.
-    logo_url: raw.logoUrl,
+    // AECI-1618: this page's subject keeps a logo, with the wording beside it. AECI-2057:
+    // a logo we may show, never an upload left over from an ended claim.
+    logo_url: publicLogoOf(raw, isProductClaimed(raw)),
     claim_status: claimStatusOf(isProductClaimed(raw)),
     description: raw.description,
     summary: raw.summary ?? null,
@@ -4174,7 +4188,8 @@ export function toVendorDetail(
   return {
     // AECI-1635: the same corrections as `company_facts`, so the two always agree.
     ...toVendorListItem(raw, fieldCorrections),
-    logo_url: raw.logoUrl,
+    // AECI-2057: a logo we may show, never an upload left over from an ended claim.
+    logo_url: publicLogoOf(raw, isVendorClaimed(raw)),
     claim_status: claimStatusOf(isVendorClaimed(raw)),
     description: raw.description,
     website: raw.website,
