@@ -81,6 +81,7 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q71 | Vendor Terms | Replacement wording for "No plan changes where you rank or appear" | Travis Russell | 2026-11-24 |
 | Q72 | Privacy Policy | Email consent in Canada and the United Kingdom for one unticked opt-in box | Alexander Coffin | 2026-11-24 |
 | Q73 | Listing Accuracy Policy | A vendor removing a third company's integration listing from its product, with no review by us | Kyle Usrey | 2026-11-26 |
+| Q74 | Listing Accuracy Policy | What step, if any, to add before a vendor's removal of a third company's integration listing takes effect | Alexander Coffin | 2026-11-26 |
 
 ## Questions and answers
 
@@ -1971,7 +1972,37 @@ Vendor / Ecosystem Controls: Explicitly disclose that product vendors may contro
 
 No Guarantee of Accuracy or Neutrality: Clarify that the directory does not endorse, verify, or guarantee ongoing availability of third-party integrations, and may remove or hide content without prior notice or investigation.
 
-**What we did:** Our view was too confident. The removal right creates real exposure to a tortious interference or FDUTPA claim, even from a Sync Service with no contract with us. Not applied yet. Counsel gave three things the policy should say: a listing is discretionary and revocable and gives no right to stay visible; a product's vendor may remove a listing tied to its product even when it is accurate; and we do not guarantee that a third party's integration stays listed. The answer ran out of space before it reached the second half of the question, which asked what step to add before a removal takes effect. That half is re-asked as Q74. Counsel's "no guarantee of neutrality" is not adopted as worded, because the site's own promise is that it is independent. The disclosure of the vendor's removal right is what closes the gap counsel described. Chris's ruling on whether a removal stays instant is open, pending Q74.
+**What we did:** Our view was too confident. The removal right creates real exposure to a tortious interference or FDUTPA claim, even from a Sync Service with no contract with us. Not applied yet. Counsel gave three things the policy should say: a listing is discretionary and revocable and gives no right to stay visible; a product's vendor may remove a listing tied to its product even when it is accurate; and we do not guarantee that a third party's integration stays listed. The answer ran out of space before it reached the second half of the question, which asked what step to add before a removal takes effect. That half is re-asked as Q74. Counsel's "no guarantee of neutrality" is not adopted as worded, because the site's own promise is that it is independent. The disclosure of the vendor's removal right is what closes the gap counsel described. Q74 answers it: a removal stays instant.
+
+### Q74. What step, if any, to add before a vendor's removal of a third company's integration listing takes effect
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory of construction-industry software and the integrations between products. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 26, 2026 on a planned rule in our Listing Accuracy Policy. Some integrations between two products are built, sold and run by a third company, which we call a Sync Service. Under the rule, the vendor of either product can remove such an integration from its own product's listing. The removal takes effect at once, with no review by us, even where the listing is accurate. The Sync Service may have no contract with us.
+
+Your colleague said this creates real exposure to a tortious interference claim and a claim under FDUTPA, and told us what the policy should say: that a listing is discretionary and revocable, that a product's vendor may remove a listing tied to its product even when it is accurate, and that we do not guarantee a third party's integration stays listed. We will add all three. The answer ran out of space before it reached the process itself.
+
+We are choosing between three ways to run a removal:
+
+A. As planned. The removal takes effect at once. We tell the Sync Service at the same moment, with the vendor's stated reason. The Sync Service can write to us, and we end a removal only on narrow grounds, such as one sent from an account that should not have had access.
+
+B. Notice first. We tell the Sync Service and the listing stays up for a short fixed period, such as five business days. The removal then takes effect without our review, unless the vendor withdraws it.
+
+C. Instant, with a required reason and a record. The removal takes effect at once, but the vendor must pick a reason from a fixed list, such as "we do not support this integration" or "it is not offered for our product". We keep the reason and the time. We tell the Sync Service at once and say how to object.
+
+Our view: with the three disclosures added, option C is enough. A recorded reason given by the vendor whose product is named is a business justification, and immediate notice to the Sync Service with a way to object shows the interference is not unjustified. A waiting period adds little, because we do not review the removal either way.
+
+Question: which of these three processes best protects us against a tortious interference or FDUTPA claim by the Sync Service, and is option C enough, or do we need the waiting period in option B or a review of our own?
+
+**Answer (Alexander Coffin, 2026-11-26):**
+
+Option C gives you the most protection, and it's enough. A waiting period or your own review probably wouldn't add much. But I'd change two things, and I'd adjust one part of your reasoning. The adjustment first. The vendor's recorded reason justifies the vendor's conduct, not automatically yours. Your own protection comes from acting on a published, disclosed, evenly applied policy about your own directory. That's why the three disclosures matter more than the timing. Under Florida law the Sync Service would also have to show actual relationships with identifiable customers that you knowingly and unjustifiably disrupted, not just lost reach in the market. That's a real hurdle for them, whichever option you pick. So why not B? The waiting period cuts damages a bit, since the Sync Service gets five days to warn its customers. It doesn't change whether you're liable, though, because you still don't review anything. And it builds a lag into a policy you're describing as the vendor's right. Small gain, real friction. The real FDUTPA risk is what the page says, not how fast the removal happens. If the vendor picks "it is not offered for our product" and that's false, and your site shows it, you've published something misleading. So:
+
+Show the public a neutral label, something like "removed at the request of [Vendor]." Keep the vendor's chosen reason in your internal record and in the notice to the Sync Service, not on the listing. Make the objection process actually able to reinstate a listing on narrow grounds. Unauthorized account, wrong product, or a reason that's plainly false on its face, say where the vendor's own public materials show it supports the integration. An objection channel that can never change anything looks like a formality.
+
+**What we did:** Option C stands: a removal stays instant, with a required reason from a fixed list, a record, and notice to the Sync Service at once. No waiting period and no review of our own. Not applied yet. Our protection is the published, evenly applied policy, so Q73's three disclosures matter more than the timing. Two changes follow. The vendor's reason is never shown to the public. It goes in our record and in the notice to the Sync Service. And an objection must be able to reinstate a listing on narrow grounds: an account that should not have had access, the wrong product, or a reason plainly false on its face. Two rulings are open with Chris: whether the public sees a neutral "removed at the request of [Vendor]" note or nothing at all, and the "plainly false" ground, which means we look at an objection after all.
 
 ## Chris's rulings
 
