@@ -49,3 +49,25 @@ describe('AECI-821: BWT_API_KEY is provisioned by the production promote', () =>
     expect(example).toMatch(/^BWT_API_KEY=$/m);
   });
 });
+
+/**
+ * AECI-2075: the key travels in the request URL as `?apikey=`. A staging read on
+ * 2026-11-26 showed that `redact_query_string` strips the query string from an
+ * outbound fetch span too (`url.full` without it, `url.query` empty). That setting
+ * is the only thing keeping the key out of Cloudflare's stored traces, so every
+ * observability block in the API Worker's config must keep it.
+ */
+describe('AECI-2075: every API observability block redacts query strings', () => {
+  const wrangler = readFileSync(join(ROOT, 'apps', 'api', 'wrangler.jsonc'), 'utf8');
+  const blocks = wrangler.match(/"observability":\s*\{/g) ?? [];
+  const redacted = wrangler.match(/"redact_query_string":\s*true/g) ?? [];
+
+  it('has one block per tier, top level plus staging, demo and production', () => {
+    expect(blocks).toHaveLength(4);
+  });
+
+  it('sets redact_query_string: true in each block', () => {
+    expect(redacted).toHaveLength(blocks.length);
+    expect(wrangler).not.toMatch(/"redact_query_string":\s*false/);
+  });
+});

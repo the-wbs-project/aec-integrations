@@ -1121,9 +1121,9 @@
         // ingest's Bing lane is skipped (`no_site_url`). It must name the www. host,
         // or the lane skips (`site_url_not_www`). To turn the lane on, add e.g.
         // `"BWT_SITE_URL": "https://www.aecintegrations.com/"` here. Production only:
-        // the BWT_API_KEY secret is pushed to no other tier. Not before AECI-2075
-        // answers whether stored traces keep an outbound query string: the key travels in it
-        // (docs/environments.md, "Bing Webmaster Tools ingest per tier").
+        // the BWT_API_KEY secret is pushed to no other tier. The key travels in the
+        // query string; `redact_query_string` below keeps it out of stored traces (AECI-2075,
+        // docs/environments.md, "Bing Webmaster Tools ingest per tier").
         // AECI-1499: Stripe, the live account (see the base-config note).
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1UV5f6QjYyilC49gRYsZF57S",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1UV5fMQjYyilC49gtxqN3ggH",

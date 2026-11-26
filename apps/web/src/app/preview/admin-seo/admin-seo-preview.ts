@@ -33,7 +33,7 @@ import { SeoTrendPanel } from '../../admin/seo/seo-trend-panel';
  *
  * Panel 3 (AECI-823) on the main screen is today's real shape: Google with all
  * four stages, and Bing with its D1 stages only, because the Bing lane is off
- * until AECI-2075. The gallery adds Google with no ingest data beside Bing with
+ * until the operator sets `BWT_SITE_URL`. The gallery adds Google with no ingest data beside Bing with
  * every stage it can have, and the funnel loading. Bing never has an
  * "Impressed" stage or a position (§5.24.7).
  */

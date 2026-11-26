@@ -330,10 +330,11 @@ account, added as a user on the site, limits the damage of a leak. The code neve
    once.
 4. Store the key as the GitHub secret `BWT_API_KEY_PRODUCTION`. `gh secret set` prompts for the
    value.
-5. **Stop here until AECI-2075 is answered.** The Bing lane must stay off in production until
-   then. The key is read-write, and it travels in the request URL as `?apikey=`. We do not know whether Cloudflare's stored traces record an outbound call's query string. If they do, anyone with trace access to the account could read the
-   key. Steps 1 to 4 are safe meanwhile: without the var the lane makes no call, so the key is
-   never sent.
+5. **The trace gate is cleared (AECI-2075, 2026-11-26).** The key travels in the request URL
+   as `?apikey=`. A staging span read showed that Cloudflare's stored traces drop an outbound
+   call's query string, because every observability block sets `redact_query_string: true`.
+   Do not remove that setting from `apps/api/wrangler.jsonc`. `bwt-secrets-ci.spec.ts` fails
+   if any block drops it. Nothing else to do in this step.
 6. Add `"BWT_SITE_URL": "<the URL from step 2>"` to the production `vars` block in
    `apps/api/wrangler.jsonc`, where the comment marks the place, and merge it.
 7. Run `promote-to-prod`. It pushes the key and deploys the var.

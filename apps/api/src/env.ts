@@ -771,8 +771,8 @@ export type Env = {
    * Unset on every tier until the operator reads it from BWT. Unset, or naming any
    * host but `www.aecintegrations.com`, the Bing lane is `skipped` (`no_site_url`,
    * `site_url_not_www`), because every `search.bing.www.*` key names the `www.` host.
-   * Do not set it in production until AECI-2075 answers whether stored traces keep an
-   * outbound call's query string, because the key travels in it (`docs/environments.md`).
+   * The key travels in the query string. AECI-2075 showed `redact_query_string` keeps
+   * it out of stored traces, so setting it is safe (`docs/environments.md`).
    */
   BWT_SITE_URL?: string;
   /**

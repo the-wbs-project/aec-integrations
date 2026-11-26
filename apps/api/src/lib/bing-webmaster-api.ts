@@ -41,9 +41,9 @@
  * fixed code `network_error`, never the runtime's text. So the key cannot reach a
  * log line, a `job_runs` detail or a metric attribute through this module.
  *
- * Cloudflare's own stored traces are a separate question, open as AECI-2075. We do
- * not know whether they record an outbound call's query string, so the lane stays off
- * in production until it is answered (`docs/environments.md`).
+ * Cloudflare's own stored traces drop the query string of an outbound fetch, because
+ * every API observability block sets `redact_query_string: true` (AECI-2075, read on
+ * staging). That setting is what keeps the key out of them (`docs/OBSERVABILITY.md`).
  *
  * Never throws. Every failure is a structured result, so one failed call cannot
  * stop the lane's other calls.
