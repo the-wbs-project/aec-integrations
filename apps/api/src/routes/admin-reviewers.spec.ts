@@ -482,6 +482,7 @@ describe('PATCH /api/admin/reviewers/:id with reject_pending (AECI-1949)', () =>
       to: 'person@example.test',
       productName: 'Revit',
       reason: BAN_REJECTION_REASON,
+      afterBan: true,
       dedupeKey: `review-update-decision:${update}`,
     });
   });

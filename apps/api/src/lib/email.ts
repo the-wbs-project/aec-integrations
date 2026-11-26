@@ -963,11 +963,18 @@ export function sendReviewUpdateApprovedEmail(
  * An update to a published review was not published (AECI-1613). The
  * `review-rejected` shape: house layout, the moderator's reason, the review
  * guidelines as the CTA. The original review stays published, and the reviewer may
- * add a new update, so the copy says both.
+ * add a new update, so the copy says both. `afterBan` (AECI-1949) drops the
+ * "add a new update" sentence: a banned person can open neither `/account` nor the
+ * update form.
  */
 export function sendReviewUpdateRejectedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; productName: string; reason: string } & SendDedupe,
+  opts: {
+    to: string | undefined;
+    productName: string;
+    reason: string;
+    afterBan?: boolean;
+  } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const guidelines = base ? `${base}/legal/review-guidelines` : null;
@@ -976,8 +983,9 @@ export function sendReviewUpdateRejectedEmail(
   const openingHtml = `Thanks for updating your review of <strong>${name}</strong>. We read the update against our review guidelines and did not publish it.`;
   const reasonText = `Moderator note: ${opts.reason}`;
   const reasonHtml = `<em>${escapeHtml(opts.reason)}</em>`;
-  const next =
-    'Your original review is still published, unchanged. You can add a new update from your account page.';
+  const next = opts.afterBan
+    ? 'Your original review is still published, unchanged.'
+    : 'Your original review is still published, unchanged. You can add a new update from your account page.';
   const shared = (link: LinkTagger) => ({
     preheader: `We read your update to your review of ${opts.productName} and did not publish it.`,
     heading: `Your review update for ${opts.productName} was not published`,

@@ -175,6 +175,7 @@ async function emailRejectedUpdates(
         to,
         productName: update.productName,
         reason: BAN_REJECTION_REASON,
+        afterBan: true,
         dedupeKey: reviewUpdateDecisionKey(update.id),
         entity: { type: 'review_update', id: update.id },
       });
