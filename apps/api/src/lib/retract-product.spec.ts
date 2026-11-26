@@ -29,6 +29,8 @@ import {
   formatFootprintReport,
   parseFootprint,
   VENDOR_LINKS_TABLE_SQL,
+  vendorReachStampSql,
+  VENDOR_FRESHNESS_STAMP_SQL,
   REVIEW_RESPONSES_TABLE_SQL,
   LICENSES_TABLE_SQL,
   LICENSE_AUDIT_ENTITY_TYPE,
@@ -42,6 +44,7 @@ import {
   THREAD_CLOSED_NOTIFICATION_KIND,
   NOTIFICATION_SENT_ACTION,
 } from './retract-product';
+import { ALGOLIA_WATERMARK_KEY } from './algolia-sync';
 import { LICENSE_ACTION, LICENSE_ENTITY_TYPE } from './license';
 import {
   THREAD_CLOSED_ACTION as LIFECYCLE_THREAD_CLOSED_ACTION,
@@ -1718,5 +1721,136 @@ describe('connector-evidenced pairs (AECI-904)', () => {
     });
     expect(tags).toContain('pair:alpha__zeta');
     expect(tags).toContain('product:hub');
+  });
+});
+
+describe('vendor reach stamp (AECI-2193)', () => {
+  // P → Q, and Q → R powered by P, from `seed`. A pair Q–P via connector C. X is
+  // untouched. One vendor per product, so each stamp is attributable.
+  const OWNERS: Array<[string, string]> = [
+    ['v-p', P],
+    ['v-q', Q],
+    ['v-r', R],
+    ['v-c', C],
+    ['v-x', 'prod-unrelated'],
+  ];
+  const WATERMARK_KEY = 'algolia_sync_watermark';
+
+  async function stampFixture(): Promise<TestDb> {
+    const t = await makeTestDb();
+    seed(t);
+    t.raw.exec(
+      `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES ('prod-unrelated', 'unrelated', 'unrelated', ${TS}, ${TS});`,
+    );
+    for (const [vendor, product] of OWNERS) {
+      t.raw.exec(
+        `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES ('${vendor}', '${vendor}', '${vendor}', ${TS}, ${TS});`,
+      );
+      t.raw.exec(
+        `INSERT INTO product_vendors (product_id, vendor_id, created_at) VALUES ('${product}', '${vendor}', ${TS});`,
+      );
+    }
+    return t;
+  }
+
+  function updatedAt(t: TestDb): Record<string, string> {
+    return Object.fromEntries(
+      (
+        t.raw.prepare(`SELECT id, updated_at FROM vendors ORDER BY id`).all() as Array<{
+          id: string;
+          updated_at: string;
+        }>
+      ).map((r) => [r.id, r.updated_at]),
+    );
+  }
+
+  function stamped(t: TestDb): string[] {
+    return Object.entries(updatedAt(t))
+      .filter(([, at]) => at !== TS.slice(1, -1))
+      .map(([id]) => id)
+      .sort();
+  }
+
+  function retract(t: TestDb, deleteEvidencedPairs: boolean): void {
+    apply(
+      t,
+      buildDeleteStatements({
+        product: { id: P, slug: 'retract-me', name: 'retract-me', promotion_status: 'promoted' },
+        footprint: footprintOf(t, P),
+        auditId: 'audit-2193',
+        now: NOW,
+        force: true,
+        deleteEvidencedPairs,
+      }),
+    );
+  }
+
+  it("stamps the retracted product's vendor, the far endpoint's and the pair connector's", async () => {
+    const t = await stampFixture();
+    const before = new Date().toISOString();
+    retract(t, true);
+    expect(t.raw.prepare(`SELECT count(*) AS n FROM products WHERE id = ?`).get(P)).toEqual({
+      n: 0,
+    });
+    // v-r too: Q → R is powered by P. Reach skips powered_by, but liveness reads it.
+    expect(stamped(t)).toEqual(['v-c', 'v-p', 'v-q', 'v-r']);
+    // The database clock at the write, in the toISOString() form the sync compares.
+    const at = updatedAt(t)['v-q']!;
+    expect(at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(at >= before.slice(0, 19)).toBe(true);
+    t.dispose();
+  });
+
+  it('re-lives a row powered by a hidden product, and stamps its endpoint vendors', async () => {
+    const t = await stampFixture();
+    t.raw.exec(`UPDATE products SET hidden_at = ${TS} WHERE id = '${P}';`);
+    retract(t, true);
+    expect(
+      t.raw.prepare(`SELECT powered_by_product_id AS v FROM integrations WHERE id = 'i2'`).get(),
+    ).toEqual({ v: null });
+    expect(stamped(t)).toEqual(expect.arrayContaining(['v-q', 'v-r']));
+    t.dispose();
+  });
+
+  it('never stamps at or behind a vendors watermark that is ahead of the clock', async () => {
+    const t = await stampFixture();
+    const ahead = '2999-01-01T00:00:00.000Z';
+    t.raw
+      .prepare(`INSERT INTO stats_cache (key, value, computed_at) VALUES (?, ?, ?)`)
+      .run(WATERMARK_KEY, JSON.stringify({ vendors: ahead, products: ahead }), ahead);
+    retract(t, true);
+    expect(updatedAt(t)['v-q']).toBe('2999-01-01T00:00:00.001Z');
+    // An untouched vendor keeps its value.
+    expect(updatedAt(t)['v-x']).toBe(TS.slice(1, -1));
+    t.dispose();
+  });
+
+  it('leaves the pair arm out when pairs are not deleted', () => {
+    const plain = vendorReachStampSql(`'${P}'`, { includePairs: false });
+    expect(plain).not.toContain('connector_evidenced_pairs');
+    const withPairs = vendorReachStampSql(`'${P}'`, { includePairs: true });
+    expect(withPairs).toContain('"connector_product_id"');
+  });
+
+  it('runs before the first tombstone and the first delete', () => {
+    const stmts = buildDeleteStatements(deleteArgs({ deleteEvidencedPairs: true }));
+    const stamp = stmts.findIndex((s) => s.startsWith('UPDATE "vendors"'));
+    expect(stamp).toBeGreaterThanOrEqual(0);
+    expect(stamp).toBeLessThan(stmts.findIndex((s) => s.startsWith('INSERT INTO "audit_log"')));
+    expect(stamp).toBeLessThan(stmts.findIndex((s) => s.startsWith('DELETE ')));
+  });
+
+  it("names algolia-sync's watermark key, and the consumer carries the same stamp", () => {
+    expect(VENDOR_FRESHNESS_STAMP_SQL).toContain(`'${ALGOLIA_WATERMARK_KEY}'`);
+    const consumer = readFileSync(
+      join(process.cwd(), '..', '..', 'scripts/ops/2026-09-retraction-consumer/consume.mjs'),
+      'utf8',
+    ).replace(/\s+/g, ' ');
+    // Reassemble the consumer's two-part literal and compare it whole.
+    const parts = [
+      ...consumer.matchAll(/const VENDOR_FRESHNESS_STAMP_SQL = `([^`]*)` \+ `([^`]*)`;/g),
+    ];
+    expect(parts).toHaveLength(1);
+    expect(parts[0]![1]! + parts[0]![2]!).toBe(VENDOR_FRESHNESS_STAMP_SQL);
   });
 });
