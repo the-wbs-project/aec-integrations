@@ -386,12 +386,12 @@ export class UserDetail {
       );
       this.banFormOpen.set(false);
       const rejected = banPendingTotal(result.rejected ?? null);
-      const rejectedNote =
+      // One message per outcome, so a translation never stitches two together.
+      this.liveMessage.set(
         rejected > 0
-          ? ' ' +
-            $localize`:@@admin.users.ban.announce.rejected:${rejected}:COUNT: pending items rejected.`
-          : '';
-      this.liveMessage.set(announcement + rejectedNote);
+          ? $localize`:@@admin.users.ban.announce.bannedRejected:Account banned. They are locked out on their next request. ${rejected}:COUNT: pending items rejected.`
+          : announcement,
+      );
       // The pending counts moved with the rejects.
       if (rejected > 0) void this.refreshCounts();
       // A ban swaps the form for the "Banned since" status; a reinstate swaps it back
