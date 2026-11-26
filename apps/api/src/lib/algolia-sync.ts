@@ -679,7 +679,8 @@ export type IndexTargetIds = {
  * touch its products (`vendorReachCountSql`, AECI-1897). An edge write does not touch
  * `vendors.updated_at`, so the 08:00 watermark window would never pick it up. Pass
  * the edge's products in `vendorsOfProducts` and every vendor whose count moved is
- * re-indexed, not only the owner.
+ * re-indexed, not only the owner. The retract CLIs have no Drizzle handle, so they
+ * stamp `vendors.updated_at` on the same vendors instead (AECI-2193).
  */
 export async function syncIndexTargets(
   db: Db,

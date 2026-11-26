@@ -1232,11 +1232,73 @@ function threadDetachUpdate(args: ProductDeleteArgs, claimScope: string): string
   );
 }
 
+/**
+ * The `vendors.updated_at` value the retract lanes write (AECI-2193). Two rules keep the
+ * 08:00 watermark sync from missing it:
+ *   - **The database clock, at the write.** A timestamp taken in the CLI before the
+ *     batch commits can fall at or before a sync's cutoff while the row is still
+ *     invisible to that sync's read. The sync then advances past it and never reads it.
+ *     `strftime('now')` is the commit's own time, so a row the sync could not see is
+ *     newer than its cutoff and lands in the next window.
+ *   - **Never at or behind the stored `vendors` watermark.** One millisecond past it
+ *     when it is ahead of the clock, because the window is `updated_at > watermark`.
+ * Same ISO-8601 millisecond `Z` form as `toISOString()`, so text order is time order.
+ * The retraction consumer (`scripts/ops/2026-09-retraction-consumer/consume.mjs`) cannot
+ * import this module and carries the same text; `retract-product.spec.ts` pins the copy.
+ */
+export const VENDOR_FRESHNESS_STAMP_SQL =
+  `max(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), coalesce((SELECT strftime('%Y-%m-%dT%H:%M:%fZ', json_extract(sc."value", '$.vendors'), '+0.001 seconds') ` +
+  `FROM "stats_cache" sc WHERE sc."key" = 'algolia_sync_watermark'), ''))`;
+
+/**
+ * AECI-2193: stamp `vendors.updated_at` on every vendor whose search record the
+ * retract changes, so the 08:00 watermark sync re-indexes it. A vendor's
+ * `integration_count` is its reach (`vendorReachCountSql`, AECI-1897): every live edge
+ * that touches any of its products. Deleting an edge moves the count of the vendors
+ * at BOTH ends, and of a pair's connector, not only the retracted product's vendor.
+ *
+ * The scope is the retracted product plus every product on an edge the plan deletes
+ * or detaches: both endpoints of each integration, both endpoints of each surviving
+ * `powered_by` row, and both endpoints and the connector of each pair when pairs are
+ * deleted. Reach does not count `powered_by`, but liveness reads it: a row powered by
+ * a hidden product is not live, and detaching it makes it live again. It runs before
+ * any delete, while `product_vendors` and the edges still exist. An extra stamp costs
+ * one record rewrite, so a retired edge in scope is not filtered out.
+ *
+ * A by-id `syncIndexTargets` push is not possible here: this plan runs through
+ * `wrangler d1 execute`, with no Drizzle handle. No `audit_log` row: the stamp is a
+ * freshness bump, like the retraction consumer's `products.updated_at` bump, and the
+ * tombstones in this batch already record the change.
+ */
+export function vendorReachStampSql(
+  productIdLiteral: string,
+  opts: { includePairs: boolean },
+): string {
+  const s = scopes(productIdLiteral, opts);
+  const edgeScope = `SELECT "id" FROM "integrations" WHERE "id" IN (${s.integrations}) OR (${s.poweredOnly})`;
+  const touched = [
+    `pv."product_id" = ${productIdLiteral}`,
+    `pv."product_id" IN (SELECT "source_product_id" FROM "integrations" WHERE "id" IN (${edgeScope}))`,
+    `pv."product_id" IN (SELECT "target_product_id" FROM "integrations" WHERE "id" IN (${edgeScope}))`,
+    ...(opts.includePairs
+      ? ['product_a_id', 'product_b_id', 'connector_product_id'].map(
+          (col) =>
+            `pv."product_id" IN (SELECT "${col}" FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}))`,
+        )
+      : []),
+  ];
+  return (
+    `UPDATE "vendors" SET "updated_at" = ${VENDOR_FRESHNESS_STAMP_SQL} WHERE "id" IN ` +
+    `(SELECT pv."vendor_id" FROM "product_vendors" pv WHERE ${touched.join(' OR ')});`
+  );
+}
+
 // ─── The delete plan ─────────────────────────────────────────────────────────
 
 /**
  * Ordered statements to remove the product and everything that hangs off it, with
  * every tombstone in the same batch. Order is:
+ *   0. the vendor-held sentinel, then the vendor reach stamp ({@link vendorReachStampSql});
  *   1. per-row tombstones (INSERT … SELECT — the rows must still exist);
  *   2. deletes and SET NULLs, children before parents;
  *   3. the product's own tombstone, then the product row.
@@ -1328,6 +1390,8 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   return [
     // 0. Abort before anything runs if a vendor-held row entered scope (AECI-1088).
     ...vendorHeldSentinel,
+    // 0a. AECI-2193: stamp the vendors whose reach moves, while the edges still exist.
+    vendorReachStampSql(p, { includePairs: withPairs }),
     // 1. Per-row tombstones, before anything they describe is gone.
     tombstoneSelect({
       args,

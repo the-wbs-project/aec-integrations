@@ -356,6 +356,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ID_CHUNK = 50;
 /** Entries per write call. Each chunk is one audit row per id plus its deletes. */
 const WRITE_CHUNK = 25;
+
+/** AECI-2193: a copy of `VENDOR_FRESHNESS_STAMP_SQL` in `apps/api/src/lib/retract-product.ts`.
+ *  This `.mjs` cannot import that module; `retract-product.spec.ts` asserts the two agree. */
+const VENDOR_FRESHNESS_STAMP_SQL =
+  `max(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), coalesce((SELECT strftime('%Y-%m-%dT%H:%M:%fZ', json_extract(sc."value", '$.vendors'), '+0.001 seconds') ` +
+  `FROM "stats_cache" sc WHERE sc."key" = 'algolia_sync_watermark'), ''))`;
 /** `confirm_retractions` caps `entry_ids` at 200. */
 const CONFIRM_CHUNK = 200;
 
@@ -1371,6 +1377,21 @@ async function main() {
     : undefined;
   for (const [i, batch] of batches.entries()) {
     const sql = [];
+    // AECI-2193: stamp the vendors of every product on these rows, in the SAME write as
+    // their deletes. A vendor's search count is its reach over every edge touching its
+    // products (AECI-1897), computed at index time, so the stamp is the whole repair.
+    // Here and not in step 7, so a run that stops after this batch commits cannot leave
+    // the stamp behind: a re-run reads these rows as already gone and never re-plans
+    // them. The value is VENDOR_FRESHNESS_STAMP_SQL from `apps/api/src/lib/retract-product.ts`
+    // (database clock, never at or behind the stored watermark); the spec there pins it.
+    const batchProducts = [
+      ...new Set(batch.flatMap((p) => affectedByEntry.get(p.entry.supabaseId) ?? [])),
+    ];
+    if (batchProducts.length) {
+      sql.push(
+        `UPDATE "vendors" SET "updated_at" = ${VENDOR_FRESHNESS_STAMP_SQL} WHERE "id" IN (SELECT pv."vendor_id" FROM "product_vendors" pv WHERE pv."product_id" IN (${sqlIdList(batchProducts)}));`,
+      );
+    }
     for (const p of batch) {
       sql.push(
         buildAuditInsert({
@@ -1441,7 +1462,8 @@ async function main() {
   // these products up and the corrected count reaches their index records —
   // `reconcile-product-counts.ts` does not bump it, which is the residue the Roofr lane
   // recorded. The bump also moves each page's sitemap `<lastmod>`, which is correct: the
-  // content genuinely changed.
+  // content genuinely changed. Their vendors were stamped in the delete batches above
+  // (AECI-2193).
   const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   // AECI-1091: the evidenced arm counts live pairs only too, probed on its own DDL
   // (migration 0049 reaches a tier at a different promote than 0044).

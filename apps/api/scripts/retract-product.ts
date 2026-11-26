@@ -11,6 +11,9 @@
  *   1. D1: ordered child→parent delete of the product + everything hanging off it,
  *      with a tombstone `audit_log` row for each deleted domain row, in the SAME
  *      `wrangler d1 execute` batch (§26.1, AECI-687 — see the core-lib header).
+ *      The same batch stamps `vendors.updated_at` on every vendor whose products sit
+ *      on a deleted or detached edge, so the 08:00 Algolia sync rewrites their reach counts
+ *      (AECI-2193, `vendorReachStampSql`).
  *   2. Algolia: delete the `products` object (objectID = product id) so search
  *      doesn't keep an orphan (reuses the AECI-267 orphan-purge core).
  *   3. Sitemap: put `sitemap:dirty` in TAXONOMY_KV through `wrangler kv`, so the next
@@ -455,7 +458,9 @@ export async function main(argv: string[]): Promise<number> {
     console.log(
       `On --apply: delete the above from ${target.db}, de-index Algolia object ${product.id},`,
     );
-    console.log(`mark the sitemap dirty, and purge Cache-Tags: ${tags.join(', ')}.`);
+    console.log(
+      `stamp the vendors whose integration count moves, mark the sitemap dirty, and purge Cache-Tags: ${tags.join(', ')}.`,
+    );
     console.log('Re-run with --apply to perform the deletion.');
     return 0;
   }

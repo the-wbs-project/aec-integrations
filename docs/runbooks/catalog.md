@@ -409,6 +409,15 @@ For a production product it is:
 Demo has no reconciler steps, because neither reconciler targets demo. Only production runs have an
 upstream step.
 
+**Vendor search counts refresh at the next 08:00 sync (AECI-2193).** A product retract stamps
+`vendors.updated_at` for every vendor whose products sit on an edge it deletes or detaches. That
+covers both endpoints, a pair's connector, and the endpoints of a `powered_by` row it
+detaches. The 08:00 Algolia sync then rewrites their counts. There is no step to run. The
+stamp has two other visible effects. Those vendors' sitemap `<lastmod>` moves, and they rise
+in the public "recently updated" vendor sort (`GET /api/vendors?sort=updated`). Both are
+correct, because their integration count changed. A vendor retract needs no stamp: it refuses
+a vendor that has any product, so no other vendor's count moves.
+
 ---
 
 ## Promoting a connector and its pairs

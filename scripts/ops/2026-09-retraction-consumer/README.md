@@ -53,6 +53,15 @@ open thread closes `claim_removed` with one `thread.closed` audit row and one
 `vendor-held.mjs`, a copy of the API Worker's `claimRemovedThreadDetachWhere`. The rollback
 file restores the claims but does not re-attach a thread, because a close never reopens.
 
+**Since AECI-2193 it stamps the vendors of every affected product.** Each delete batch opens
+with an UPDATE of `vendors.updated_at` for the vendors of the products on its rows. It is in the
+delete batch, not the step-7 count repair, so a run that stops after a batch commits cannot lose
+it: a re-run reads those rows as already gone and never re-plans them. The value is the database
+clock at the write, never at or behind the stored `vendors` watermark (`VENDOR_FRESHNESS_STAMP_SQL`
+in `apps/api/src/lib/retract-product.ts`, copied here and pinned by its spec). A vendor's search count is its reach over every edge that
+touches its products (AECI-1897). Without the stamp the 08:00 Algolia sync skips a vendor whose
+row did not change, and its search count stays high until something else touches it.
+
 Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
 It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI
 because `docs/CICD_PLAN.md` §7.1 says `AECI_MCP_TOKEN` never reaches a Worker and no runtime
