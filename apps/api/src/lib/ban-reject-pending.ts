@@ -19,11 +19,12 @@
 
 import { BAN_REJECTION_REASON, type BanRejectedCounts } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { products, reviewResponses, reviewUpdates, reviews, workflowInstances } from '../db/schema';
 import { vendorAuditStamp, type VendorAuditStamp } from './audit-vendor';
+import { ONE_ROW } from './integration-claims';
 import { chunked } from './promote-claims';
 import {
   reviewDecisionStatements,
@@ -268,4 +269,25 @@ export async function banRejectStatements(
     );
   }
   return out;
+}
+
+/**
+ * The batch's last statement when a ban rejects pending items. The per-item sentinels
+ * catch an item that was decided or edited mid-ban, but an item submitted after
+ * {@link loadBanPendingItems} carries none. This one fails the whole batch, ban
+ * included, if the person still has anything pending once every reject has run. The
+ * route's re-read then answers `409 BAN_PENDING_CHANGED`. It fails as "malformed
+ * JSON", like every other sentinel in the batch.
+ */
+export function noPendingLeftSentinel(db: Db, profileId: string) {
+  return db
+    .select({
+      // Hand-written, aliased SQL: Drizzle renders a column inside `sql` unqualified,
+      // and `status` is on all three tables.
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM reviews AS r WHERE r.reviewer_id = ${profileId} AND r.status = 'pending')
+        OR EXISTS (SELECT 1 FROM review_updates AS u INNER JOIN reviews AS ur ON ur.id = u.review_id WHERE ur.reviewer_id = ${profileId} AND u.status = 'pending')
+        OR EXISTS (SELECT 1 FROM review_responses AS rr WHERE rr.author_profile_id = ${profileId} AND rr.status = 'pending')
+        THEN json('ban-pending-remains') END`,
+    })
+    .from(ONE_ROW);
 }

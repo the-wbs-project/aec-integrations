@@ -80,6 +80,7 @@ import {
   banRejectStatements,
   countBanPendingItems,
   loadBanPendingItems,
+  noPendingLeftSentinel,
   pendingFingerprint,
   rejectedCounts,
   totalItems,
@@ -455,6 +456,8 @@ export function createBanReviewerHandler(
         banAuditId: auditEntry.id!,
       });
       stmts.push(...rejects.stmts);
+      // Last: an item submitted after the preload has no sentinel of its own.
+      stmts.push(noPendingLeftSentinel(db, id));
       extraAudits.push(...rejects.audits);
       extraTransitions.push(...rejects.transitions);
     }

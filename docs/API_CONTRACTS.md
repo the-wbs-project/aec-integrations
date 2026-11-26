@@ -5306,7 +5306,9 @@ person's pending items in the ban's own `db.batch`, after the ban's statements
 - **The cap.** Above `BAN_REJECT_MAX_ITEMS` (100) items in total the route answers
   `422 BAN_REJECT_TOO_MANY` with `details: { reviews, review_updates, review_responses, max }`.
   Nothing is written, the ban included.
-- **A lost race aborts everything.** Any item sentinel aborts the whole batch. The route then
+- **A lost race aborts everything.** Any item sentinel aborts the whole batch. An item decided
+  or edited mid-ban trips its own sentinel. An item added mid-ban has none, so the batch ends with
+  `noPendingLeftSentinel`, which fails if the person still has anything pending. The route then
   re-reads the pending set. If it moved, the answer is `409 BAN_PENDING_CHANGED`. If not, a
   vendor-seat ban answers `409 VENDOR_SEATS_CHANGED`, and a reviewer ban rethrows the error.
 - **Email.** No `review-rejected` email (ruling 1 of 2026-11-26). Each rejected update sends

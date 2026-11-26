@@ -619,6 +619,46 @@ describe('PATCH /api/admin/reviewers/:id with reject_pending (AECI-1949)', () =>
     expect(sendReviewUpdateRejectedEmail).not.toHaveBeenCalled();
   });
 
+  // Review of AECI-1949: an item added after the load has no sentinel of its own, so the
+  // batch's last statement (`noPendingLeftSentinel`) catches it.
+  it('a pending review added mid-request aborts everything with BAN_PENDING_CHANGED', async () => {
+    const pending = await seedReview(PERSON, 'pending');
+    const factory = raceOnWrite(() => seedReview(PERSON, 'pending'));
+    const res = await patch(PERSON, BAN, factory);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'BAN_PENDING_CHANGED',
+    );
+    const [p] = await t.db.select().from(profiles).where(eq(profiles.id, PERSON));
+    expect(p!.bannedAt).toBeNull();
+    expect(await status(reviews, pending)).toBe('pending');
+    expect(await t.db.select().from(auditLog)).toEqual([]);
+  });
+
+  it('a pending update added mid-request aborts everything, even with nothing loaded', async () => {
+    const approved = await seedReview(PERSON, 'approved');
+    const factory = raceOnWrite(() => seedUpdate(approved, 'pending'));
+    const res = await patch(PERSON, BAN, factory);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'BAN_PENDING_CHANGED',
+    );
+    const [p] = await t.db.select().from(profiles).where(eq(profiles.id, PERSON));
+    expect(p!.bannedAt).toBeNull();
+  });
+
+  it('a pending reply added mid-request aborts the seat ban with BAN_PENDING_CHANGED', async () => {
+    const review = await seedReview(OTHER, 'approved');
+    const factory = raceOnWrite(() => seedReply(review, SEAT, 'pending'));
+    const res = await patch(SEAT, BAN, factory);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'BAN_PENDING_CHANGED',
+    );
+    const [p] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT));
+    expect(p!.bannedAt).toBeNull();
+  });
+
   it('a reply the vendor edited mid-request aborts the seat ban with BAN_PENDING_CHANGED', async () => {
     const review = await seedReview(OTHER, 'approved');
     const reply = await seedReply(review, SEAT, 'pending');
