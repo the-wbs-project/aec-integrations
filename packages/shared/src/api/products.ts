@@ -147,6 +147,13 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   /** AECI-1618. Unclaimed pages carry the wording beside the logo. */
   claim_status: SubjectClaimStatusSchema,
   description: z.string().nullable(),
+  /**
+   * The one-line hero summary (AECI-2198). `null` means the hero falls back to the
+   * clamped first paragraph of `description`, and the meta description to
+   * `description`. Masked to `null` while AECi hides it (§11d.7). Never an Algolia
+   * field, a search-card field or a ranking input.
+   */
+  summary: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),

@@ -1838,6 +1838,29 @@ describe('GET /api/products/:slug — field captions (AECI-1614)', () => {
     expect(text).not.toMatch(/managed_ended_at|managedEndedAt|EditedAt|edited_at|planEndedAt/);
   });
 
+  // AECI-2198: the description group holds the summary too.
+  it('captions the description group for a summary with no description', async () => {
+    await seedOwned({
+      description: null,
+      summary: 'One line.',
+      descriptionEditedAt: EDITED,
+    });
+    const { body } = await read();
+    expect(body.description).toBeNull();
+    expect(body.summary).toBe('One line.');
+    expect(body.captions?.description).toEqual({
+      form: 'updated',
+      vendor_names: ['Acme'],
+      date: EDITED,
+    });
+  });
+
+  it('reads a NULL summary through as null', async () => {
+    await seedOwned();
+    const { body } = await read();
+    expect(body.summary).toBeNull();
+  });
+
   it('shows "updated" on both tables, a connector row with no plan included (AECI-1663)', async () => {
     await seedOwned();
     await seedProduct(u(2), 'other', 'Other');

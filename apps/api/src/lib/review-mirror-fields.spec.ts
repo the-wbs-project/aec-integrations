@@ -89,6 +89,17 @@ const PROMOTE_WIRE: Record<MirrorEntity, readonly string[]> = {
   claim: [...keys(PromoteClaimSchema), ...keys(PromoteAttestationSchema)],
 };
 
+/**
+ * Vendor inputs the mirror does not carry YET, each with the issue that adds it. Kept here,
+ * not in `VENDOR_INPUTS_NOT_MIRRORED`, because they are not exempt: the v2 wire's product
+ * content keys are required, so the review app's receiver must accept a key before the
+ * producer sends it. Delete the entry when the follow-up lands.
+ */
+const PENDING_MIRROR_INPUTS: Readonly<Record<string, string>> = {
+  // AECI-2198 shipped the column; AECI-2201 adds it to the mirror after the REVIEW issue.
+  summary: 'AECI-2201',
+};
+
 describe('review mirror field map: vendor inputs (AECI-1413)', () => {
   const cases: [string, { shape: object }, MirrorEntity][] = [
     ['UpdateVendorProfileSchema', UpdateVendorProfileSchema, 'vendor'],
@@ -102,9 +113,17 @@ describe('review mirror field map: vendor inputs (AECI-1413)', () => {
   it.each(cases)('maps every key of %s, or says why not', (_name, schema, entity) => {
     const covered = coveredInputs(entity);
     const unmapped = keys(schema).filter(
-      (key) => !covered.has(key) && !(key in VENDOR_INPUTS_NOT_MIRRORED),
+      (key) =>
+        !covered.has(key) &&
+        !(key in VENDOR_INPUTS_NOT_MIRRORED) &&
+        !(key in PENDING_MIRROR_INPUTS),
     );
     expect(unmapped).toEqual([]);
+  });
+
+  it('keeps no pending mirror input that a map entry already covers', () => {
+    const covered = coveredInputs('product');
+    expect(Object.keys(PENDING_MIRROR_INPUTS).filter((key) => covered.has(key))).toEqual([]);
   });
 
   it('lists no not-mirrored input that a map entry covers or no schema sends', () => {

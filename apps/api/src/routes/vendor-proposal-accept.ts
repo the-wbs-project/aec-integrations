@@ -362,6 +362,7 @@ export function planProductInsert(db: Db, input: ProductInsertInput): BatchStmt[
       ...newProductEditStamps(
         {
           description: input.columns.description ?? null,
+          summary: input.columns.summary ?? null,
           website: input.columns.website ?? null,
           categories: terms.categories.map((t) => t.id),
           usefulness: input.columns.usefulness ?? null,

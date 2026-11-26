@@ -202,6 +202,7 @@ export function createCreateVendorProductHandler(
         now,
         columns: {
           ...(payload.description !== undefined ? { description: payload.description } : {}),
+          ...(payload.summary !== undefined ? { summary: payload.summary } : {}),
           ...(payload.website !== undefined ? { website: payload.website } : {}),
           ...(payload.logo_url !== undefined
             ? { logoUrl: payload.logo_url, logoSource: 'vendor' as const }

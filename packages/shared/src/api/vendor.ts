@@ -7,6 +7,7 @@ import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
+import { ProductSummarySchema } from './summary';
 import { ConnectorKindSchema } from './connector-kind-schema';
 import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
@@ -248,6 +249,8 @@ export const VendorProductSchema = z.object({
   is_primary: z.boolean(),
 
   description: z.string().nullable(),
+  // AECI-2198. The one-line hero summary; null shows the clamped description.
+  summary: z.string().nullable(),
   website: z.string().nullable(),
   tool_integrations_url: z.string().nullable(),
   api_docs_url: z.string().nullable(),
@@ -453,6 +456,8 @@ export type UpdateVendorProfileResponse = z.infer<typeof UpdateVendorProfileResp
 export const UpdateVendorProductSchema = z
   .object({
     description: longText.nullable().optional(),
+    // AECI-2198. One line, at most 155 characters after trimming; empty clears it.
+    summary: ProductSummarySchema.optional(),
     website: editableUrl.nullable().optional(),
     tool_integrations_url: editableUrl.nullable().optional(),
     api_docs_url: editableUrl.nullable().optional(),
@@ -514,6 +519,8 @@ export const CreateVendorProductSchema = z
   .object({
     name: shortText.min(1, 'Enter the product name').max(VENDOR_PRODUCT_NAME_MAX),
     description: longText.optional(),
+    // AECI-2198. Free, like `description`: one line, at most 155 characters.
+    summary: ProductSummarySchema.optional(),
     website: editableUrl.optional(),
     logo_url: LogoUrlSchema.optional(),
     // Find-only: an unknown slug is a `VALIDATION_FAILED`, as on the edit route.
@@ -813,6 +820,7 @@ export type AcceptSeatInviteResponse = z.infer<typeof AcceptSeatInviteResponseSc
 /** The text an owner seat may blank for 30 days after Managed ends. Tags stay. */
 export const REMOVAL_ELECTION_FIELDS = [
   'description',
+  'summary',
   'usefulness',
   'tool_integrations_url',
   'api_docs_url',

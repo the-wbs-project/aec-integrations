@@ -36,7 +36,8 @@ import { compareText } from '@aeci/shared/text-sort';
 export interface ProductCaptionInput {
   /** The primary vendor's name. `null` for a product no vendor is linked to. */
   vendorName: string | null;
-  /** Whether the group has anything to caption: a caption under nothing says nothing. */
+  /** Whether the group has anything to caption: a caption under nothing says nothing.
+   *  `hasDescription` is true when `description` OR `summary` is set (AECI-2198). */
   hasDescription: boolean;
   hasUsefulness: boolean;
   hasProfile: boolean;
@@ -201,6 +202,8 @@ function correctionStillTrue(
 /** The product columns and facets a vendor PATCH can change, before and after. */
 export interface ProductGroupValues {
   description: string | null;
+  /** AECI-2198. In the description group: a change moves `descriptionEditedAt`. */
+  summary: string | null;
   website: string | null;
   categories: readonly string[];
   usefulness: unknown;
@@ -249,7 +252,8 @@ export function productEditStamps(
     (before.website ?? null) !== (after.website ?? null) ||
     !sameSlugs(before.categories, after.categories);
   return {
-    ...((before.description ?? null) !== (after.description ?? null)
+    ...((before.description ?? null) !== (after.description ?? null) ||
+    (before.summary ?? null) !== (after.summary ?? null)
       ? { descriptionEditedAt: now }
       : {}),
     ...(profileMoved ? { profileEditedAt: now } : {}),
@@ -262,7 +266,11 @@ export function productEditStamps(
 
 /** The stamps a product carries from birth when a vendor write creates it. */
 export function newProductEditStamps(
-  created: Omit<ProductGroupValues, 'website' | 'toolIntegrationsUrl' | 'apiDocsUrl'> & {
+  created: Omit<
+    ProductGroupValues,
+    'summary' | 'website' | 'toolIntegrationsUrl' | 'apiDocsUrl'
+  > & {
+    summary?: string | null;
     website?: string | null;
     toolIntegrationsUrl?: string | null;
     apiDocsUrl?: string | null;
@@ -272,6 +280,7 @@ export function newProductEditStamps(
   return productEditStamps(
     {
       description: null,
+      summary: null,
       website: null,
       categories: [],
       usefulness: null,
@@ -281,7 +290,13 @@ export function newProductEditStamps(
       audiences: [],
       phases: [],
     },
-    { website: null, toolIntegrationsUrl: null, apiDocsUrl: null, ...created },
+    {
+      summary: null,
+      website: null,
+      toolIntegrationsUrl: null,
+      apiDocsUrl: null,
+      ...created,
+    },
     now,
   );
 }

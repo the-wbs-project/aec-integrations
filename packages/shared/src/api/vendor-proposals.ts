@@ -65,6 +65,11 @@ export const VendorProposalSchema = z.object({
     name: z.string(),
     /** The first {@link PROPOSAL_DESCRIPTION_EXCERPT_MAX} characters, or `null`. */
     description_excerpt: z.string().nullable(),
+    /**
+     * The proposed summary (AECI-2198), whole: an accept publishes it, so the owner must
+     * see all of it. Already one line of at most 155 characters (Zod on the way in).
+     */
+    summary: z.string().nullable(),
     website: z.string().nullable(),
     product_role: z.string(),
   }),

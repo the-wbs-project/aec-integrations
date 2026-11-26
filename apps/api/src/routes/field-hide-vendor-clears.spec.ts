@@ -314,6 +314,21 @@ describe('PATCH /api/vendor/products/:id', () => {
     const [audit] = await auditsFor('product.field_hide_cleared');
     expect(audit).toMatchObject({ entityId: P_REVIT, productId: P_REVIT, vendorId: VENDOR_A });
   });
+
+  // AECI-2198: the two fields share one edit stamp, never one hide.
+  it('ends only the summary hide on a save that changes only it', async () => {
+    const short = await hide('product', P_REVIT, 'summary', VENDOR_A);
+    const description = await hide('product', P_REVIT, 'description', VENDOR_A);
+    const res = await call(AUTH_A, `/api/vendor/products/${P_REVIT}`, 'PATCH', {
+      summary: 'BIM authoring for architects and engineers.',
+    });
+    expect(res.status).toBe(200);
+    expect((await hideRow(short)).clearKind).toBe('vendor_edit');
+    expect((await hideRow(description)).clearedAt).toBeNull();
+    expect(res.body.product.hidden_fields).toEqual([
+      expect.objectContaining({ field: 'description' }),
+    ]);
+  });
 });
 
 describe('PATCH /api/vendor/integrations/:id', () => {

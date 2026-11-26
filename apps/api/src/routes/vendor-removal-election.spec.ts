@@ -252,6 +252,29 @@ describe('POST: who and what', () => {
     expect((await product()).apiDocsUrl).toBe('https://acme.example/api');
   });
 
+  // AECI-2198: the summary is the vendor's text too.
+  it('blanks a summary the vendor wrote, and leaves one promote wrote', async () => {
+    await t.db
+      .update(products)
+      .set({ summary: 'One line we wrote.' })
+      .where(eq(products.id, PRODUCT));
+    await vendorWrote({ summary: 'One line we wrote.' }, 201);
+    const res = await post();
+    expect(((await res.json()) as { removed_fields: string[] }).removed_fields).toContain(
+      'summary',
+    );
+    expect((await product()).summary).toBeNull();
+  });
+
+  it('leaves a promote-written summary alone', async () => {
+    await t.db
+      .update(products)
+      .set({ summary: 'AECi wrote this line.' })
+      .where(eq(products.id, PRODUCT));
+    await post();
+    expect((await product()).summary).toBe('AECi wrote this line.');
+  });
+
   it('leaves a promote-written field alone: no vendor row wrote it', async () => {
     t.raw.prepare('DELETE FROM audit_log').run();
     await vendorWrote({ apiDocsUrl: 'https://acme.example/api' });

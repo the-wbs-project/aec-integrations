@@ -246,6 +246,33 @@ describe('a hidden value renders on no public read (AECI-1238 §11d.7)', () => {
     expect(partner.body.vendor_facts.company_size).toBe('51-200');
   });
 
+  // AECI-2198: the description group holds two fields. Its caption goes only once every
+  // member with a value is hidden.
+  it('keeps the description group caption while the summary is still visible', async () => {
+    await t.db
+      .update(products)
+      .set({ summary: 'One line for site teams.' })
+      .where(eq(products.id, P_HELD));
+    const { body } = await productDetail('held-tool');
+    expect(body.description).toBeNull();
+    expect(body.summary).toBe('One line for site teams.');
+    expect(body.under_review).toEqual(['description']);
+    expect(body.captions.description).toMatchObject({ form: 'updated', date: EDITED_AT });
+  });
+
+  it('masks a hidden summary, names it, and drops the caption when both are hidden', async () => {
+    await t.db
+      .update(products)
+      .set({ summary: 'One line for site teams.' })
+      .where(eq(products.id, P_HELD));
+    await t.db.insert(fieldHides).values(hide(49, 'product', P_HELD, 'summary'));
+    const { body } = await productDetail('held-tool');
+    expect(body.summary).toBeNull();
+    expect(body.description).toBeNull();
+    expect(body.under_review).toEqual(['description', 'summary']);
+    expect(body.captions.description).toBeNull();
+  });
+
   it('the product page masks its endpoint rows by row id', async () => {
     const { body } = await productDetail('partner-tool');
     const rows = [...body.integrations_as_source, ...body.integrations_as_target];

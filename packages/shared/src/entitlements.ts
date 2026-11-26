@@ -68,7 +68,7 @@ export const CAPABILITIES = [
   'profile.edit', // PATCH /api/vendor/profile — every company detail, held on every plan (§13.3)
   'profile.rich_fields', // the extended vendor field set
   'product.edit', // AECI-1214 — the integrations page URL and the API docs URL on an owned product
-  'product.listing.edit', // AECI-1214 — description, website and logo on an owned product
+  'product.listing.edit', // AECI-1214 — description, summary (AECI-2198), website and logo on an owned product
   'product.categories.edit', // AECI-1214 — `category_slugs` on an owned product
   'product.taxonomy.edit', // trades, audiences and phases on an owned product
   'product.usefulness.edit', // AECI-963 — the "how teams use it" narrative on an owned product
@@ -175,6 +175,8 @@ export type VendorEditableField = keyof typeof VENDOR_FIELD_CAPABILITIES;
  *  rewrites rather than columns, but they are gated per field like the rest. */
 export const PRODUCT_FIELD_CAPABILITIES = {
   description: 'product.listing.edit',
+  // AECI-2198. The one-line hero summary sits with the description, on Free.
+  summary: 'product.listing.edit',
   website: 'product.listing.edit',
   logo_url: 'product.listing.edit',
   tool_integrations_url: 'product.edit',

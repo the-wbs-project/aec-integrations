@@ -26,12 +26,13 @@ describe('the hideable fields', () => {
     expect(VENDOR_HIDE_FIELDS).toEqual([...VENDOR_OVERRIDE_FIELDS, 'description']);
   });
 
-  it('takes the product links and description, never a taxonomy facet', () => {
+  it('takes the product links, description and summary, never a taxonomy facet', () => {
     expect(PRODUCT_HIDE_FIELDS).toEqual([
       'website',
       'tool_integrations_url',
       'api_docs_url',
       'description',
+      'summary',
     ]);
     expect(isFieldHideField('product', 'category_slugs')).toBe(false);
   });
