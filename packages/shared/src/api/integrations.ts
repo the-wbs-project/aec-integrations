@@ -124,9 +124,9 @@ export const IntegrationListItemSchema = z.object({
   // (AECI-921 — the same vocabulary as `claims.direction`). NOT the presentation
   // collapse: a consumer that HAS a context product frames it itself, and the
   // powered hub does exactly that (`powered-hub-grouping.ts`), so collapsing
-  // here would throw away the one fact it needs. Consumers with no context —
-  // the home page's recent-integrations tile — run it through
-  // `directionLabel()`, which accepts both vocabularies.
+  // here would throw away the one fact it needs. A consumer with no context
+  // frames it on `source` and names both products (`pairFlowSentence()` in
+  // apps/web), or collapses it with `presentedDirection()` for a facet or filter.
   direction: z.enum(CLAIM_DIRECTIONS).nullable(),
   source: ProductLinkSchema,
   target: ProductLinkSchema,

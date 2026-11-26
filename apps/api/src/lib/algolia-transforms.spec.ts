@@ -646,6 +646,40 @@ describe('toAlgoliaIntegration', () => {
     };
     expect(() => toAlgoliaIntegration(bad)).toThrow(/unknown mechanism_kind/);
   });
+
+  // AECI-1939: source is the sender on every one-way record. Stored source is
+  // Procore (u81), stored target ACC (u82); only `b_to_a` flips them.
+  it.each([
+    ['a_to_b', 'one-way', 'procore', 'autodesk-construction-cloud'],
+    ['b_to_a', 'one-way', 'autodesk-construction-cloud', 'procore'],
+    ['both', 'bidirectional', 'procore', 'autodesk-construction-cloud'],
+    [null, null, 'procore', 'autodesk-construction-cloud'],
+  ] as const)(
+    'orients a stored %s row so source is the sender (AECI-1939)',
+    async (stored, presented, sourceSlug, targetSlug) => {
+      await seedEndpoints();
+      await t.db.insert(integrations).values({
+        id: u(1),
+        sourceProductId: u(81),
+        targetProductId: u(82),
+        mechanismKind: 'native',
+        direction: stored,
+      });
+      const record = toAlgoliaIntegration((await integrationById(u(1)))!);
+      const nameOf = {
+        procore: 'Procore',
+        'autodesk-construction-cloud': 'Autodesk Construction Cloud',
+      };
+      expect(record).toMatchObject({
+        objectID: u(1),
+        direction: presented,
+        source_product_slug: sourceSlug,
+        source_product_name: nameOf[sourceSlug],
+        target_product_slug: targetSlug,
+        target_product_name: nameOf[targetSlug],
+      });
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

@@ -47,20 +47,57 @@ describe('SearchIntegrationCard', () => {
     expect(el.querySelector('a[href^="/integrations/"]')).toBeNull();
   });
 
-  it('renders the mechanism and direction labels', () => {
+  it('renders the mechanism label', () => {
     const el = setup();
     expect(el.textContent).toContain('Native');
-    expect(el.textContent).toContain('Bidirectional');
   });
 
   it('omits the mechanism badge when mechanism_kind is null', () => {
     const el = setup({ ...baseRecord, mechanism_kind: null });
     expect(el.textContent).not.toContain('Native');
   });
+});
 
-  it('omits the direction text when direction is null', () => {
+// AECI-1939: the record is oriented so the source sends on a one-way record. The
+// headline glyph and the meta line follow `record().direction`, never a fixed arrow.
+describe('SearchIntegrationCard direction (AECI-1939)', () => {
+  const glyphOf = (el: HTMLElement) => el.querySelector('h3 a span[aria-hidden="true"]')!;
+
+  it.each([
+    ['one-way', '→', 'Revit sends to Navisworks', true],
+    ['bidirectional', '⇄', 'Revit and Navisworks sync both ways', false],
+  ] as const)('draws a %s record as %s with "%s"', (direction, glyph, sentence, mirrors) => {
+    const el = setup({ ...baseRecord, direction });
+    const span = glyphOf(el);
+    expect(span.textContent?.trim()).toBe(glyph);
+    expect(span.classList.contains('rtl:-scale-x-100')).toBe(mirrors);
+    expect(el.textContent).toContain(sentence);
+  });
+
+  it('draws a neutral dot and no flow line when the direction is unknown', () => {
     const el = setup({ ...baseRecord, direction: null });
-    expect(el.textContent).not.toContain('Bidirectional');
+    expect(glyphOf(el).textContent?.trim()).toBe('·');
+    expect(el.textContent).not.toContain('→');
+    expect(el.textContent).not.toContain('sends to');
+    expect(el.textContent).not.toContain('sync both ways');
+    // The meta row holds only the mechanism chip.
+    const meta = el.querySelector('article > div')!;
+    expect(meta.querySelectorAll('span.text-xs')).toHaveLength(0);
+  });
+
+  it('links the same pair page whichever endpoint sends', () => {
+    const swapped = setup({
+      ...baseRecord,
+      direction: 'one-way',
+      source_product_name: 'Navisworks',
+      source_product_slug: 'navisworks',
+      target_product_name: 'Revit',
+      target_product_slug: 'revit',
+    });
+    expect(
+      swapped.querySelector('a[href="/products/navisworks/integrations/revit"]'),
+    ).not.toBeNull();
+    expect(swapped.textContent).toContain('Navisworks sends to Revit');
   });
 });
 

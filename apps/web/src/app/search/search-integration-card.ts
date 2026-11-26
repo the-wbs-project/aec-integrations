@@ -6,7 +6,8 @@ import { AecCard } from '../shared/card/card';
 import { defaultIntegrationContext } from '@aeci/shared';
 import type { AlgoliaIntegrationRecord } from '@aeci/shared/algolia-records';
 
-import { directionLabel, mechanismKindLabel } from './mechanism-labels';
+import { mechanismKindLabel } from './mechanism-labels';
+import { directionGlyph, pairFlowSentence } from '../products/pair-direction-labels';
 import { Chip } from '../shared/chip/chip';
 
 /**
@@ -16,11 +17,18 @@ import { Chip } from '../shared/chip/chip';
  * `/products/:context/integrations/:other` (context = alphabetically-first slug
  * via `defaultIntegrationContext`, from the record's endpoint slugs), not the
  * retired `/integrations/:objectID` detail route (which now 301-redirects to the
- * same pair page). The `"{source} → {target}"` headline + mechanism / direction
- * badges reuse the shared `mechanism-labels` so the labels match the `/integrations`
- * table exactly. The `/search` Integrations tab is hidden (STAGE_1_SPEC.md §7.5),
- * so this card is not currently surfaced. Both themes via tokens; strings
- * `$localize`-wrapped.
+ * same pair page). The mechanism badge reuses the shared `mechanism-labels`.
+ *
+ * Direction (AECI-1939). The record is oriented so that on a `one-way` record the
+ * source is the sender (`AlgoliaIntegrationRecordSchema`), so the headline reads
+ * `{source} → {target}` only for a one-way record, `⇄` for a bidirectional one and
+ * a neutral `·` when the direction is unknown, which makes no flow claim. The
+ * glyphs come from `directionGlyph()` (DESIGN.md "The Arrow Rule"), framed on the
+ * source, the name printed first. The meta line names both products
+ * (`pairFlowSentence`), as the connector page does, because a search hit is read
+ * from neither product. No line for an unknown direction. The `/search`
+ * Integrations tab is hidden (STAGE_1_SPEC.md §7.5), so this card is not
+ * currently surfaced. Strings `$localize`-wrapped.
  */
 @Component({
   selector: 'aec-search-integration-card',
@@ -37,8 +45,11 @@ import { Chip } from '../shared/chip/chip';
           class="block text-t-20 leading-tight transition-colors after:absolute after:inset-0 after:rounded-card group-hover/card:text-(--accent-primary) focus-visible:outline-0"
         >
           {{ record().source_product_name }}
-          <span class="inline-block text-(--text-secondary) rtl:-scale-x-100" aria-hidden="true"
-            >→</span
+          <span
+            class="inline-block text-(--text-secondary)"
+            [class.rtl:-scale-x-100]="record().direction === 'one-way'"
+            aria-hidden="true"
+            >{{ glyph() }}</span
           >
           {{ record().target_product_name }}
         </a>
@@ -54,8 +65,8 @@ import { Chip } from '../shared/chip/chip';
         @if (mechanismLabel(); as label) {
           <aec-chip density="dense" tone="neutral">{{ label }}</aec-chip>
         }
-        @if (direction(); as label) {
-          <span class="text-xs text-(--text-secondary)">{{ label }}</span>
+        @if (flowSentence(); as sentence) {
+          <span class="text-xs text-(--text-secondary)">{{ sentence }}</span>
         }
       </div>
     </article>
@@ -76,5 +87,29 @@ export class SearchIntegrationCard {
   protected readonly mechanismLabel = computed(() =>
     mechanismKindLabel(this.record().mechanism_kind),
   );
-  protected readonly direction = computed(() => directionLabel(this.record().direction));
+
+  /** The headline separator: a direction glyph, or a neutral dot when unknown. */
+  protected readonly glyph = computed(() => {
+    switch (this.record().direction) {
+      case 'one-way':
+        return directionGlyph('outbound');
+      case 'bidirectional':
+        return directionGlyph('both');
+      default:
+        return '·';
+    }
+  });
+
+  /** "{source} sends to {target}", "{source} and {target} sync both ways", or `''`. */
+  protected readonly flowSentence = computed(() => {
+    const r = this.record();
+    switch (r.direction) {
+      case 'one-way':
+        return pairFlowSentence('outbound', r.source_product_name, r.target_product_name);
+      case 'bidirectional':
+        return pairFlowSentence('both', r.source_product_name, r.target_product_name);
+      default:
+        return '';
+    }
+  });
 }

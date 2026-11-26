@@ -231,6 +231,16 @@ export type AlgoliaVendorRecord = z.infer<typeof AlgoliaVendorRecordSchema>;
  * (`mechanismRank()` in `./algolia`) that realizes the §7.3 mechanism priority —
  * Algolia `customRanking` can only sort by a numeric attribute, so the string
  * `mechanism_kind` alone can't drive ranking.
+ *
+ * Orientation (AECI-1939): on a `one-way` record, `source_*` is the product that
+ * SENDS and `target_*` the one that receives. Both writers (`toAlgoliaIntegration` /
+ * `toAlgoliaEvidencedPair` in `apps/api`, `buildIntegrationRecords` in
+ * `apps/datatool`) swap a stored `b_to_a` row's endpoints, for both row kinds.
+ * `bidirectional` and null records keep the stored order, which carries no flow
+ * claim. `direction` stays context-free (`one-way|bidirectional`, AECI-921), so the
+ * endpoint order is the only place the flow is recorded. The searchable-attribute
+ * order and the "Source product" / "Target product" facets read the same oriented
+ * fields. `docs/SEARCH_RANKING.md` §3.3.
  */
 export const AlgoliaIntegrationRecordSchema = z.object({
   objectID: z.string().uuid(),
