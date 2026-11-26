@@ -165,6 +165,9 @@ const TREND_LANE_KEYS: Record<keyof SeoTrendLanes, AdminSnapshotMetricKey> = {
   pairs_without_reviews: 'seo.pairs_without_reviews',
 };
 
+/** A supporting key, never a row of its own: it decides how the age reads. */
+const TIER12_COUNT_KEY = 'queue.reindex_tier12_pending' satisfies AdminSnapshotMetricKey;
+
 /** The Monday of `now`'s ISO week, `YYYY-MM-DD`, UTC. */
 export function isoWeekMonday(now: Date): string {
   const today = now.toISOString().slice(0, 10);
@@ -209,7 +212,7 @@ export function createAdminSeoTrendHandler(
         .from(metricsDaily)
         .where(
           and(
-            inArray(metricsDaily.metric, Object.values(TREND_LANE_KEYS)),
+            inArray(metricsDaily.metric, [...Object.values(TREND_LANE_KEYS), TIER12_COUNT_KEY]),
             gte(metricsDaily.day, oldestMonday),
             lte(metricsDaily.day, shiftDay(currentMonday, -1)),
           ),
@@ -243,13 +246,14 @@ export function createAdminSeoTrendHandler(
 
       // The oldest-age key writes NO row on a day with no tier-1 or tier-2 row, so
       // it must not fall back to an earlier day: a queue that empties on Friday
-      // would still show Wednesday's age. It is read on the day the re-index depth
-      // was last sampled. That day with no age row is `'none'`, and so is an age
-      // row left by an earlier run of the same day (`reindexAgeOnDay`).
-      const sampled = latestIn(TREND_LANE_KEYS.reindex_pending);
+      // would still show Wednesday's age. It is read on the latest day in the week
+      // with a tier-1 and tier-2 count row, against that row (`reindexAgeOnDay`).
+      // A count of 0 is `'none'`. A missing or stale age row under a positive
+      // count is null, not recorded. A week with no count row is null.
+      const sampled = latestIn(TIER12_COUNT_KEY);
       const age = sampled
         ? reindexAgeOnDay(
-            byKeyDay.get(`${TREND_LANE_KEYS.reindex_pending}|${sampled.day}`),
+            byKeyDay.get(`${TIER12_COUNT_KEY}|${sampled.day}`),
             byKeyDay.get(`${TREND_LANE_KEYS.reindex_oldest_tier12_age_days}|${sampled.day}`),
           )
         : null;

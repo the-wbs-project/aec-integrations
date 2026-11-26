@@ -326,7 +326,11 @@ describe('readReindexLane', () => {
       source: 'promote',
       queuedAt: daysAgo(10),
     });
-    expect(await readReindexLane(t.db, NOW)).toEqual({ count: 1, oldestTier12AgeDays: null });
+    expect(await readReindexLane(t.db, NOW)).toEqual({
+      count: 1,
+      tier12Count: 0,
+      oldestTier12AgeDays: null,
+    });
   });
 
   it('ages the oldest tier-1 or tier-2 row, one decimal', async () => {
@@ -353,7 +357,11 @@ describe('readReindexLane', () => {
         queuedAt: daysAgo(30),
       },
     ]);
-    expect(await readReindexLane(t.db, NOW)).toEqual({ count: 3, oldestTier12AgeDays: 3.2 });
+    expect(await readReindexLane(t.db, NOW)).toEqual({
+      count: 3,
+      tier12Count: 2,
+      oldestTier12AgeDays: 3.2,
+    });
   });
 });
 

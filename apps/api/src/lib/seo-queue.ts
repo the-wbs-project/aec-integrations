@@ -324,6 +324,9 @@ export async function computeSeoLanes(db: Db, to: Date): Promise<SeoLaneSet> {
 
 export interface ReindexLane {
   count: number;
+  /** Rows with `priority <= 2`. Read in the same statement as the age, so the
+   *  two cannot disagree. */
+  tier12Count: number;
   /** Days since the oldest tier-1 or tier-2 row was queued, one decimal, or null
    *  when no such row exists. */
   oldestTier12AgeDays: number | null;
@@ -334,13 +337,14 @@ export async function readReindexLane(db: Db, now: Date): Promise<ReindexLane> {
   const [totals, oldest] = await db.batch([
     db.select({ value: count() }).from(gscRecrawlQueue),
     db
-      .select({ queuedAt: min(gscRecrawlQueue.queuedAt) })
+      .select({ tier12: count(), queuedAt: min(gscRecrawlQueue.queuedAt) })
       .from(gscRecrawlQueue)
       .where(lte(gscRecrawlQueue.priority, 2)),
   ]);
   const queuedAt = oldest[0]?.queuedAt ?? null;
   return {
     count: totals[0]?.value ?? 0,
+    tier12Count: oldest[0]?.tier12 ?? 0,
     oldestTier12AgeDays: queuedAt === null ? null : ageInDays(queuedAt, now),
   };
 }

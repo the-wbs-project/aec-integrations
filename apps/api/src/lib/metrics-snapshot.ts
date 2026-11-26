@@ -308,13 +308,19 @@ const PRODUCERS: Record<SnapshotWrittenMetricKey, Producer> = {
     (await seoLanesFor(db, day, run)).pairsWithoutReviews.length,
   // `countAll` over the table, the same count `pending_reindex` reads.
   'queue.reindex_pending': (db) => countAll(db, gscRecrawlQueue),
+  // The tier-1 and tier-2 count and the age below come from one memoized read
+  // (`readReindexLane`), so within a run they cannot disagree. The count is
+  // written on every run, 0 included. It is what records "no such row", because
+  // the age key writes no row then, and absence alone cannot tell that from a
+  // failed age write.
+  'queue.reindex_tier12_pending': async (db, _day, run) =>
+    (await reindexLaneFor(db, run)).tier12Count,
   // A stale same-day row can exist. A re-run for a day whose tier-1 and tier-2
   // rows have since cleared writes no age row and leaves the earlier run's row in
-  // place, while it rewrites `queue.reindex_pending`. Every reader must go through
-  // {@link reindexAgeOnDay}, which keeps the age row only when its `computed_at`
-  // matches the pending row's. Nothing deletes the stale row: a scheduled DELETE
-  // must write a summary `audit_log` row in the same batch (ADR 0022), and the
-  // read-side rule makes the delete unnecessary.
+  // place. Every reader must go through {@link reindexAgeOnDay}, which keeps the
+  // age row only when its `computed_at` matches the count row's. Nothing deletes
+  // the stale row: a scheduled DELETE must write a summary `audit_log` row in the
+  // same batch (ADR 0022), and the read-side rule makes the delete unnecessary.
   'queue.reindex_oldest_tier12_age_days': async (db, _day, run) =>
     (await reindexLaneFor(db, run)).oldestTier12AgeDays,
 
@@ -395,25 +401,28 @@ export interface StampedReading {
 
 /**
  * `queue.reindex_oldest_tier12_age_days` for one day, read against the same
- * day's `queue.reindex_pending` row. The one rule every reader of the age key
- * uses, so two readers cannot disagree.
+ * day's `queue.reindex_tier12_pending` row. The one rule every reader of the age
+ * key uses, so two readers cannot disagree.
  *
  * One snapshot run stamps every key it writes with the single `now` it was given
- * ({@link upsertMetric}). So an age row from the latest run carries the pending
+ * ({@link upsertMetric}). So an age row from the latest run carries the count
  * row's `computed_at`. An age row with any other stamp is left from an earlier
- * run of the same day, after which the tier emptied (see the producer).
+ * run of the same day (see the producer).
  *
- *   - No pending row: null, "Not recorded". Without it there is no proof the age
- *     row belongs to the latest run.
- *   - Pending row, no age row, or an age row with another stamp: `'none'`.
- *   - Equal stamps: the age.
+ *   - No count row: null, "Not recorded". Days snapshotted before the count key
+ *     existed read this way too.
+ *   - Count row of 0: `'none'`. There was no tier-1 or tier-2 row.
+ *   - Count above 0 and an age row with the same stamp: the age.
+ *   - Count above 0 and the age row missing or stamped differently: null. The
+ *     age producer or its write failed in that run, so the age was not recorded.
  */
 export function reindexAgeOnDay(
-  pending: StampedReading | undefined,
+  tier12Count: StampedReading | undefined,
   age: StampedReading | undefined,
 ): number | 'none' | null {
-  if (!pending) return null;
-  if (!age || age.computedAt !== pending.computedAt) return 'none';
+  if (!tier12Count) return null;
+  if (tier12Count.value === 0) return 'none';
+  if (!age || age.computedAt !== tier12Count.computedAt) return null;
   return age.value;
 }
 

@@ -236,6 +236,7 @@ describe('GET /api/admin/seo/trend', () => {
       row('2026-11-22', 'seo.uncrawled_urls_google', 40),
       // No Sunday row for this key: the latest day in the week is read.
       row('2026-11-19', 'queue.reindex_pending', 7),
+      row('2026-11-19', 'queue.reindex_tier12_pending', 0),
       // The pair count is a Panel 2 row, never a Panel 1 lane (Chris, 2026-11-24).
       row('2026-11-22', 'seo.pairs_without_reviews', 880),
       // The current week is excluded.
@@ -248,7 +249,7 @@ describe('GET /api/admin/seo/trend', () => {
     expect(body.weeks.map((w) => w.week_start)).toEqual(['2026-11-16', '2026-11-09']);
     expect(body.weeks[0]?.lanes).toEqual({
       reindex_pending: 7,
-      // The depth was sampled on 2026-11-19 with no age row: "none", not null.
+      // The tier-1 and tier-2 count was 0 on 2026-11-19: "none", not null.
       reindex_oldest_tier12_age_days: 'none',
       uncrawled_google: 40,
       uncrawled_bing: null,
@@ -267,11 +268,11 @@ describe('GET /api/admin/seo/trend', () => {
     });
     await t.db.insert(metricsDaily).values([
       // Week of 2026-11-16: a tier-1 row on Wednesday, the queue empty by Friday.
-      row('2026-11-18', 'queue.reindex_pending', 3),
+      row('2026-11-18', 'queue.reindex_tier12_pending', 3),
       row('2026-11-18', 'queue.reindex_oldest_tier12_age_days', 4.5),
-      row('2026-11-20', 'queue.reindex_pending', 0),
+      row('2026-11-20', 'queue.reindex_tier12_pending', 0),
       // Week of 2026-11-09: the age is read on the last sampled day.
-      row('2026-11-15', 'queue.reindex_pending', 2),
+      row('2026-11-15', 'queue.reindex_tier12_pending', 2),
       row('2026-11-15', 'queue.reindex_oldest_tier12_age_days', 1.2),
     ]);
     const body = SeoTrendResponseSchema.parse(
@@ -285,7 +286,7 @@ describe('GET /api/admin/seo/trend', () => {
     ]);
   });
 
-  it('reads an age row left by an earlier run of the same day as "none"', async () => {
+  it('reads the age through the tier-1 and tier-2 count, in each of its four states', async () => {
     const at = (day: string, metric: string, value: number, computedAt: string) => ({
       day,
       metric,
@@ -295,25 +296,38 @@ describe('GET /api/admin/seo/trend', () => {
     });
     const first = '2026-11-23T00:15:00.000Z';
     const rerun = '2026-11-23T02:00:00.000Z';
+    const w1 = '2026-11-09T00:15:00.000Z';
+    const w2 = '2026-11-02T00:15:00.000Z';
     await t.db.insert(metricsDaily).values([
-      // Week of 2026-11-16: re-run after the tier cleared. Stale age row: "none".
-      at('2026-11-22', 'queue.reindex_pending', 0, rerun),
+      // Week of 2026-11-16: re-run after the tier cleared. The count is 0, so the
+      // stale age row from the first run reads "none".
+      at('2026-11-22', 'queue.reindex_tier12_pending', 0, rerun),
       at('2026-11-22', 'queue.reindex_oldest_tier12_age_days', 6.1, first),
       // Week of 2026-11-09: one run, equal stamps. The age is shown.
-      at('2026-11-15', 'queue.reindex_pending', 2, '2026-11-16T00:15:00.000Z'),
+      at('2026-11-15', 'queue.reindex_tier12_pending', 2, '2026-11-16T00:15:00.000Z'),
       at('2026-11-15', 'queue.reindex_oldest_tier12_age_days', 1.2, '2026-11-16T00:15:00.000Z'),
-      // Week of 2026-11-02: an age row with no pending row in the week. Not recorded.
-      at('2026-11-08', 'queue.reindex_oldest_tier12_age_days', 3, '2026-11-09T00:15:00.000Z'),
+      // Week of 2026-11-02: a positive count with an age row from another run.
+      // The age was not recorded in the count's run: null.
+      at('2026-11-08', 'queue.reindex_tier12_pending', 1, w1),
+      at('2026-11-08', 'queue.reindex_oldest_tier12_age_days', 3, '2026-11-08T23:00:00.000Z'),
+      // Week of 2026-10-26: a positive count and no age row, a failed age write: null.
+      at('2026-11-01', 'queue.reindex_tier12_pending', 4, w2),
+      // Week of 2026-10-19: an age row with no count row, as before the key existed.
+      at('2026-10-25', 'queue.reindex_pending', 5, '2026-10-26T00:15:00.000Z'),
+      at('2026-10-25', 'queue.reindex_oldest_tier12_age_days', 9, '2026-10-26T00:15:00.000Z'),
     ]);
     const body = SeoTrendResponseSchema.parse(
-      await (await get('/api/admin/seo/trend?weeks=3')).json(),
+      await (await get('/api/admin/seo/trend?weeks=5')).json(),
     );
     expect(body.weeks.map((w) => w.lanes.reindex_oldest_tier12_age_days)).toEqual([
       'none',
       1.2,
       null,
+      null,
+      null,
     ]);
-    expect(body.weeks[0]?.lanes.reindex_pending).toBe(0);
+    // The count is a supporting key, never a lane of its own.
+    expect(Object.keys(body.weeks[0]!.lanes)).not.toContain('reindex_tier12_pending');
   });
 
   it('computes the cohort and the self-reported requests per week', async () => {

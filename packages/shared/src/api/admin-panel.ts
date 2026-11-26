@@ -996,6 +996,10 @@ export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
   'seo.pairs_without_reviews',
   /** `gsc_recrawl_queue` rows: the same number as `pending_reindex` on `/summary`. */
   'queue.reindex_pending',
+  /** `gsc_recrawl_queue` rows with `priority <= 2`. Written on every run, 0
+   *  included, so a reader can tell "no tier-1 or tier-2 row" from "the age was
+   *  not recorded" (AECI-816). Read with the age through `reindexAgeOnDay`. */
+  'queue.reindex_tier12_pending',
   /** Days, REAL. NO row on a day with no tier-1 or tier-2 row, because 0 would
    *  mean "a row queued just now". */
   'queue.reindex_oldest_tier12_age_days',

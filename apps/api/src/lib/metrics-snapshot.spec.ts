@@ -444,19 +444,20 @@ describe('runMetricsSnapshot — the search console stocks (AECI-818)', () => {
     const second = await stamps();
     // The age row survives from the first run. Every other key moved to the new stamp.
     expect(second.get(ABSENT_ON_EMPTY_QUEUE)).toBe(NOW.toISOString());
-    expect(second.get('queue.reindex_pending')).toBe(later.toISOString());
+    expect(second.get('queue.reindex_tier12_pending')).toBe(later.toISOString());
     expect(
       [...second]
         .filter(([k]) => k !== ABSENT_ON_EMPTY_QUEUE)
         .every(([, v]) => v === later.toISOString()),
     ).toBe(true);
-    // The shared reader rule reads it as "none".
+    // The count row says 0, so the shared reader rule reads "none".
     const rows = await stored();
+    expect(rows.get('queue.reindex_tier12_pending')).toBe(0);
     expect(
       reindexAgeOnDay(
         {
-          value: rows.get('queue.reindex_pending')!,
-          computedAt: second.get('queue.reindex_pending')!,
+          value: rows.get('queue.reindex_tier12_pending')!,
+          computedAt: second.get('queue.reindex_tier12_pending')!,
         },
         { value: rows.get(ABSENT_ON_EMPTY_QUEUE)!, computedAt: second.get(ABSENT_ON_EMPTY_QUEUE)! },
       ),
@@ -465,26 +466,53 @@ describe('runMetricsSnapshot — the search console stocks (AECI-818)', () => {
 });
 
 describe('reindexAgeOnDay', () => {
-  const at = (computedAt: string, value = 2.5) => ({ value, computedAt });
+  const at = (computedAt: string, value: number) => ({ value, computedAt });
   const T1 = '2026-08-11T00:15:00.000Z';
   const T2 = '2026-08-11T01:15:00.000Z';
 
-  it('shows the age when both rows come from the same run', () => {
-    expect(reindexAgeOnDay(at(T1, 4), at(T1))).toBe(2.5);
-  });
-  it('reads "none" when the age row is older than the pending row', () => {
-    expect(reindexAgeOnDay(at(T2, 0), at(T1))).toBe('none');
-  });
-  it('reads "none" with a pending row and no age row', () => {
-    expect(reindexAgeOnDay(at(T1, 0), undefined)).toBe('none');
-  });
-  it('is not recorded without a pending row, even when an age row exists', () => {
-    expect(reindexAgeOnDay(undefined, at(T1))).toBeNull();
+  it('is not recorded without a count row, even when an age row exists', () => {
+    expect(reindexAgeOnDay(undefined, at(T1, 2.5))).toBeNull();
     expect(reindexAgeOnDay(undefined, undefined)).toBeNull();
+  });
+  it('reads "none" on a count of 0, whatever age row is left', () => {
+    expect(reindexAgeOnDay(at(T2, 0), undefined)).toBe('none');
+    expect(reindexAgeOnDay(at(T2, 0), at(T1, 2.5))).toBe('none');
+  });
+  it('shows the age when the count is positive and both rows come from one run', () => {
+    expect(reindexAgeOnDay(at(T1, 3), at(T1, 2.5))).toBe(2.5);
+  });
+  it('is not recorded when the count is positive and the age row is missing or stale', () => {
+    expect(reindexAgeOnDay(at(T2, 3), undefined)).toBeNull();
+    expect(reindexAgeOnDay(at(T2, 3), at(T1, 2.5))).toBeNull();
   });
 });
 
 describe('runMetricsSnapshot — failure isolation', () => {
+  it('records a positive tier-1 and tier-2 count when the age write fails, so the age reads not recorded', async () => {
+    await t.db.insert(gscRecrawlQueue).values({
+      url: 'https://x.test/a',
+      priority: 2,
+      reason: 'product.updated',
+      source: 'promote',
+      queuedAt: '2026-08-08T00:15:00.000Z',
+    });
+    t.raw
+      .prepare(
+        `CREATE TRIGGER age_guard BEFORE INSERT ON metrics_daily
+         WHEN NEW.metric = 'queue.reindex_oldest_tier12_age_days'
+         BEGIN SELECT RAISE(ABORT, 'age write failed'); END;`,
+      )
+      .run();
+    const result = await runMetricsSnapshot(t.db, DAY, NOW);
+    expect(result.metrics.find((m) => m.metric === ABSENT_ON_EMPTY_QUEUE)?.status).toBe('failed');
+    const count = await storedRow(DAY, 'queue.reindex_tier12_pending');
+    expect(count?.value).toBe(1);
+    expect(await storedRow(DAY, ABSENT_ON_EMPTY_QUEUE)).toBeUndefined();
+    expect(
+      reindexAgeOnDay({ value: count!.value, computedAt: count!.computedAt }, undefined),
+    ).toBeNull();
+  });
+
   it('records a failing metric and still writes the rest', async () => {
     // §7.1 requires per-key isolation precisely so one broken producer cannot
     // cascade. Dropping `feedback` breaks exactly one metric.
