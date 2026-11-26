@@ -1,6 +1,15 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 
 import {
   claimOwnerReviewDeadline,
@@ -16,6 +25,13 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
+/** Which row's confirm is open: a seat's Remove or an invite's Revoke. */
+type Confirming = { readonly kind: 'seat' | 'invite'; readonly id: string };
+
+/** The Seats section heading (`sections/vendor-seats-page.ts`), focused when a
+ *  remove or revoke leaves no row with a control to land on. */
+const SEATS_HEADING_ID = 'vendor-seats-heading';
+
 /**
  * The seat roster for the vendor dashboard (AECI-522). Multi-seat is flat at
  * launch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6 / `STAGE_2_SPEC.md` §8.1(2)): data
@@ -25,7 +41,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * ── WHAT LIVES HERE, AND WHAT DOESN'T ───────────────────────────────────────
  * This renders the roster, the pending-invite list, and the three actions an
  * owner has over them: remove a seat, revoke an invite, and re-send one
- * (AECI-927). **Creating** an invite does not live here — it is
+ * (AECI-927). Remove and revoke each ask first, in an inline confirm in the row
+ * (AECI-2129). **Creating** an invite does not live here — it is
  * {@link VendorSeatInviteDialog}, triggered from the section heading, so the list
  * people come here to read isn't sitting under a permanent form. Both surfaces
  * gate on the same `canManageSeats` flag.
@@ -200,9 +217,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
     } @else {
       <!-- The region is positioned, so the visually hidden names inside the row
            buttons (absolute boxes) stay inside it. Unpositioned, they escaped the
-           scroller and pushed the whole page sideways at 390px (AECI-1812). -->
+           scroller and pushed the whole page sideways at 390px (AECI-1812).
+           It is also a size container, so a seat's Remove confirm can be exactly
+           as wide as the visible region and stay readable while the table
+           scrolls sideways under it (AECI-2129). -->
       <div
-        class="relative mt-6 min-w-0 overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
+        class="@container relative mt-6 min-w-0 overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
         role="region"
         tabindex="0"
         aria-labelledby="vendor-seats-caption"
@@ -227,8 +247,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
           </thead>
           <tbody>
             @for (seat of seats(); track seat.user_id) {
-              <tr>
-                <td [class]="cellClass + ' text-(--text-primary)'">
+              <tr [attr.data-seat-row]="seat.user_id">
+                <td [class]="rowCell(seat, 'text-(--text-primary)')">
                   <span class="font-semibold">{{ seat.display_name || fallbackName }}</span>
                   @if (seat.is_self) {
                     <span class="ms-1 text-(--text-secondary)" i18n="@@vendor.seats.you"
@@ -244,10 +264,10 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     >
                   }
                 </td>
-                <td [class]="cellClass + ' break-words text-(--text-secondary)'">
+                <td [class]="rowCell(seat, 'break-words text-(--text-secondary)')">
                   {{ seat.email || emailUnavailable }}
                 </td>
-                <td [class]="cellClass">
+                <td [class]="rowCell(seat, '')">
                   <aec-chip density="dense" [tone]="seat.banned ? 'strong' : 'forest'">
                     @if (seat.banned) {
                       <span i18n="@@vendor.seats.status.banned">Banned</span>
@@ -256,29 +276,80 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     }
                   </aec-chip>
                 </td>
-                <td [class]="cellClass + ' whitespace-nowrap text-(--text-secondary)'">
+                <td [class]="rowCell(seat, 'whitespace-nowrap text-(--text-secondary)')">
                   {{ seat.created_at | date: 'mediumDate' }}
                 </td>
                 @if (canManage()) {
-                  <td [class]="actCellClass">
-                    @if (!seat.is_self) {
+                  <td [class]="rowActCell(seat)">
+                    @if (!seat.is_self && !isConfirming('seat', seat.user_id)) {
                       <button
                         aecButton
                         variant="secondary"
                         compact
                         type="button"
+                        [id]="'vendor-seat-remove-start-' + seat.user_id"
                         [disabled]="busySeat() === seat.user_id"
-                        (click)="remove(seat)"
+                        (click)="startRemove(seat)"
                       >
                         <span i18n="@@vendor.seats.remove">Remove</span>
-                        <span class="sr-only"
-                          >&ngsp;{{ seat.display_name || seat.email || fallbackName }}</span
-                        >
+                        <span class="sr-only">&ngsp;{{ seatName(seat) }}</span>
                       </button>
                     }
                   </td>
                 }
               </tr>
+              @if (canManage() && isConfirming('seat', seat.user_id)) {
+                <!-- AECI-2129: the confirm sits in its own row under the seat, as wide
+                     as the visible region (100cqw) and pinned to its start edge, so
+                     it reads in full at 320px while the table scrolls sideways. A
+                     removed seat has no full undo, so the confirm is danger
+                     (DESIGN.md §5 Buttons). -->
+                <tr [attr.data-seat-confirm]="seat.user_id">
+                  <td colspan="5" class="border-b border-(--border-default) pb-4">
+                    <div
+                      class="sticky start-0 flex w-[100cqw] flex-wrap items-center gap-2"
+                      [attr.aria-busy]="busySeat() === seat.user_id ? 'true' : null"
+                    >
+                      <p
+                        class="basis-full text-sm text-(--text-primary) focus:outline-none"
+                        tabindex="-1"
+                        [id]="'vendor-seat-remove-confirm-' + seat.user_id"
+                      >
+                        {{ removeQuestion(seat) }}
+                        @if (seat.owner) {
+                          &ngsp;{{ ownerNote }}
+                        }
+                      </p>
+                      <button
+                        aecButton
+                        variant="danger"
+                        compact
+                        type="button"
+                        [disabled]="busySeat() !== null"
+                        (click)="remove(seat)"
+                      >
+                        @if (busySeat() === seat.user_id) {
+                          <span i18n="@@vendor.seats.remove.busy">Removing…</span>
+                        } @else {
+                          <span i18n="@@vendor.seats.remove.yes">Remove seat</span>
+                        }
+                        <span class="sr-only">&ngsp;{{ seatName(seat) }}</span>
+                      </button>
+                      <button
+                        aecButton
+                        variant="secondary"
+                        compact
+                        type="button"
+                        [disabled]="busySeat() !== null"
+                        (click)="cancelRemove(seat)"
+                        i18n="@@vendor.seats.remove.cancel"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -290,7 +361,10 @@ import { VendorPortalStore } from '../vendor-portal-store';
         <h3 i18n="@@vendor.seats.pending.heading">Pending invites</h3>
         <ul class="mt-4 divide-y divide-(--border-default) border-y border-(--border-default)">
           @for (invite of invites(); track invite.id) {
-            <li class="flex flex-wrap items-center justify-between gap-4 py-4">
+            <li
+              class="flex flex-wrap items-center justify-between gap-4 py-4"
+              [attr.data-invite-row]="invite.id"
+            >
               <div class="min-w-0">
                 <p class="text-sm font-semibold break-words text-(--text-primary)">
                   {{ invite.email }}
@@ -306,7 +380,50 @@ import { VendorPortalStore } from '../vendor-portal-store';
                   }
                 </p>
               </div>
-              @if (canManage()) {
+              @if (canManage() && isConfirming('invite', invite.id)) {
+                <!-- AECI-2129: the row's actions give way to the confirm. Undoing a
+                     revoke means a new invite, a new email and one of the day's
+                     invites, so the confirm is danger (DESIGN.md §5 Buttons). -->
+                <div
+                  class="flex basis-full flex-wrap items-center gap-2"
+                  [attr.data-invite-confirm]="invite.id"
+                  [attr.aria-busy]="isBusy(invite, 'revoke') ? 'true' : null"
+                >
+                  <p
+                    class="basis-full text-sm text-(--text-primary) focus:outline-none"
+                    tabindex="-1"
+                    [id]="'vendor-invite-revoke-confirm-' + invite.id"
+                  >
+                    {{ revokeQuestion(invite) }}
+                  </p>
+                  <button
+                    aecButton
+                    variant="danger"
+                    compact
+                    type="button"
+                    [disabled]="busyInvite() !== null"
+                    (click)="revoke(invite)"
+                  >
+                    @if (isBusy(invite, 'revoke')) {
+                      <span i18n="@@vendor.seats.revoke.busy">Revoking…</span>
+                    } @else {
+                      <span i18n="@@vendor.seats.revoke.yes">Revoke invite</span>
+                    }
+                    <span class="sr-only">&ngsp;{{ invite.email }}</span>
+                  </button>
+                  <button
+                    aecButton
+                    variant="secondary"
+                    compact
+                    type="button"
+                    [disabled]="busyInvite() !== null"
+                    (click)="cancelRevoke(invite)"
+                    i18n="@@vendor.seats.revoke.cancel"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              } @else if (canManage()) {
                 <div class="flex shrink-0 flex-wrap items-center gap-2">
                   <!-- Disabled states carry their reason in the accessible name,
                        not just in the visual state: a cooldown clears itself in
@@ -335,8 +452,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     variant="secondary"
                     compact
                     type="button"
+                    [id]="'vendor-invite-revoke-start-' + invite.id"
                     [disabled]="busyInvite()?.id === invite.id"
-                    (click)="revoke(invite)"
+                    (click)="startRevoke(invite)"
                   >
                     <span i18n="@@vendor.seats.pending.revoke">Revoke</span>
                     <span class="sr-only">&ngsp;{{ invite.email }}</span>
@@ -363,6 +481,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
 export class VendorSeatRoster {
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** The seat count from the dashboard payload — shown by the parent as a
    *  header; the detailed roster loads separately. Optional so the component is
@@ -410,11 +531,16 @@ export class VendorSeatRoster {
    *  (the console table's header, without borrowing the admin recipe). */
   protected readonly headClass =
     'whitespace-nowrap border-t border-b border-t-(--border-default) border-b-(--border-strong) py-2 pe-4 text-start align-bottom text-t-13 font-semibold tracking-[0.01em] text-(--text-secondary) last:pe-0';
-  /** A body cell, on a hairline. */
-  protected readonly cellClass = 'border-b border-(--border-default) py-3 pe-4 align-middle';
-  /** The last cell, holding the row's one 44px action. */
-  protected readonly actCellClass =
-    'border-b border-(--border-default) py-2 text-end align-middle whitespace-nowrap';
+  /** A body cell. Its hairline is added by {@link rowCell}. */
+  private readonly cellClass = 'py-3 pe-4 align-middle';
+  /** The last cell, holding the row's one 44px action. Its hairline is added by
+   *  {@link rowActCell}. */
+  private readonly actCellClass = 'py-2 text-end align-middle whitespace-nowrap';
+
+  /** The one confirm open on the roster, if any (AECI-2129). */
+  protected readonly confirming = signal<Confirming | null>(null);
+  /** The extra sentence on an owner's Remove confirm. */
+  protected readonly ownerNote = $localize`:@@vendor.seats.remove.confirm.owner:Their owner status does not come back with a new invite.`;
 
   constructor() {
     // Browser-only: the seat read (with its Supabase email lookup) runs after
@@ -428,50 +554,195 @@ export class VendorSeatRoster {
     void this.store.reload('seats');
   }
 
+  // ─── Remove and revoke, behind an inline confirm (AECI-2129) ─────────────────
+  //
+  // Neither action has a full reverse. A removed owner comes back, if invited
+  // again, as a seat that is not an owner (`seat_owner` is cleared on removal and
+  // a redeemed invite never sets it). Undoing a revoke means a new invite: a new
+  // email and one of the day's invites. So each opens an inline confirm in its
+  // row, the contests-list pattern (never `confirm()`, which blocks the page),
+  // and the confirm is danger (DESIGN.md §5 Buttons). One confirm at a time over
+  // the whole roster. Opening one moves focus to its question, so a screen reader
+  // hears what will happen before it reaches the button.
+
+  /** Open the Remove confirm on this seat's row. */
+  protected startRemove(seat: VendorSeat): void {
+    this.openConfirm({ kind: 'seat', id: seat.user_id });
+    this.focusAfterRender(`vendor-seat-remove-confirm-${seat.user_id}`);
+  }
+
+  protected cancelRemove(seat: VendorSeat): void {
+    this.confirming.set(null);
+    this.focusAfterRender(`vendor-seat-remove-start-${seat.user_id}`);
+  }
+
+  /** Open the Revoke confirm on this invite's row. */
+  protected startRevoke(invite: ManageableSeatInvite): void {
+    this.openConfirm({ kind: 'invite', id: invite.id });
+    this.focusAfterRender(`vendor-invite-revoke-confirm-${invite.id}`);
+  }
+
+  protected cancelRevoke(invite: ManageableSeatInvite): void {
+    this.confirming.set(null);
+    this.focusAfterRender(`vendor-invite-revoke-start-${invite.id}`);
+  }
+
+  protected isConfirming(kind: Confirming['kind'], id: string): boolean {
+    const open = this.confirming();
+    return open?.kind === kind && open.id === id;
+  }
+
   /**
-   * Remove a colleague's access. Pessimistic and re-read from the server rather
-   * than spliced locally: this is a destructive, security-relevant action, and a
-   * row that vanished optimistically and then came back would leave an owner
-   * unsure whether the person still has access. `STAGE_2_REALTIME_SPEC.md` keeps
-   * optimism for toggles only.
-   *
-   * No `confirm()` — a browser modal blocks the whole page and the action is
-   * reversible by re-inviting. The button names the person in its accessible
-   * label so it can't be hit blind.
+   * Remove a colleague's access, from the confirm. Pessimistic and re-read from the
+   * server rather than spliced locally: this is a destructive, security-relevant
+   * action, and a row that vanished optimistically and then came back would leave
+   * an owner unsure whether the person still has access. `STAGE_2_REALTIME_SPEC.md`
+   * keeps optimism for toggles only.
    */
   protected async remove(seat: VendorSeat): Promise<void> {
     if (this.busySeat()) return;
     this.busySeat.set(seat.user_id);
     this.actionError.set(null);
     this.actionStatus.set(null);
+    const before = this.seats().map((s) => s.user_id);
     try {
-      await this.api.removeSeat(seat.user_id);
+      try {
+        await this.api.removeSeat(seat.user_id);
+      } catch {
+        this.refuse(
+          { kind: 'seat', id: seat.user_id },
+          $localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`,
+        );
+        return;
+      }
+      this.closeConfirm({ kind: 'seat', id: seat.user_id });
+      const name = this.seatName(seat);
+      this.settle($localize`:@@vendor.seats.remove.done:Seat removed for ${name}:name:.`);
       await this.store.reload('seats');
-    } catch {
-      this.actionError.set(
-        $localize`:@@vendor.seats.remove.error:Could not remove that seat. Try again.`,
-      );
+      // A confirm opened on another row meanwhile keeps focus.
+      if (this.confirming() === null) this.focusAfterRemoval('seat', seat.user_id, before);
     } finally {
       this.busySeat.set(null);
     }
   }
 
-  /** Revoke a pending invite before it is redeemed. */
+  /** Revoke a pending invite before it is redeemed, from the confirm. */
   protected async revoke(invite: ManageableSeatInvite): Promise<void> {
     if (this.busyInvite()) return;
     this.busyInvite.set({ id: invite.id, action: 'revoke' });
     this.actionError.set(null);
     this.actionStatus.set(null);
+    const before = this.invites().map((i) => i.id);
     try {
-      await this.api.revokeInvite(invite.id);
+      try {
+        await this.api.revokeInvite(invite.id);
+      } catch {
+        this.refuse(
+          { kind: 'invite', id: invite.id },
+          $localize`:@@vendor.seats.revoke.error:Could not revoke that invite. Try again.`,
+        );
+        return;
+      }
+      this.closeConfirm({ kind: 'invite', id: invite.id });
+      this.settle($localize`:@@vendor.seats.revoke.done:Invite to ${invite.email}:email: revoked.`);
       await this.store.reload('seats');
-    } catch {
-      this.actionError.set(
-        $localize`:@@vendor.seats.revoke.error:Could not revoke that invite. Try again.`,
-      );
+      if (this.confirming() === null) this.focusAfterRemoval('invite', invite.id, before);
     } finally {
       this.busyInvite.set(null);
     }
+  }
+
+  /** The question the Remove confirm asks. The owner sentence is separate
+   *  ({@link ownerNote}) and only follows it on an owner's row. */
+  protected removeQuestion(seat: VendorSeat): string {
+    const name = this.seatName(seat);
+    return $localize`:@@vendor.seats.remove.confirm:Remove ${name}:name:'s seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat.`;
+  }
+
+  protected revokeQuestion(invite: ManageableSeatInvite): string {
+    return $localize`:@@vendor.seats.revoke.confirm:Revoke the invite to ${invite.email}:email:? The link stops working. A new invite sends a new email and counts toward your daily invite limit.`;
+  }
+
+  /** Who a seat row names: the same fallback chain as its buttons' hidden names. */
+  protected seatName(seat: VendorSeat): string {
+    return seat.display_name || seat.email || this.fallbackName;
+  }
+
+  /** A seat row's body cell. The row whose confirm is open drops its hairline,
+   *  so the row and its confirm read as one unit. */
+  protected rowCell(seat: VendorSeat, extra: string): string {
+    const edge = this.isConfirming('seat', seat.user_id)
+      ? ''
+      : ' border-b border-(--border-default)';
+    return `${this.cellClass}${edge}${extra ? ' ' + extra : ''}`;
+  }
+
+  /** A seat row's action cell, on the same rule as {@link rowCell}. */
+  protected rowActCell(seat: VendorSeat): string {
+    const edge = this.isConfirming('seat', seat.user_id)
+      ? ''
+      : ' border-b border-(--border-default)';
+    return `${this.actCellClass}${edge}`;
+  }
+
+  /** Close this confirm only. While a request runs, another row's opener is still
+   *  live, so the confirm open now may not be the one that was submitted. */
+  private closeConfirm(which: Confirming): void {
+    if (this.isConfirming(which.kind, which.id)) this.confirming.set(null);
+  }
+
+  private openConfirm(next: Confirming): void {
+    this.actionError.set(null);
+    this.actionStatus.set(null);
+    this.confirming.set(next);
+  }
+
+  /** A refused remove or revoke: close the confirm, show the alert, and return
+   *  focus to the row's Remove or Revoke, which is still there. The alert is never
+   *  focused: a focused `role="alert"` is read twice (the contests-list rule). A
+   *  confirm opened on another row meanwhile keeps focus. */
+  private refuse(which: Confirming, message: string): void {
+    this.closeConfirm(which);
+    this.actionError.set(message);
+    if (this.confirming() !== null) return;
+    this.focusAfterRender(
+      which.kind === 'seat'
+        ? `vendor-seat-remove-start-${which.id}`
+        : `vendor-invite-revoke-start-${which.id}`,
+    );
+  }
+
+  /**
+   * After a row leaves the list, put focus where the reader was: the next row's
+   * first live control, else the previous row's, else the section heading. The
+   * rows are found in the DOM after the re-read renders, so a row that is still
+   * there (a re-read that failed, or another tab's change) is handled the same way.
+   */
+  private focusAfterRemoval(kind: Confirming['kind'], id: string, before: string[]): void {
+    const at = before.indexOf(id);
+    const order = [...before.slice(at + 1), ...before.slice(0, Math.max(at, 0)).reverse()];
+    const attr = kind === 'seat' ? 'data-seat-row' : 'data-invite-row';
+    afterNextRender(
+      () => {
+        const host = this.host.nativeElement;
+        for (const candidate of order) {
+          const row = host.querySelector(`[${attr}="${candidate}"]`);
+          const control = row?.querySelector<HTMLElement>('button:not([disabled])');
+          if (control) {
+            control.focus();
+            return;
+          }
+        }
+        this.document.getElementById(SEATS_HEADING_ID)?.focus();
+      },
+      { injector: this.injector },
+    );
+  }
+
+  private focusAfterRender(id: string): void {
+    afterNextRender(() => this.document.getElementById(id)?.focus(), {
+      injector: this.injector,
+    });
   }
 
   /**

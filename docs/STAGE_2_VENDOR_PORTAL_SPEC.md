@@ -3303,6 +3303,15 @@ The Seats section is a **reading** surface first — who has access, who has a p
 - **`components/vendor-seat-invite-form.ts`** is the dialog's body only — field, submit, outcome. The heading and the "any email address works" hint are the dialog's `brnDialogTitle` / `brnDialogDescription`.
 - **`components/vendor-seat-roster.ts`** keeps the roster, the pending-invite list, and the three actions over them: remove seat, revoke invite, and **re-send invite** (AECI-927, §11a.9). It no longer carries a form of any kind. Re-send lives here rather than in the dialog because it acts on a row already on screen, and the fact the owner needs in order to decide — when it last went out — is the line beside the button.
 
+**Remove and Revoke ask first (AECI-2129, ruled 2026-11-25).** Neither has a full undo. `revokeSeatStatements` clears `seat_owner`, and a redeemed invite never sets it, so a removed owner who is invited again comes back as a member. Undoing a revoke means a new invite, which sends a new email and counts against the 10-a-day cap (§11a.5). So the row's secondary "Remove" or "Revoke" opens an inline confirm in that row, one at a time over the roster. It is the contests-list pattern, never `confirm()`. The confirm's button is danger (`DESIGN.md` §5 Buttons) and a secondary "Cancel" sits beside it. The wording:
+
+| Action | Question | Buttons |
+|---|---|---|
+| Remove | "Remove {name}'s seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat." On an owner's row it adds "Their owner status does not come back with a new invite." | "Remove seat", "Cancel" |
+| Revoke | "Revoke the invite to {email}? The link stops working. A new invite sends a new email and counts toward your daily invite limit." | "Revoke invite", "Cancel" |
+
+Opening the confirm focuses its question. Cancel returns focus to the opener. While the request runs, both buttons are disabled and the confirm carries `aria-busy`. On success the roster re-reads, says "Seat removed for {name}." or "Invite to {email} revoked." as its plain status line and once through `VendorPortalAnnouncer`, and moves focus to the next row's first enabled control, else the previous row's, else the Seats heading. A refusal closes the confirm, shows a `role="alert"` line and returns focus to the row's Remove or Revoke. The alert is never focused, because a focused alert is read twice. A confirm opened on another row while a request runs keeps focus when that request ends. The API handlers are unchanged. The claim "Decline" in "Wants to join" (§11a.10) still acts in one click.
+
 Both surfaces gate on the same `can_manage_seats` from `GET /api/vendor/seats` — the SERVER's verdict on `profiles.seat_owner`, never re-derived from the roster, because hiding a control the API would 403 and showing one it would accept have to come from one source. That read is also why the trigger appears **with** the roster rather than with the first paint.
 
 Two deliberate behaviours:

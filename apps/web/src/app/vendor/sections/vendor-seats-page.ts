@@ -26,7 +26,9 @@ import { VendorPortalStore } from '../vendor-portal-store';
     @if (me(); as m) {
       <div>
         <div class="flex flex-wrap items-center justify-between gap-4">
-          <h2>
+          <!-- Focusable for one case: a remove or revoke in the roster that leaves no
+               row with a control to land on sends focus here (AECI-2129). -->
+          <h2 id="vendor-seats-heading" tabindex="-1" class="focus:outline-none">
             <span i18n="@@vendor.section.seats">Seats</span>
             <span class="ms-2 text-(--text-secondary)">({{ m.seat_count }})</span>
           </h2>
