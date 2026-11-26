@@ -106,6 +106,27 @@ const on =
   (surface: A11ySurface) =>
     ids.includes(surface.id);
 
+/**
+ * A clip finding of one kind, at any of the three enlargements, with or without
+ * the 100% tag, tied to a place on the page. `host` is the component the probe
+ * reads from the page (`hostOf` in `support/magnify-probe.ts`): the nearest custom
+ * element, with the nearest `aec…` directive host in front when it is closer.
+ * `near` is the nearest `data-testid`, or none. Both must match exactly, so the
+ * same cut anywhere else on the page is still a new problem.
+ */
+const clip = (kind: string, el: string, by: string, host: string, near = '') => {
+  const escape = (s: string) => s.replace(/[[\]]/g, '\\$&');
+  return new RegExp(
+    `^(zoom 400%|text 200%|text spacing): clipped \\(${kind}\\) "[^"]*" in ${el} by ${by}` +
+      ` within ${escape(host)}${near ? ` near \\[data-testid="${near}"\\]` : ''}` +
+      `( \\(also at 100%\\))?$`,
+  );
+};
+
+const TERM_INDEXES = ['categories-index', 'audiences-index', 'phases-index'];
+/** A term card's description on the index pages, projected into the browse layout. */
+const TERM_DESCRIPTION = clip('line-clamp', '<p>', '<p>', 'aec-browse-layout [aeccard]');
+
 export const CLIP_ALLOW_LIST: readonly ClipAllowEntry[] = [
   {
     applies: on('product-detail'),
@@ -113,6 +134,14 @@ export const CLIP_ALLOW_LIST: readonly ClipAllowEntry[] = [
     reason:
       'Intentional two-line clamp (product-hero.ts). The lede is aria-hidden and repeats the start ' +
       'of the description, whose full text is in the About band of the same page.',
+  },
+  {
+    applies: on(...TERM_INDEXES),
+    covers: (f, check) => TERM_DESCRIPTION.test(`${check}: ${formatClip(f)}`),
+    reason:
+      'Intentional three-line clamp on the /categories, /audiences and /phases cards ' +
+      '(taxonomy-index.ts). Each card links to its term page, which holds the full description. ' +
+      'Kept and allow-listed by Chris, 2026-11-26 (AECI-2108).',
   },
 ];
 
@@ -132,30 +161,11 @@ interface MagnifyKnownProblem extends KnownProblem {
   readonly applies: (surface: A11ySurface) => boolean;
 }
 
-/**
- * A clip finding of one kind, at any of the three enlargements, with or without
- * the 100% tag, tied to a place on the page. `host` is the component the probe
- * reads from the page (`hostOf` in `support/magnify-probe.ts`): the nearest custom
- * element, with the nearest `aec…` directive host in front when it is closer.
- * `near` is the nearest `data-testid`, or none. Both must match exactly, so the
- * same cut anywhere else on the page is still a new problem.
- */
-const clip = (kind: string, el: string, by: string, host: string, near = '') => {
-  const escape = (s: string) => s.replace(/[[\]]/g, '\\$&');
-  return new RegExp(
-    `^(zoom 400%|text 200%|text spacing): clipped \\(${kind}\\) "[^"]*" in ${el} by ${by}` +
-      ` within ${escape(host)}${near ? ` near \\[data-testid="${near}"\\]` : ''}` +
-      `( \\(also at 100%\\))?$`,
-  );
-};
-
 /** The product card's name, vendor and "Independent" lines (`product-card-grid.ts`). */
 const CARD_NAME = clip('ellipsis', '<(a|p|span)>', '<p>', 'aec-product-card-grid [aeccard]');
 /** A filter row's term name (`FILTER_LABEL_CLASS`), inside the refinement list. */
 const FILTER_LABEL = clip('ellipsis', '<span>', '<span>', 'aec-search-refinement-list');
 const RAIL_VENDOR = clip('ellipsis', '<p>', '<p>', 'aec-review-form', 'context-rail');
-/** A term card's description on the index pages, projected into the browse layout. */
-const TERM_DESCRIPTION = clip('line-clamp', '<p>', '<p>', 'aec-browse-layout [aeccard]');
 const MAILING_OVERLAP =
   /^text 200%: "[^"]*" in <\w+> overlaps "[^"]*" in <\w+> near \[data-testid="mailing-list-card"\]$/;
 const NAV_ROW =
@@ -163,7 +173,6 @@ const NAV_ROW =
 
 const LISTINGS = ['product-index', 'vendor-index', 'integration-index'];
 const TERM_PAGES = ['category-browse', 'audience-browse', 'phase-browse'];
-const TERM_INDEXES = ['categories-index', 'audiences-index', 'phases-index'];
 
 export const KNOWN_PROBLEMS: readonly MagnifyKnownProblem[] = [
   {
@@ -205,22 +214,6 @@ export const KNOWN_PROBLEMS: readonly MagnifyKnownProblem[] = [
     matches: (p) => RAIL_VENDOR.test(p),
     mark: () =>
       knownFailure('AECI-2107', 'the review form side panel cuts the vendor name at 200% text'),
-  },
-  {
-    load: 'narrow',
-    applies: on(...TERM_INDEXES),
-    issue: 'AECI-2108',
-    matches: (p) => TERM_DESCRIPTION.test(p),
-    mark: () =>
-      knownFailure('AECI-2108', 'taxonomy index cards clamp each description to three lines'),
-  },
-  {
-    load: 'wide',
-    applies: on(...TERM_INDEXES),
-    issue: 'AECI-2108',
-    matches: (p) => TERM_DESCRIPTION.test(p),
-    mark: () =>
-      knownFailure('AECI-2108', 'taxonomy index cards clamp each description to three lines'),
   },
   {
     load: 'wide',
