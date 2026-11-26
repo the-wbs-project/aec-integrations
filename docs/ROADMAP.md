@@ -146,7 +146,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 | §2.1 | Trust ladder: rung 2 AECi-verified, rung 3 dual-vendor, the demand-ordered queue, review trust, anti-gaming | Platform (AECI-1329, parked) |
 | §2.2 | pSEO: AECI-340 to AECI-344 | SEO |
 | §2.2 | AECI-560 sitemap split, gated on 50,000 URLs | SEO |
-| §2.3 | Stack-aware discovery. §5(3) is undecided | None. Unscheduled |
+| §2.3 | Stack-aware discovery. §5(3) is undecided for ranking. The private stack, filter and vendor totals are `docs/MY_STACK_SPEC.md` | Insights (AECI-2209 to AECI-2211) |
 | §2.4 | DX tail: AECI-533, AECI-602, AECI-621, under epic AECI-1070 | Platform |
 | §2.5 | AECI-829 status messages never announced, on sign-in, review and account. Fixed 2026-10-23 | Pilot |
 | §2.5 | AECI-830, AECI-831, AECI-832, under epic AECI-1069 | Platform |

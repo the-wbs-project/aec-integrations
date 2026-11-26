@@ -1,9 +1,9 @@
 # My stack: planning document
 
-**Status:** planning draft, 2026-11-13. Revised 2026-11-16 after counsel's batch 4 answers. Not a build contract. No Linear issue exists and no code is written.
+**Status:** superseded on 2026-11-26 by `docs/MY_STACK_SPEC.md`, the build contract (AECI-2034). This plan keeps the reasoning. Drafted 2026-11-13, revised 2026-11-16. No code is written.
 **Purpose:** find every legal question before build, so counsel can be asked first.
 **Legal source of truth:** `docs/LEGAL_COUNSEL_RECORD.md`, questions Q55 to Q60, rulings 28, 32, 37, 38 and 39. Where this plan and the record differ, the record wins.
-**Legal impact:** `decision`. It stays `decision` until the legal text is drafted. Two counsel follow-ups are open: Q56 for email in Canada and the UK, and Q57 on whether a monthly total is enough.
+**Legal impact:** each build step is `text` (`MY_STACK_SPEC.md` §12). Both counsel follow-ups have landed: the Q57 follow-up (2026-11-17, ruling 40 adds bands) and Q72 (2026-11-24, email in Canada and the UK).
 
 "My stack" is a working name. It means the list of catalog products a practitioner says their firm uses today.
 
@@ -164,9 +164,8 @@ from 11 to 12 can tie the change to one firm. A higher floor does not fix that.
 - The Vendor Terms gain a promise not to identify the accounts behind a total.
 - A list whose reader used the account-page switch is left out.
 
-**Still open.** Counsel gave no remedy for the change-over-time leak. Monthly refresh is our reading, not
-counsel's. The Q57 follow-up asks whether monthly is enough. Step C waits on it. No spec or issue is written
-for vendor totals until it lands.
+**Settled since.** The Q57 follow-up (2026-11-17) said monthly, the floor and the promise are not enough on
+their own. Ruling 40 shows totals as bands. Step C is specced in `MY_STACK_SPEC.md` §10 (AECI-2210).
 
 ### 5.6 The public count is removed
 
@@ -268,8 +267,9 @@ consent informed.
 - EU readers get a confirmation email before the first send.
 - Every email has an unsubscribe link and our postal address. Opt-outs are honoured within 10 business days.
 
-**Still open.** Counsel did not answer for Canada or the UK. The Q56 follow-up blocks step D only. No spec or
-issue is written for stack emails until it lands.
+**Settled since.** Q72 (2026-11-24) answered for Canada and the UK. The box needs our postal address and one
+other contact point beside it, and a Privacy Policy link. Unsubscribe links work for 60 days. Step D is
+specced in `MY_STACK_SPEC.md` §7 to §9 (AECI-2211).
 
 ## 6. Counsel's answers and what is still open
 
@@ -292,8 +292,8 @@ issue is written for stack emails until it lands.
 
 | Item | Blocks |
 |---|---|
-| Q56 follow-up: email consent in Canada and the UK | Step D only |
-| Q57 follow-up: is a monthly total enough | Step C only |
+| Q56 follow-up: email consent in Canada and the UK | Answered by Q72, 2026-11-24 |
+| Q57 follow-up: is a monthly total enough | Answered 2026-11-17. Ruling 40 adds bands |
 
 ### 6.3 Settled by the legal agent on 2026-11-16
 
@@ -332,8 +332,8 @@ Neither needs counsel.
 
 | Decision | Options |
 |---|---|
-| How a signed-out reader sees the filter | I suggest a visible, disabled option that explains itself. Finding 5.11 |
-| Project for the reader half | No current admission test in `docs/ROADMAP.md` fits cleanly |
+| How a signed-out reader sees the filter | Ruled 2026-11-26: hidden (`MY_STACK_SPEC.md` §13). Finding 5.11 |
+| Project for the reader half | Ruled 2026-11-26: each step is its own epic in Insights (`MY_STACK_SPEC.md` §14) |
 
 **The split.**
 
@@ -353,7 +353,7 @@ Each step can ship alone. Every step stays off until the policy text that covers
 | C | Vendor totals, monthly | `decision`: Vendor Terms, Vendor Performance spec | Q57 follow-up. Vendor Terms promise |
 | D | Stack-based emails | `decision`: policy, notification registry | Q56 follow-up for Canada and the UK |
 
-No spec or issue is written for steps C or D until their counsel follow-ups land. The sort is not a step. It
+Both follow-ups have landed. Steps A, C and D are AECI-2209, AECI-2210 and AECI-2211 (`MY_STACK_SPEC.md` §14). The sort is not a step. It
 returns as its own `decision` if Chris revives it.
 
 ## 9. Documents a build would change

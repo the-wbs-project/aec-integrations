@@ -68,12 +68,13 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Public field captions ("Maintained by", "Corrected by", edit stamps, plan-end mirrors) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8, ADR 0051 |
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
 | Account onboarding ("About you", `/welcome`, review pre-fill) | `docs/ACCOUNT_ONBOARDING_SPEC.md` |
-| Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
-| Site redesign record: rulings, mock-ups, issue map (built; `DESIGN.md` has the result) | `docs/design/mockups/redesign-2026-11/PLAN.md`; `BUILD_PLAN.md` |
+| Saved software list ("My stack") | `docs/MY_STACK_SPEC.md` |
+| Stage 2 scope outline (kickoff draft, not a contract) | `docs/STAGE_2_SPEC.md` |
+| Site redesign record: rulings, mock-ups, issue map (built; result in `DESIGN.md`) | `docs/design/mockups/redesign-2026-11/PLAN.md`; `BUILD_PLAN.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement, versions, §13.9 maintenance, §15 row threads) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
-| Stage 2 Real-Time / Live Portal: client revalidation, not sockets (ADR 0023); `/api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
+| Stage 2 Real-Time: client revalidation, not sockets (ADR 0023); `/api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
@@ -86,7 +87,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor claim, subscriptions, billing process; pricing, discounts, refunds; operator steps | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md`; `docs/runbooks/subscriptions.md` |
 | Stripe billing: card checkout, webhook-owned subscriptions, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/runbooks/listing-submissions.md`; `/docs/trust/listing-submissions` |
-| Retired stages 2.1 (vendor activation, dress rehearsal), 2.5 and 3 (trust ladder, pSEO): cited sections still govern | `docs/STAGE_2_1_SPEC.md`, `docs/STAGE_2_1_REHEARSAL.md`, `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
+| Retired stages 2.1 (activation), 2.5, 3 (trust ladder): cited sections govern | `docs/STAGE_2_1_SPEC.md`, `docs/STAGE_2_1_REHEARSAL.md`, `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
 | `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
@@ -99,7 +100,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | CI/CD, environments, deployment, branch model | `docs/CICD_PLAN.md`; topology + runbook `docs/environments.md` |
 | Cloudflare Access for non-prod | `docs/access.md` |
 | Rate limiting, both layers (zone WAF + bot settings §0–§5; in-Worker limiter §6; which layer stopped a caller §6.4) | `docs/waf-rate-limits.md`; ADR 0026 |
-| Testing tools, coverage, patterns; writing unit tests | `docs/TESTING_STRATEGY.md`; `docs/UNIT_TESTING_GUIDE.md` |
+| Testing tools, coverage, patterns; unit tests | `docs/TESTING_STRATEGY.md`; `docs/UNIT_TESTING_GUIDE.md` |
 | Manual accessibility testing; audit results | `docs/a11y-manual-testing-checklist.md`; `docs/ACCESSIBILITY_AUDIT.md` |
 | Reviewing code; accepted exemptions | `docs/CODE_REVIEW_CHECKLIST.md`; `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |

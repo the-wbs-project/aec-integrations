@@ -50,7 +50,7 @@ Sequenced **after** the ranking-method page is live (2.5 §2 step 3; written at 
 
 ### 2.3 Stack-aware discovery — *candidate, decision required*
 
-The AECI-636 long-term direction: "tools that connect to what I already run" beats any global score and is unfarmable. Requires a signed-in reader's **stack profile** (a new surface for an audience that today only writes reviews) and a ranking/suggestion path scoped to it. **Not committed** — see §5(3). If deferred, it becomes the Stage 4 anchor candidate.
+The AECI-636 long-term direction: "tools that connect to what I already run" beats any global score and is unfarmable. Requires a signed-in reader's **stack profile** (a new surface for an audience that today only writes reviews) and a ranking/suggestion path scoped to it. **Not committed** — see §5(3). If deferred, it becomes the Stage 4 anchor candidate. *2026-11-26: the reader's stack is specced in `docs/MY_STACK_SPEC.md` (AECI-2034). It filters and annotates and never changes order, so the ranking half of this candidate stays undecided.*
 
 > **Product Docs / Help Center is *not* a Stage 3 pillar.** AECI-634 stays Stage 2 work (`STAGE_2_SPEC.md` §2.6): its sequencing rule defers it until vendor-portal testing settles, but it ships **within Stage 2** — vendors being told "do this work, pay this fee" must be supportable through the process from day one. Stage 3 inherits the `/docs` surface as an existing home for new trust content, not as work to do. It was built on 2026-10-13 (AECI-1308), except the FAQ, which is Stage 2.5 (AECI-1254).
 
