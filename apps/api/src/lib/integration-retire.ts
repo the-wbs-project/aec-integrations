@@ -132,6 +132,11 @@ export interface RetireNotificationMetadata {
    */
   reason?: string;
   reasonVisibility?: typeof REASON_VISIBILITY_VENDOR;
+  /**
+   * AECI-2170: the accepted existence ("not offered") report the retire carried out, on
+   * the OWNER's row only. Absent on every other retire.
+   */
+  existenceReportId?: string;
 }
 
 /**

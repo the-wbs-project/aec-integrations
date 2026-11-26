@@ -1580,16 +1580,28 @@ the badge, and `409 PROTEST_NOT_OPEN` announces and reloads. The contract is
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.
 
 **Sync Service integrations (AECI-2042, 2026-11-24).** Below the field contests,
-`admin-pair-rights.ts` lists three things, each over its own read, one decision at a time and
+`admin-pair-rights.ts` lists four things (three until AECI-2170), each over its own read, one decision at a time and
 pessimistic like the contest queue. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.
 
 - **Reports**, over `GET /api/admin/pair-contests`: existence reports ("not offered"), which
   always route to AECi, and data flow reports on unclaimed pairs. Accept and Decline open an
   inline form. An accept needs a note shown to the vendor, and an existence accept also needs
-  an https proof link. The form says that on a vendor-held pair the accept retires it now,
-  and that on a pair AECi holds the operator retracts it in the review app
-  (`docs/runbooks/catalog.md`). A data flow report on a claimed pair is the owner's and is
-  shown read-only.
+  an https proof link. _As built on 2026-11-24 the form said that on a vendor-held pair the
+  accept retires it now, and that on a pair AECi holds the operator retracts it._ Since
+  AECI-2170 (2026-11-26) an existence accept acts on every listing of the pair key, both
+  tables (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.3). Before Confirm the form previews it from
+  the row's `key_rows`: "This retires N listings:" with each listing and its owner ("held by
+  {vendor}", or "no owner on file"), and "M listings AEC Integrations holds. Retract them in
+  the review app within five business days." After the accept the status line names the
+  listings left to retract and the date. A data flow report on a claimed pair is the owner's
+  and is shown read-only.
+- **To retract in the review app** (AECI-2170), over `?retractions=true`: each accepted
+  existence report whose pair still has a live listing AECi holds, one per pair. It shows the
+  pair, the accepted date, "Retract by {date}" (five business days, `retract_by`), an
+  "Overdue" chip once that has passed (the objection list's chip), and each AECi-held listing
+  by table and id for the review-app lookup. An entry drops off once the retraction lands.
+  Nothing to do here but retract upstream (`docs/runbooks/catalog.md`). Empty: "Nothing to
+  retract."
 - **Reviews of an owner's answer**, over `?protests=true`: "Agree with the report" or "Agree
   with the owner", with a required note. The screen says the answer is advice and does not
   change the listing.
@@ -3356,7 +3368,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `POST /api/admin/integrations/:id/retire` · `/restore` | §5.7 Integrations tab — **AECI-1046** | **A moderation write** (the ninth §2 exception). Body `{ reason, internalNote? }`, the reason required and shown to the owner since AECI-1159. The owner retire's batch: guarded UPDATE of `retired_at` / `retired_by` / `updated_at`, contest closes on retire, the audit row with the admin and the reason, a `notification.sent` to the owner and every endpoint vendor, both count recomputes. Since AECI-1091 the id may name a vendor-held evidenced pair: a soft retire of the pair's `retired_at` / `retired_by`, never a delete, with the connector's count recomputed too. Carries `rateLimit('write')`. `409 INTEGRATION_NOT_VENDOR_HELD` / `INTEGRATION_RETIRED` / `INTEGRATION_NOT_RETIRED` / `INTEGRATION_RETIRED_BY_OWNER` |
 | `POST /api/admin/vetoes/:id/lift` | §5.12 Sync Service section — **AECI-2042**, end reason **AECI-2192** | **A moderation write.** Ends one endpoint veto (a removal) on a Sync Service pair. Since AECI-2192 (ruling 66) the body is `{ end_reason, note }` (`AdminLiftVetoSchema`), both required and shown to the vendors. `end_reason` is one of the five grounds ruling 66 names: `unauthorised_account`, `wrong_product`, `reason_plainly_false`, `claim_ended_or_suspended`, `law_requires`. A removal is not otherwise judged. The batch: guarded UPDATE of the veto with `end_reason`, any open objection closed, `vetoed_at` recomputed on every row on the veto's pair key in both tables, `integration.veto_lifted`, notices, three count recomputes. Carries `rateLimit('write')`. `409 VETO_NOT_IN_FORCE` |
 | `PATCH /api/admin/veto-objections/:id` | §5.12 Sync Service section — **AECI-2192** | **A moderation write** (the sixty-first route). Decides a Sync Service's objection to a removal. Body `{ decision: 'accept' \| 'decline', note }` (`AdminDecideVetoObjectionSchema`), the note required and shown to the vendors. An accept is the lift above in the same batch, with the objection's ground as `end_reason`: every row on the pair key returns, and the remover, the owners, the other endpoint vendors and the objecting vendor are told why. A decline leaves the removal in force and tells only the objecting vendor (`objection_declined`). Both re-check at commit that the objection is open and the removal in force. Carries `rateLimit('write')`. `409 VETO_OBJECTION_NOT_OPEN`, `400` on a missing note |
-| `PATCH /api/admin/pair-contests/:id` | §5.12 Sync Service section — **AECI-2042** | **A moderation write.** Accepts or declines an AECi-routed existence or data flow report. An accept needs a `note`; an existence accept also needs an https `source_url`, and on a vendor-held pair runs the admin retire batch in the same batch. On an AECi-held pair, or a data flow report, it writes no catalog data. Carries `rateLimit('write')`. `409 CONTEST_ROUTED_TO_OWNER` / `PAIR_CONTEST_NOT_OPEN` / `PAIR_CONTEST_CHANGED`, `400` on a missing note or source |
+| `PATCH /api/admin/pair-contests/:id` | §5.12 Sync Service section — **AECI-2042**, **AECI-2170** | **A moderation write.** Accepts or declines an AECi-routed existence or data flow report. An accept needs a `note`; an existence accept also needs an https `source_url`, and runs one admin retire per live vendor-held row on the pair key, both tables, whoever owns it, in the same batch as the decision (AECI-2170). A live AECi-held row is not written: it is listed for retraction. A data flow report writes no catalog data. Answers the admin shape (`key_rows`, `retract_by`). Carries `rateLimit('write')`. `409 CONTEST_ROUTED_TO_OWNER` / `PAIR_CONTEST_NOT_OPEN` / `PAIR_CONTEST_CHANGED` (also: a row on the key changed before commit), `400` on a missing note or source |
 | `PATCH /api/admin/pair-contests/:id/protest` | §5.12 Sync Service section — **AECI-2042** | **Advice only.** Upholds or rejects a protest of an owner's data flow decline, with a required `note`. Writes no catalog data. Carries `rateLimit('write')`. `409 PAIR_PROTEST_NOT_OPEN` |
 | `POST /api/admin/vendors/:id/hide` · `/restore`, `POST /api/admin/products/:id/hide` · `/restore` | §5.7 Listing visibility and the Products tab, **AECI-1238** | **A moderation write** (the twenty-ninth §2 exception). `requireAdmin()` then `rateLimit('write')`. Hide body `{ kind, reason, internalNote?, receivedAt, sourceUrl? }`, restore body `{ reason, internalNote? }`. One batch: the `listing_hides` rows, the guarded UPDATEs of `hidden_at` / `hidden_hide_id`, a company's child rows for every joined product, the `vendor.hidden` / `product.hidden` (or `.restored`) audit rows, the `aeci_override` notices and the counterpart count recomputes. After commit: a by-id Algolia sync, the purge, the recrawl and a home-stats refresh. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6 |
 | `POST /api/admin/field-hides` · `/:id/restore` · `/:id/status-reply`, `GET /api/admin/vendors/:id/field-hides` | §5.7 Values under review, **AECI-1238 PR 2** | **A moderation write** (the thirtieth §2 exception). `requireAdmin()` then `rateLimit('write')` on the three POSTs. The GET is a read. Hide body `{ entityType, entityId, field, sourceUrl, receivedAt, reason, internalNote? }`, restore body `{ reason }`, status reply body `{ note }`. One batch: the `field_hides` row or its guarded clear, the `<entity>.field_hidden` / `.field_hide_cleared` / `.field_hide_status_reply` audit row and the `aeci_override` notice (none on a status reply). After commit on a hide or restore: the purge and a by-id Algolia sync. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7 |

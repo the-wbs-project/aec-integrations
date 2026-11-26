@@ -403,6 +403,11 @@ function toRetireNotification(row: {
     // AECI-1159: only an AECi retire's owner row carries a reason, and only with the
     // vendor-visibility marker. Every other row, and every older one, reads `null`.
     reason: meta.retiredBy === 'aeci' ? vendorVisibleReason(meta) : null,
+    // AECI-2170: only an AECi retire's owner row carries the report it carried out.
+    existence_report_id:
+      meta.retiredBy === 'aeci' && typeof meta.existenceReportId === 'string'
+        ? meta.existenceReportId
+        : null,
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

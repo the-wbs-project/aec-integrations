@@ -354,6 +354,35 @@ describe('VendorNotificationsList', () => {
     expect(items[1]).not.toContain('Reason:');
   });
 
+  it('says the retire followed a not offered report on the owner’s row (AECI-2170)', async () => {
+    const row = {
+      kind: 'integration_retire' as const,
+      event: 'retired' as const,
+      integration_id: '00000000-0000-4000-8000-00000000c2b2',
+      integration_name: 'Summit ↔ Procore',
+      owner_name: 'Summit Software',
+      retired_by: 'aeci' as const,
+      reason: 'Summit confirmed it no longer offers this.',
+      pair_path: null,
+      created_at: '2026-09-22T12:00:00.000Z',
+    };
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          ...row,
+          id: '00000000-0000-4000-8000-00000000c2e3',
+          existence_report_id: '00000000-0000-4000-8000-00000000c2e9',
+        },
+        { ...row, id: '00000000-0000-4000-8000-00000000c2e4', existence_report_id: null },
+      ],
+    });
+    const fixture = await create();
+    const items = [...el(fixture).querySelectorAll('li')].map((li) => li.textContent ?? '');
+    expect(items[0]).toContain('Reason: Summit confirmed it no longer offers this.');
+    expect(items[0]).toContain('This followed a report that the integration is not offered.');
+    expect(items[1]).not.toContain('not offered');
+  });
+
   it.each([
     [
       'field_overridden',
