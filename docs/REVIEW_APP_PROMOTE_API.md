@@ -306,6 +306,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product is built within. **Must use `supabaseId`** (hosts are promoted separately). Like the other join sets, the stored hosts are **replaced** to match what you send, so omitting it clears them. Since AECI-710 the hosts render publicly ("Built within {host}", and the host's Extensions section, `STAGE_1_5_SPEC.md` §13.3b), and the post-commit purge also invalidates each named host's page. An extension is never an integration: do not also send an `integrations` edge between it and its host (review-side rubric I3). |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `logoUrl` | string \| null | — | |
+| `summary` | string \| null | — | **AECI-2198.** The one-line summary the product hero shows. **Omitting it leaves the stored value untouched**, and `null` clears it. Promote trims it, collapses every run of whitespace (line breaks included) to one space, and stores an empty result as `null`. Over **155** characters after that, the whole payload is refused with `400 VALIDATION_FAILED` before any job starts, as for any other field violation. It is never truncated. `NULL` makes the hero show the clamped first paragraph of `description`. The review app does not send it yet (a `REVIEW -` issue). |
 | `hasApiDocs` | boolean | — | **Accepted and ignored since AECI-534 (2026-11-09).** The column left the product, so a value is validated and then dropped. Stop sending it at your convenience; there is no lockstep deploy. |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | Stored. The admin catalog coverage page shows its distribution. |
 | `priorityTier` | `"tier_1"` … `"tier_5"` \| null | — | |
@@ -1336,7 +1337,8 @@ keyed per proposal per owner, so a replay sends nothing twice. The rules:
 - **What happens next (AECI-1417).** An owner seat sees the proposal on the portal's
   "Proposed products" tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22) and accepts or declines it.
   **Accept** creates exactly the product you sent, linked to every vendor the payload named,
-  with no editing (ruling B). Its taxonomy is matched find-only against the terms that exist
+  with no editing (ruling B). The owner's card shows your `summary` in full before the accept
+  (AECI-2198). Its taxonomy is matched find-only against the terms that exist
   at accept time: a category, audience, phase, trade, usefulness group or extension host that
   names nothing is dropped and listed to the owner, and no term is ever created (ruling Q6).
   So send terms that exist if you want them kept. The product is then vendor-owned and
@@ -1611,6 +1613,8 @@ both, which satisfies the order rule.**
 
 ---
 
+**As built 2026-11-26 (AECI-2198): `products.summary` is behind the same fence.** It is one of the content columns a promote writes (§3.3), so promote refuses it on an owned product with the rest. An owner's proposal accept takes it from the proposal's payload through the same projection, and stamps `description_edited_at` when it is set.
+
 ## 4d. Ownership records (live app → review app)
 
 **Status:** live side built 2026-10-20 (AECI-1418, E6b.2). The receiver is the review
@@ -1622,6 +1626,11 @@ fails when either secret is absent (ruling D4). Decision: ADR 0042, amendment 20
 the content of every vendor-owned record, so the review app's copy becomes a read-only
 mirror. The live producer sends it only where `REVIEW_APP_MIRROR_SCHEMA` is `"2"` (below).
 Production sends v2 since AECI-1455 (2026-10-27). Staging, demo and local send v1.
+
+**`products.summary` (AECI-2198) is not in the mirror yet.** The v2 product
+content key list is required on the wire, so the review app's receiver must accept the
+key before the producer sends it. Until that `REVIEW -` issue ships and the AECi follow-up
+adds the key, the mirror's copy of a vendor-owned product omits its summary.
 
 This is the one call that runs the other way. Everything above is the review app calling
 AECi. Here the AECi API Worker calls the review app, to say who owns one vendor's records

@@ -38,6 +38,8 @@ const LABELS: Readonly<Record<string, () => string>> = {
   // Product fields (PRODUCT_OVERRIDE_FIELDS): the two Resources links, then the facets.
   tool_integrations_url: () => $localize`:@@correctionLabel.toolIntegrations:Integrations page`,
   api_docs_url: () => $localize`:@@correctionLabel.apiDocs:API documentation`,
+  // AECI-2198: hideable, never lockable. The hero marks it in its slot.
+  summary: () => $localize`:@@correctionLabel.summary:Summary`,
   category_slugs: () => $localize`:@@correctionLabel.categories:Categories`,
   audience_slugs: () => $localize`:@@correctionLabel.audiences:Audiences`,
   trade_slugs: () => $localize`:@@correctionLabel.trades:Trades`,

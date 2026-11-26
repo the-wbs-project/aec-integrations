@@ -65,6 +65,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     rating_onboarding_avg: null,
     created_at: '2024-06-01T00:00:00.000Z',
     updated_at: '2024-06-01T00:00:00.000Z',
+    summary: null,
     description: 'Construction management platform.',
     website: 'https://www.procore.com',
     tool_integrations_url: null,
@@ -1756,6 +1757,22 @@ describe('ProductDetailPage provenance panel (AECI-1666)', () => {
     expect(panel(el).hasAttribute('hidden')).toBe(false);
   });
 
+  // AECI-2198: a vendor-written summary with no description still shows in the hero,
+  // so the description group's "Maintained by" must stay on the page (§4.5.8).
+  it('keeps the description group caption for a summary with no description', () => {
+    const { el } = setup(
+      buildProduct({
+        description: null,
+        summary: 'Run every jobsite from one platform.',
+        captions: { ...CAPTIONS, description: updated('Procore Technologies') },
+      }),
+    );
+    expect(el.querySelector('[data-testid=product-hero-summary]')).not.toBeNull();
+    expect(lines(panel(el), 'field-caption')).toEqual([
+      'About: Maintained by Procore Technologies · updated October 4, 2026',
+    ]);
+  });
+
   it('lists every correction by field, removals included, with the source link', () => {
     const { el } = setup(
       buildProduct({
@@ -2047,6 +2064,42 @@ describe('ProductDetailPage band shell and hero (AECI-1778)', () => {
   it('prints no lede without a description', () => {
     const { el } = setup(buildProduct({ description: null }));
     expect(el.querySelector('[data-testid=product-hero-lede]')).toBeNull();
+  });
+
+  // AECI-2198: a summary replaces the clamped lede. It is printed whole and
+  // is not aria-hidden, because no other part of the page carries it.
+  it('prints a summary whole, unclamped and readable, in place of the lede', () => {
+    const { el } = setup(
+      buildProduct({
+        description: 'Construction management platform.\n\nA second paragraph.',
+        summary: 'Run every jobsite from one platform.',
+      }),
+    );
+    const line = el.querySelector<HTMLElement>('[data-testid=product-hero-summary]')!;
+    expect(line.textContent!.trim()).toBe('Run every jobsite from one platform.');
+    expect(line.className).not.toContain('line-clamp');
+    expect(line.hasAttribute('aria-hidden')).toBe(false);
+    expect(line.className).toContain('text-t-16');
+    expect(line.className).toContain('sm:text-t-20');
+    expect(line.closest('aec-hero-band')).not.toBeNull();
+    expect(el.querySelector('[data-testid=product-hero-lede]')).toBeNull();
+    expect(el.querySelector('[data-testid=summary-under-review]')).toBeNull();
+  });
+
+  it('marks a hidden summary under review in its slot, with no fallback lede', () => {
+    const { el } = setup(
+      buildProduct({
+        description: 'Construction management platform.',
+        summary: null,
+        under_review: ['summary'],
+      }),
+    );
+    const marker = el.querySelector('[data-testid=summary-under-review]')!;
+    expect(marker).not.toBeNull();
+    expect(marker.closest('aec-hero-band')).not.toBeNull();
+    expect(marker.textContent).toContain('Summary');
+    expect(el.querySelector('[data-testid=product-hero-lede]')).toBeNull();
+    expect(el.querySelector('[data-testid=product-hero-summary]')).toBeNull();
   });
 
   it('pins the product hero text column to the top beside the panel (mock-up 6)', () => {

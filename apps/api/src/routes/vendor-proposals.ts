@@ -252,6 +252,8 @@ export function createListVendorProposalsHandler(
         product: {
           name: parsed.product.name,
           description_excerpt: excerpt(parsed.product.description),
+          // AECI-2198: whole, because an accept publishes it.
+          summary: parsed.product.summary ?? null,
           website: parsed.product.website ?? null,
           product_role: parsed.product.productRole,
         },

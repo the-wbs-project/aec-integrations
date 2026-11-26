@@ -257,6 +257,15 @@ export const products = sqliteTable(
     name: text('name').notNull(),
 
     description: text('description'),
+    /**
+     * The one-line summary the product hero shows (AECI-2198, `DATABASE_SCHEMA.md` §4.2).
+     * NULL falls back to the clamped first paragraph of {@link description}. Single line,
+     * at most 155 characters: the cap lives in Zod only (`PRODUCT_SUMMARY_MAX`),
+     * never a CHECK, because a CHECK recreates `products` (`docs/migrations.md` §0). It
+     * joins the description edit group and shares `description_edited_at`. Promote writes
+     * it when the key is present. Plain `ADD COLUMN`.
+     */
+    summary: text('summary'),
     website: text('website'),
     toolIntegrationsUrl: text('tool_integrations_url'),
     apiDocsUrl: text('api_docs_url'),

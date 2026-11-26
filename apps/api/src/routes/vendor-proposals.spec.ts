@@ -297,6 +297,16 @@ describe('GET /api/vendor/proposals', () => {
     ]);
   });
 
+  // AECI-2198: an accept publishes the summary, so the preview carries it whole.
+  it('carries the proposed summary whole in the preview, and null when none was sent', async () => {
+    await propose('p:recOpenRoads', { name: 'OpenRoads', summary: 'Civil design for roads.' });
+    await propose('p:recOther', { name: 'Other Tool' });
+    const parsed = ListVendorProposalsResponseSchema.parse((await list()).body);
+    const byName = new Map(parsed.proposals.map((p) => [p.product.name, p.product]));
+    expect(byName.get('OpenRoads')!.summary).toBe('Civil design for roads.');
+    expect(byName.get('Other Tool')!.summary).toBeNull();
+  });
+
   it('is empty for a vendor with none, and leaves out decided and other vendors’ proposals', async () => {
     expect((await list()).body).toEqual({ proposals: [], truncated: false });
     const decided = await propose('p:recDecided', { name: 'Decided' });
@@ -443,6 +453,19 @@ describe('POST /api/vendor/proposals/:id/accept', () => {
       vendors: [OWNED, PARTNER],
       integrations: [],
     });
+  });
+
+  // AECI-2198: the projection carries the summary, and it earns the stamp.
+  it('creates the proposed summary with the description stamp', async () => {
+    const id = await propose('p:recOpenRoads', {
+      name: 'OpenRoads',
+      summary: 'Civil design for roads.',
+    });
+    const { status, body } = await accept(id);
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row!.summary).toBe('Civil design for roads.');
+    expect(row!.descriptionEditedAt).not.toBeNull();
   });
 
   it('suffixes a colliding slug with the first vendor’s slug, as promote does', async () => {

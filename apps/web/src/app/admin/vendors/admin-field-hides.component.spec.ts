@@ -167,6 +167,7 @@ describe('AdminFieldHides (AECI-1238)', () => {
       'tool_integrations_url',
       'api_docs_url',
       'description',
+      'summary',
     ]);
   });
 

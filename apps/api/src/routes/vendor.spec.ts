@@ -877,6 +877,35 @@ describe('PATCH /api/vendor/products/:id — the edit stamps (AECI-1614)', () =>
     expect((await stamps()).usefulness).toBeNull();
   });
 
+  // AECI-2198: the summary is in the description group, on Free.
+  it('saves a summary normalized to one line, stamps the description group, echoes it', async () => {
+    const res = await send({ summary: '  BIM authoring\nfor teams.  ' });
+    expect(res.status).toBe(200);
+    expect((res.body as { product: { summary: string } }).product.summary).toBe(
+      'BIM authoring for teams.',
+    );
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBe('BIM authoring for teams.');
+    expect((await stamps()).description).not.toBeNull();
+    const [audit] = await auditRows();
+    expect(audit!.afterState).toEqual({ summary: 'BIM authoring for teams.' });
+  });
+
+  it('refuses a summary over 155 characters with 400 and writes nothing', async () => {
+    const res = await send({ summary: 'a'.repeat(156) });
+    expect(res.status).toBe(400);
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('clears a summary with an empty string', async () => {
+    await t.db.update(products).set({ summary: 'One line.' }).where(eq(products.id, PRODUCT));
+    expect((await send({ summary: '' })).status).toBe(200);
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row!.summary).toBeNull();
+  });
+
   it('stamps nothing for a field outside every group: the website and a category', async () => {
     expect(
       (await send({ website: 'https://autodesk.com/revit', category_slugs: ['cost-management'] }))

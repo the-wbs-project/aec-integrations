@@ -405,6 +405,7 @@ function toVendorProduct(
     name: row.name,
     is_primary: isPrimary,
     description: row.description,
+    summary: row.summary,
     website: row.website,
     tool_integrations_url: row.toolIntegrationsUrl,
     api_docs_url: row.apiDocsUrl,
@@ -1275,7 +1276,7 @@ export function createUpdateVendorProfileHandler(
 
 /** Wire field → `products` column + capability (the two-axis write allow-list).
  *  The capabilities come from `PRODUCT_FIELD_CAPABILITIES` (AECI-1214):
- *  description, website and logo are `product.listing.edit` (Free), the two
+ *  description, summary, website and logo are `product.listing.edit` (Free), the two
  *  doc URLs `product.edit` and `usefulness` `product.usefulness.edit` (Managed).
  *  The taxonomy arrays are NOT here — they are join rewrites handled by
  *  `FACETS`, and gated per field in the handler from the same shared table. */
@@ -1284,6 +1285,7 @@ export const PRODUCT_COLUMN_MAP: VendorColumnMap = columnMap<
 >(
   {
     description: 'description',
+    summary: 'summary',
     website: 'website',
     tool_integrations_url: 'toolIntegrationsUrl',
     api_docs_url: 'apiDocsUrl',
@@ -1462,6 +1464,7 @@ export function createUpdateVendorProductHandler(
     // `columns`, so the audit diff stays a record of what the vendor sent.
     const groupValues = (row: Partial<ProductRow>, taxonomy: TaxonomySlugs) => ({
       description: row.description ?? null,
+      summary: row.summary ?? null,
       website: row.website ?? null,
       categories: taxonomy.categories,
       usefulness: row.usefulness,

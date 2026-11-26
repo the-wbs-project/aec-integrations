@@ -59,8 +59,9 @@ function groupLabel(group: ProductCaptionGroup): string {
 }
 
 /**
- * Every field this page marks "Under review" in its slot (AECI-1238): the website in the
- * hero, the two Resources links in the facts card and the description in the About band.
+ * Every field this page marks "Under review" in its slot (AECI-1238): the website and the
+ * summary (AECI-2198) in the hero, the two Resources links in the facts card and
+ * the description in the About band.
  * The panel's count reads this list (AECI-1666). The children mount the markers, so a new
  * marker in one of them must be added here too.
  */
@@ -69,6 +70,7 @@ const UNDER_REVIEW_MARKED_FIELDS = [
   'tool_integrations_url',
   'api_docs_url',
   'description',
+  'summary',
 ] as const;
 
 /**
@@ -402,7 +404,8 @@ export class ProductDetailPage {
     // `managed` covers the two Resources links, audiences, trades and phases; `profile`
     // covers the website and categories (`apps/api/src/lib/field-captions.ts`).
     const shown = {
-      description: !!p.description,
+      // AECI-2198: the group holds the summary too, which shows in the hero.
+      description: !!p.description || !!p.summary,
       profile: !!p.website || p.categories.length > 0,
       usefulness: this.hasUsefulness(),
       managed:

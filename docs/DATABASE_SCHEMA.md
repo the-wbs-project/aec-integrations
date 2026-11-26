@@ -317,6 +317,7 @@ create table products (
   slug text unique not null,
   name text not null,
   description text,
+  summary text, -- AECI-2198 (0136): the hero's one line, NULL = the clamped first paragraph of description. Single line, <= 155 chars after trim and whitespace collapse; the cap is Zod-only (PRODUCT_SUMMARY_MAX), NO CHECK. Shares description_edited_at. Promote writes it when the key is present. Hideable, not lockable. Never Algolia, a card, JSON-LD or a ranking input
   website text,
 
   -- Documentation and integrations
@@ -420,7 +421,7 @@ Not indexed: it is read with the row, never filtered on.
 
 | Column | Moves when | Cleared when |
 |---|---|---|
-| `description_edited_at` | a vendor write changes `description` | return to AECi, unless an owned co-owner still holds the product |
+| `description_edited_at` | a vendor write changes `description` or `summary` (AECI-2198: one edit group) | return to AECi, unless an owned co-owner still holds the product |
 | `profile_edited_at` | a vendor write changes `website` or the set of categories | as `description_edited_at` |
 | `usefulness_edited_at` | a vendor write changes `usefulness` | return to AECi, only while `usefulness_source` is NULL (a proposal accept). A set source is one-way (ADR 0033) |
 | `managed_edited_at` | a vendor write changes `tool_integrations_url` or `api_docs_url`, or the set of trades, audiences or phases | as `description_edited_at` |

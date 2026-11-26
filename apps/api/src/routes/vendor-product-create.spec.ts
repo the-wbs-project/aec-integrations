@@ -196,6 +196,28 @@ describe('POST /api/vendor/products', () => {
     });
   });
 
+  // AECI-2198: Free, like the description, and stamped into the description group.
+  it('stores a summary normalized to one line, with the description stamp', async () => {
+    const { status, body } = await create({
+      name: 'SYNCHRO 4D',
+      summary: ' Construction\nscheduling in 4D. ',
+    });
+    expect(status).toBe(201);
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row!.summary).toBe('Construction scheduling in 4D.');
+    expect(row!.description).toBeNull();
+    expect(row!.descriptionEditedAt).not.toBeNull();
+    const created = (await audits()).find((a) => a.action === 'product.created');
+    expect((created!.afterState as { fields: string[] }).fields).toContain('summary');
+  });
+
+  it('refuses a summary over 155 characters and creates nothing', async () => {
+    const before = await productCount();
+    const { status } = await create({ name: 'SYNCHRO 4D', summary: 'a'.repeat(156) });
+    expect(status).toBe(400);
+    expect(await productCount()).toBe(before);
+  });
+
   it('purges the promote create set, syncs search, and sends no ownership message', async () => {
     const { body } = await create({ name: 'SYNCHRO', category_slugs: ['bim'] });
     const tags = queueSend.mock.calls.flatMap((c) => (c[0] as { tags: string[] }).tags);

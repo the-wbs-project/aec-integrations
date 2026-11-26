@@ -29,7 +29,7 @@ A vendor whose products are all connectors is not invoiced for a seat. It can ha
 
 A Sync Service product can hold a Managed subscription, like an application. An integration platform cannot. See [Which products can hold a subscription](/docs/vendors/plans#which-products-can-hold-a-subscription).
 
-That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. The other product details stay with the AEC Integrations team.
+That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, summary, website, logo and categories. The other product details stay with the AEC Integrations team.
 
 We approve a connector-vendor claim like any other, and we also contact you directly about the catalog seat. [Claiming your vendor listing](/docs/vendors/claiming-your-listing) covers the claim form itself.
 

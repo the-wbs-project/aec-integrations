@@ -1401,6 +1401,8 @@ export const productDetailConfig = {
   columns: {
     ...productListConfig.columns,
     description: true,
+    // AECI-2198: the hero's one line. Detail only, never a card, Algolia or ranking field.
+    summary: true,
     website: true,
     toolIntegrationsUrl: true,
     apiDocsUrl: true,
@@ -2152,6 +2154,8 @@ export interface RawProductDetailRow
   extends RawProductListRow, RawMaintenanceColumns, RawWheelLogoColumns {
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   description: string | null;
+  /** AECI-2198. Optional so a hand-built fixture without it reads as NULL. */
+  summary?: string | null;
   website: string | null;
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
@@ -4008,6 +4012,7 @@ export function toProductDetail(
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
     description: raw.description,
+    summary: raw.summary ?? null,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
     api_docs_url: raw.apiDocsUrl,
@@ -4083,7 +4088,8 @@ export function toProductDetail(
     captions: {
       ...productGroupCaptions({
         vendorName: base.vendor?.name ?? null,
-        hasDescription: Boolean(raw.description),
+        // AECI-2198: the group holds the summary too.
+        hasDescription: Boolean(raw.description) || Boolean(raw.summary),
         hasProfile: Boolean(raw.website) || raw.productCategories.length > 0,
         // Either facet array may be empty, and an all-empty block renders no section.
         hasUsefulness:

@@ -51,7 +51,9 @@ import type { VendorRecrawl } from './vendor-shared';
 /**
  * Product fields whose change alters what the page says.
  *
- * `description` and `usefulness`. The other four editable columns — `website`,
+ * `description`, `summary` and `usefulness`. `summary`
+ * (AECI-2198) is the hero's one line and the meta description's fallback, so a change
+ * rewrites what the page says first. The other four editable columns — `website`,
  * `tool_integrations_url`, `api_docs_url`, `logo_url` — are links and an image;
  * they change the page's furniture, not its content.
  *
@@ -66,7 +68,11 @@ import type { VendorRecrawl } from './vendor-shared';
  * is already in that vocabulary and re-deriving it would be a second place to
  * get the mapping wrong.
  */
-export const MATERIAL_PRODUCT_FIELDS: ReadonlySet<string> = new Set(['description', 'usefulness']);
+export const MATERIAL_PRODUCT_FIELDS: ReadonlySet<string> = new Set([
+  'description',
+  'summary',
+  'usefulness',
+]);
 
 /**
  * Vendor-profile fields whose change alters what the page says.

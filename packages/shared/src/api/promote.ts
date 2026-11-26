@@ -2,6 +2,7 @@ import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-f
 import { z } from 'zod';
 
 import { CLAIM_DIRECTIONS, type ClaimDirection } from './integrations';
+import { ProductSummarySchema } from './summary';
 import type { PromoteConnectorPageResponse } from './promote-connector';
 
 /**
@@ -309,6 +310,13 @@ export const PromoteProductSchema = z.object({
   name: z.string().min(1),
   productRole: z.enum(PRODUCT_ROLES).default('application'),
   description: z.string().nullish(),
+  /**
+   * The one-line hero summary (AECI-2198, `REVIEW_APP_PROMOTE_API.md` §3.3). Omitted
+   * leaves the stored value untouched, `null` clears it. Trimmed and collapsed to one
+   * line; over 155 characters after that refuses the whole payload with
+   * `400 VALIDATION_FAILED` before any job starts.
+   */
+  summary: ProductSummarySchema.optional(),
   website: z.string().nullish(),
   toolIntegrationsUrl: z.string().nullish(),
   apiDocsUrl: z.string().nullish(),

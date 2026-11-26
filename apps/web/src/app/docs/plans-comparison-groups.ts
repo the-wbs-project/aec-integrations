@@ -53,7 +53,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
           'profile.edit',
         ),
         capabilityRow(
-          $localize`:@@app.docs.plans.row.productBasics:Product description, website, logo and categories`,
+          $localize`:@@app.docs.plans.row.productBasics:Product description, summary, website, logo and categories`,
           'product.listing.edit',
           'product.categories.edit',
         ),

@@ -736,6 +736,7 @@ const UNKNOWN_TIER = 'enterprise' as EntitlementTier;
  */
 const SPEC_PRODUCT_FIELDS: Readonly<Record<string, Capability>> = {
   description: 'product.listing.edit',
+  summary: 'product.listing.edit',
   website: 'product.listing.edit',
   logo_url: 'product.listing.edit',
   tool_integrations_url: 'product.edit',
