@@ -16,6 +16,7 @@ import {
   LEGAL_NOTICES,
   type LegalNotice,
   activeLegalNotices,
+  isLegalInForceNotice,
   legalNoticeHref,
   legalNoticeId,
 } from './legal-notices';
@@ -61,7 +62,9 @@ function writeDismissed(ids: readonly string[]): void {
 /**
  * The site-wide legal notice (AECI-1592, `STAGE_1_SPEC.md` §27.4). The Privacy
  * Policy promises a notice on every page for 30 days before a material change
- * takes effect, naming what changes and linking to the new version.
+ * takes effect, naming what changes and linking to the new version. Since AECI-1870
+ * (ruling 69) it also says when the first in-force versions took effect, for 14 days
+ * from that day, linking `/legal`. Both kinds are dismissed the same way.
  *
  * Rendered once in the app shell, by SSR, so it is in the cached HTML. The HTML
  * depends on the date and never on the visitor. `capTtlAtLegalNoticeBoundary`
@@ -95,18 +98,31 @@ function writeDismissed(ids: readonly string[]): void {
           class="mx-auto flex w-full max-w-[1328px] items-start justify-between gap-4 px-6 py-3 md:px-8 lg:px-12"
         >
           <p class="min-w-0 text-t-14 leading-6 text-(--text-primary)">
-            <span class="font-semibold" i18n="@@legal.notice.lead"
-              >Changes to the {{ notice.title }} take effect on
-              {{ notice.effectiveDateLabel }}.</span
-            >
-            {{ notice.summary }}
-            <a
-              [routerLink]="href(notice)"
-              class="text-(--accent-primary) underline underline-offset-2
-                hover:text-(--accent-primary-hover)"
-              i18n="@@legal.notice.readNewVersion"
-              >Read the new version</a
-            >
+            @if (notice.kind === 'in-force') {
+              <span class="font-semibold" i18n="@@legal.notice.inForceLead"
+                >Our legal documents are now in force from {{ notice.effectiveDateLabel }}.</span
+              >
+              <a
+                [routerLink]="href(notice)"
+                class="text-(--accent-primary) underline underline-offset-2
+                  hover:text-(--accent-primary-hover)"
+                i18n="@@legal.notice.readThem"
+                >Read them</a
+              >
+            } @else {
+              <span class="font-semibold" i18n="@@legal.notice.lead"
+                >Changes to the {{ notice.title }} take effect on
+                {{ notice.effectiveDateLabel }}.</span
+              >
+              {{ notice.summary }}
+              <a
+                [routerLink]="href(notice)"
+                class="text-(--accent-primary) underline underline-offset-2
+                  hover:text-(--accent-primary-hover)"
+                i18n="@@legal.notice.readNewVersion"
+                >Read the new version</a
+              >
+            }
           </p>
           <button
             aecButton
@@ -152,10 +168,16 @@ export class LegalNoticeBand {
   }
 
   protected regionLabel(notice: LegalNotice): string {
+    if (isLegalInForceNotice(notice)) {
+      return $localize`:@@legal.notice.inForceRegionLabel:Notice that our legal documents are now in force`;
+    }
     return $localize`:@@legal.notice.regionLabel:Notice of changes to the ${notice.title}:TITLE:`;
   }
 
   protected dismissLabel(notice: LegalNotice): string {
+    if (isLegalInForceNotice(notice)) {
+      return $localize`:@@legal.notice.inForceDismiss:Dismiss the notice that our legal documents are now in force`;
+    }
     return $localize`:@@legal.notice.dismiss:Dismiss the notice about the ${notice.title}:TITLE:`;
   }
 

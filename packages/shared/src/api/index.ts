@@ -47,6 +47,7 @@ export * from './legal-acceptance';
 export * from './legal-in-force';
 export * from './legal-versions';
 export * from './legal-moment';
+export * from './legal-first-effective';
 export * from './policy-binding';
 export * from './license-grants';
 export * from './license-release-requests';

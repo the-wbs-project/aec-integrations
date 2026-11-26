@@ -53,6 +53,8 @@ import {
   sendEntitlementExpiringEmail,
   sendRenewalCancelledEmail,
   sendLegalTermsChangeEmail,
+  sendLegalFirstEffectiveEmail,
+  type LegalFirstEffectiveSubject,
   bytesToBase64,
   legalNoticeAttachmentName,
   type LegalTermsChangeSubject,
@@ -5087,5 +5089,96 @@ describe('entitlement-expiring with a new Managed plan agreement version (AECI-1
     );
     expect(text).toMatch(/\/legal\/managed-plan-agreement\?/);
     expect(text).not.toContain('What changes:');
+  });
+});
+
+// ─── AECI-1870: the day the first versions take effect ───────────────────────
+
+describe('sendLegalFirstEffectiveEmail (AECI-1870, ruling 69)', () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const ALL: LegalFirstEffectiveSubject['documents'] = [
+    { document: 'review_guidelines', version: '1.1' },
+    { document: 'vendor_terms', version: '1.4' },
+    { document: 'terms', version: '1.2' },
+    { document: 'privacy', version: '1.2' },
+    { document: 'managed_plan', version: '1.2' },
+    { document: 'listing_accuracy', version: '1.1' },
+  ];
+  const base: LegalFirstEffectiveSubject = {
+    to: 'reader@example.com',
+    effectiveDay: '2027-01-15',
+    documents: ALL,
+    ownerSeat: false,
+    dedupeKey: 'legal-first-effective:2027-01-15:u1',
+    entity: { type: 'legal_effective_day', id: '2027-01-15' },
+  };
+  const render = async (over: Partial<LegalFirstEffectiveSubject> = {}) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendLegalFirstEffectiveEmail(
+      fakeContext({ ...SITE, SUPPORT_EMAIL: 'support@aecintegrations.com' }),
+      { ...base, ...over },
+    );
+    const body = lastBody(fetchSpy) as Record<string, unknown>;
+    return { outcome, body, text: String(body.text), html: String(body.html) };
+  };
+  const OWNER_LINE =
+    'The next time you sign in to the vendor portal, it will ask an owner seat to accept the Vendor Terms. Your listing stays claimed while it waits.';
+  const APART =
+    'Apart from that, there is nothing you need to do. If a later version reduces your rights, we will ask you to accept it the next time you sign in.';
+  const NOTHING =
+    'There is nothing you need to do. If a later version reduces your rights, we will ask you to accept it the next time you sign in.';
+
+  it('carries the approved subject, heading, lead and list, in order, with no em dash', async () => {
+    const { outcome, body, text, html } = await render();
+    expect(outcome).toBe('sent');
+    expect(body.subject).toBe('Our legal documents are now in force');
+    expect(text.startsWith('Our legal documents are now in force\n')).toBe(true);
+    expect(html).toContain('Our legal documents took effect on January 15, 2027.');
+    expect(text).toContain(
+      'At 12:00 UTC on January 15, 2027, the first in-force versions of our legal documents took effect. Before today each was published as a draft.',
+    );
+    const lines = text.split('\n').filter((l) => l.startsWith('- '));
+    expect(lines.map((l) => l.replace(/ https:\S+$/, ''))).toEqual([
+      '- Terms of Service, version 1.2, in force from January 15, 2027.',
+      '- Privacy Policy, version 1.2, in force from January 15, 2027.',
+      '- Vendor Terms, version 1.4, in force from January 15, 2027.',
+      '- Managed plan agreement, version 1.2, in force from January 15, 2027.',
+      '- Listing Accuracy Policy, version 1.1, in force from January 15, 2027.',
+      '- Review Guidelines, version 1.1, in force from January 15, 2027.',
+    ]);
+    expect(lines[0]).toMatch(/ https:\/\/www\.aecintegrations\.com\/legal\/terms\?/);
+    expect(html).toMatch(
+      /<a href="https:\/\/www\.aecintegrations\.com\/legal\/vendor-terms\?[^"]*"[^>]*>Vendor Terms<\/a>, version 1\.4/,
+    );
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    expect(body.headers).toBeUndefined();
+    expect(body.attachments).toBeUndefined();
+    const all = `${text}${html}${String(body.subject)}`;
+    expect(all).not.toMatch(/—/);
+    expect(all).not.toMatch(/has changed/i);
+    expect(text).toContain(OPERATOR_POSTAL_ADDRESS.split('\n')[0]!);
+  });
+
+  it('everyone else reads that there is nothing to do', async () => {
+    const { text } = await render();
+    expect(text).toContain(NOTHING);
+    expect(text).not.toContain(OWNER_LINE);
+  });
+
+  it('an owner seat reads the acceptance line when the Vendor Terms are in the list', async () => {
+    const { text } = await render({ ownerSeat: true });
+    expect(text).toContain(OWNER_LINE);
+    expect(text).toContain(APART);
+    expect(text.indexOf(OWNER_LINE)).toBeLessThan(text.indexOf(APART));
+    expect(text).not.toContain(`\n\n${NOTHING}`);
+  });
+
+  it('an owner seat reads no acceptance line when the Vendor Terms are not in the list', async () => {
+    const { text } = await render({
+      ownerSeat: true,
+      documents: [{ document: 'terms', version: '1.2' }],
+    });
+    expect(text).not.toContain(OWNER_LINE);
+    expect(text).toContain(NOTHING);
   });
 });

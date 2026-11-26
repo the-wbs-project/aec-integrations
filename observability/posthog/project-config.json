@@ -196,6 +196,12 @@
       "360-hour lookback already covers a weekly heartbeat. It carries activeFrom until its first",
       "production heartbeat.",
       "",
+      "AECI-1870 added legal-first-effective-notice, the thirty-first job. It has no trigger of its",
+      "own: the 12:00 protest-reply-reminder tick runs it inline. It queues the day-of legal notice",
+      "when a first in-force version took effect in the last 7 days. Its heartbeat",
+      "aeci.legal_first_effective.run fires on EVERY run, outcome ok or failed. It carries",
+      "activeFrom until its first production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -373,6 +379,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job. activeFrom (AECI-1221) was removed by AECI-1232 on 2026-10-05, once aeci.contest.protest_reminder.job had appeared in production."
+      },
+      {
+        "job": "legal-first-effective-notice",
+        "cron": "0 12 * * *",
+        "metric": "aeci.legal_first_effective.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-12-03T13:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1870. Never had a Datadog monitor: the job did not exist. Run by the 12:00 protest-reply-reminder tick, inline, daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok (including a run with nothing to send, the normal value) or failed, so its absence means the job stopped running. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "vendor-snapshot",

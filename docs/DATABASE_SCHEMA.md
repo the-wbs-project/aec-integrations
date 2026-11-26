@@ -3214,13 +3214,14 @@ create table legal_versions (
   published_by text not null,      -- a profiles.id; NO FK
   published_at text not null,      -- ISO-8601
   notice_enqueued_at text,         -- ISO-8601: the last fan-out queued every company (AECI-1620)
-  notice_vendor_count integer      -- companies queued by the last fan-out, complete or not (AECI-1620); ACCOUNTS on a terms or privacy row (AECI-1637)
+  notice_vendor_count integer,     -- companies queued by the last fan-out, complete or not (AECI-1620); ACCOUNTS on a terms or privacy row (AECI-1637)
+  first_effective_notice_enqueued_at text -- ISO-8601: the day-of notice for this row's moment was queued (AECI-1870, migration 0139_legal_first_effective_notice); NULL until then, and for good on a later version
 );
 
 create unique index legal_versions_document_version_key on legal_versions(document, version);
 ```
 
-- **The one writer.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
+- **The one inserter.** `POST /api/admin/legal-versions` (`routes/admin-legal-versions.ts`) inserts
   the row and its `legal_version.published` audit row (`entity_type = 'legal_version'`) in one
   `db.batch`. A lost race on the unique index is `409 LEGAL_VERSION_EXISTS`. Nothing deletes a row.
 - **`summary_json` is unescaped plain text.** Each bullet is one line with no control, format
@@ -3228,7 +3229,7 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   stored as typed, `<` and `&` included. Every renderer (the admin page, the AECI-1620 email, a
   vendor screen) must escape it for its medium. Never insert it as HTML. The notice email escapes
   each bullet with `escapeHtml` in its HTML part and writes it as-is in its text part.
-- **The notice outcome (AECI-1620).** The only update. After a material publish, and on each
+- **The notice outcome (AECI-1620).** The admin route's only update. After a material publish, and on each
   `POST /api/admin/legal-versions/:id/notice` re-send, the same file writes `notice_enqueued_at`
   and `notice_vendor_count` with a `legal_version.notice_queued` or `legal_version.notice_resent`
   audit row in one `db.batch`. Both NULL: no fan-out recorded (a non-material version always).
@@ -3237,6 +3238,16 @@ create unique index legal_versions_document_version_key on legal_versions(docume
   also clears `notice_enqueued_at` (with a system `legal_version.notice_expired` audit row) when a
   message arrives after `effective_at`, because it then sends nothing. What was actually
   sent lives in `notification_sends` (§9.9), per address, and in `legal_notice_deliveries` (§8.6j), per company, not here. The outcome UPDATE is guarded on `effective_at > now`, so a fan-out that finishes after the effective moment cannot stamp the column over the expiry.
+- **The day-of notice marker (AECI-1870, rulings 28 and 69).** The daily
+  `legal_first_effective_notice` job (`lib/legal-first-effective-notice.ts`) stamps
+  `first_effective_notice_enqueued_at` on every row whose document's FIRST in-force version took
+  effect at one moment in the last 7 days, once it has queued the `legal-first-effective` email to
+  every unbanned account. The UPDATE is guarded on the column being NULL, and each row's
+  `legal_version.first_effective_notice_enqueued` system audit row lands in the same `db.batch`,
+  only when its row carries that run's stamp (`auditInsertWhere`). A stamped row is never queued
+  again, so a second run sends nothing. A fan-out that did not finish stamps nothing. A later
+  version of a document, a draft or a row whose date moved stays NULL for good. Added by a plain
+  `ALTER TABLE ADD`, not a recreate (`docs/migrations.md` §0).
 - **Reader rows (AECI-1637).** `notice_vendor_count` keeps its name and holds the number of
   accounts queued when `document` is `terms` or `privacy`. No rename, because it is a D1 column
   rename and the shared response field is the same. The per-account outcome lives in

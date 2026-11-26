@@ -1621,6 +1621,12 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * Search Console's Search Analytics and Sitemaps figures into `metrics_daily` under the
  * `SEARCH_INGEST_METRIC_KEYS`. It is queue-backed, on the reconcile queue, and is the
  * second weekly cron after `asn-registry`.
+ *
+ * `legal-first-effective-notice` is the thirty-first job (AECI-1870) and adds no trigger:
+ * the 12:00 `protest-reply-reminder` tick runs it too. It queues the day-of notice when a
+ * document's first in-force version took effect in the last 7 days, and stamps
+ * `legal_versions.first_effective_notice_enqueued_at`. It is queue-less and inline, and
+ * the legal notice queue's consumer sends.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1653,6 +1659,7 @@ export const AdminCronJobSchema = z.enum([
   'acceptance-chain', // 0 18 * * *
   'legal-retention-prune', // 0 3 * * *  (enqueued by the retention-prune tick)
   'search-ingest', // 0 22 * * 1  (weekly; CF day-of-week is 1=Sunday, so Sundays)
+  'legal-first-effective-notice', // 0 12 * * *  (run by the protest-reply-reminder tick)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

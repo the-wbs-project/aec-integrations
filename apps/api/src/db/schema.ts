@@ -2790,9 +2790,11 @@ export const agreementAcceptances = sqliteTable(
  * No CHECK on `document` or `expedited_reason`, the house rule for enum-like text
  * (`agreement_acceptances.document` above): Zod owns the vocabulary, and a CHECK change
  * on D1 is a table recreate (`docs/migrations.md` §0). No FK: `published_by` is a
- * `profiles.id`, as `listing_requests.resolved_by`. The one writer is
- * `routes/admin-legal-versions.ts`, whose insert carries its `legal_version.published`
- * audit row in the same `db.batch`. Nothing updates or deletes a row yet.
+ * `profiles.id`, as `listing_requests.resolved_by`. The insert is
+ * `routes/admin-legal-versions.ts`, which carries its `legal_version.published` audit row
+ * in the same `db.batch`. Since AECI-1870 the daily `legal_first_effective_notice` job
+ * also stamps `first_effective_notice_enqueued_at`, with its own audit row in its batch.
+ * Nothing deletes a row.
  */
 export const legalVersions = sqliteTable(
   'legal_versions',
@@ -2824,6 +2826,11 @@ export const legalVersions = sqliteTable(
     /** AECI-1620 fills it with the number of vendors queued. For a `terms` or `privacy`
      *  row (AECI-1637) it is the number of ACCOUNTS queued: the column keeps its name. */
     noticeVendorCount: integer('notice_vendor_count'),
+    /** ISO-8601. AECI-1870: when the daily `legal_first_effective_notice` job queued the
+     *  day-of notice for this row's moment (`legal-first-effective`). NULL until then, and
+     *  for good on a row that is not a first in-force version. Set with its
+     *  `legal_version.first_effective_notice_enqueued` audit row in one `db.batch`. */
+    firstEffectiveNoticeEnqueuedAt: text('first_effective_notice_enqueued_at'),
   },
   (t) => [uniqueIndex('legal_versions_document_version_key').on(t.document, t.version)],
 );

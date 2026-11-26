@@ -1,0 +1,1 @@
+ALTER TABLE `legal_versions` ADD `first_effective_notice_enqueued_at` text;

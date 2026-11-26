@@ -1,8 +1,8 @@
 # Legal runbooks
 
 Procedures for a legal event that carries its own deadline: a data breach, an accessibility barrier
-report or demand letter, a copyright notice or counter-notice, a subpoena for a reviewer's identity, a request for the ranking evidence. The last four sections run our published legal versions: the
-change notice, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
+report or demand letter, a copyright notice or counter-notice, a subpoena for a reviewer's identity, a request for the ranking evidence. The last five sections run our published legal versions: the
+change notice, the day-of notice when the first versions take effect, the acceptance screen, and the two digest checks on a version's effective date. No alert pages any of them. Alert runbooks are in
 [`alerts.md`](./alerts.md). Subscription and billing procedures are in
 [`subscriptions.md`](./subscriptions.md). Counsel's answers are verbatim in
 `docs/LEGAL_COUNSEL_RECORD.md` (Q25, Q38, Q40, Q41). Where counsel did not say something, these steps say
@@ -678,6 +678,49 @@ email says it has not.
 ```bash
 pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT created_at, outcome, dedupe_key FROM notification_sends WHERE notification_id = 'legal-terms-change' AND recipient_hash = 'HASH' ORDER BY created_at DESC LIMIT 20"
 ```
+
+## The day the first versions take effect (AECI-1870)
+
+Not a paging alert. Use this on the effective day of the first in-force versions, after 12:00 UTC,
+to confirm the day-of notice went out (counsel Q60, rulings 28 and 69).
+
+**What goes out.** At 12:00 UTC the `legal_first_effective_notice` job runs from the protest
+reminder's tick. For each moment in the last 7 days at which a document's first in-force version
+took effect, it queues one `legal-first-effective` email per unbanned account, vendor seats
+included, listing every document that took effect then. An owner seat also reads that the portal
+will ask it to accept the Vendor Terms, when they are in the list. A billing email with no account
+gets nothing. A later version sends nothing, and a moment more than 7 days old is never sent. The
+job then stamps `legal_versions.first_effective_notice_enqueued_at` on each row of the moment, with
+a `legal_version.first_effective_notice_enqueued` audit row, so a second run sends nothing.
+
+**Check the run.** `/admin/system` shows the `legal-first-effective-notice` row. Its `detail` lists
+each moment with its documents, the accounts queued and the rows stamped:
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT started_at, finished_at, outcome, detail FROM job_runs WHERE job = 'legal-first-effective-notice' ORDER BY id DESC LIMIT 3"
+```
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT document, version, effective_at, first_effective_notice_enqueued_at FROM legal_versions ORDER BY effective_at"
+```
+
+**Check the sends.** Each account's send is keyed `legal-first-effective:{YYYY-MM-DD}:{profileId}`.
+Count them by outcome an hour after the run:
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production --env production --remote --command "SELECT outcome, count(*) AS n FROM notification_sends WHERE notification_id = 'legal-first-effective' GROUP BY outcome"
+```
+
+| You see | Meaning | Do |
+|---|---|---|
+| Run `ok`, a moment `enqueued`, rows stamped, sends `sent` near the account count | Done | Nothing |
+| Run `ok` with no moment, and no row stamped | No first in-force version took effect at that moment: a version is not published, its date moved, or it is a later version | Check `/admin/legal` shows each version published with the same date. No email is owed for a later version |
+| Run `failed`, a moment `failed` with `unbound` or `send_batch` | The fan-out did not finish, so nothing was stamped | Fix the queue binding or wait for the queue. The next 12:00 run queues it again inside the 7 days, and the keys stop a second email |
+| `stale` above 0 | A first version took effect more than 7 days ago with no notice stamped | A question for Chris. The job will never send it. Any notice now is a manual decision |
+| Sends `failed` or rows missing for some accounts | A send failed after its retries (10, 20, then 30 minutes) | Read PostHog Logs for `aeci.legal_notice` with `audience:first-effective`. Re-sending is a manual decision: the job does not re-queue a stamped moment |
+
+The band is separate: a `kind: "in-force"` entry in `notices.json`, added in the bump-day change
+(`apps/web/src/content/legal/README.md`, "Announcing a new version before it takes effect" step 7).
 
 ## A company is blocked on the acceptance screen and has no working owner seat (AECI-1677)
 

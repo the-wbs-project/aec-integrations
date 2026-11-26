@@ -39,6 +39,7 @@ import type { EntityOrphanResult } from './algolia-orphans';
 import type { IndexEntityResult } from './algolia-sync';
 import type { DataQualityCheckResult } from './data-quality';
 import type { EmailOutcome } from './email';
+import type { FirstEffectiveMomentReport } from './legal-first-effective-notice';
 import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
@@ -407,6 +408,15 @@ export type JobRunDetail =
       capped: number;
       emails: Record<EmailOutcome, number>;
     }
+  /** The daily AECI-1870 day-of legal notice. One entry per effective moment it handled:
+   *  the documents, the accounts queued, and how many rows this run stamped. `stale`
+   *  counts first in-force rows older than 7 days that never got the notice. */
+  | {
+      job: 'legal-first-effective-notice';
+      moments: FirstEffectiveMomentReport[];
+      stale: number;
+    }
+  | { job: 'legal-first-effective-notice'; reason: string }
   /** The daily AECI-1305 vendor claim nudge. `candidates` is what the SQL read
    *  returned, `scanned` how many of those had their address looked up before the
    *  run reached its send cap. `skipped` counts by reason (`NudgeSkipReason`). */

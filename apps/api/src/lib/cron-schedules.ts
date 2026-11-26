@@ -1,6 +1,7 @@
 /**
  * The twenty-nine cron expressions the API Worker is triggered on, in one place. Since
- * AECI-820 they drive thirty jobs: `RETENTION_CRON` starts two.
+ * AECI-1870 they drive thirty-one jobs: `RETENTION_CRON` starts two, and so does
+ * `PROTEST_REMINDER_CRON`.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -285,6 +286,10 @@ export const CLAIM_STALE_CRON = '25 */6 * * *';
  * read over `integration_field_challenges_protest_idx` and a handful of fail-open
  * emails. A missed day costs one day of lead time, and the next run inside the window
  * sends what this one missed.
+ *
+ * AECI-1870: the same tick runs `legal_first_effective_notice`. 12:00 UTC is the moment a
+ * legal version takes effect (`LEGAL_EFFECTIVE_HOUR_UTC`), so the day-of notice queues
+ * within seconds of it. It adds a job but no trigger.
  */
 export const PROTEST_REMINDER_CRON = '0 12 * * *';
 
@@ -506,6 +511,9 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   // the 400-day prune, so it shares that expression (`scheduled.ts`).
   'legal-retention-prune': RETENTION_CRON,
   'search-ingest': SEARCH_INGEST_CRON,
+  // AECI-1870: no trigger of its own. The 12:00 `PROTEST_REMINDER_CRON` case runs it after
+  // the protest reminder, so it shares that expression (`scheduled.ts`).
+  'legal-first-effective-notice': PROTEST_REMINDER_CRON,
 };
 
 /**
@@ -549,6 +557,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   acceptance_chain: 'acceptance-chain',
   legal_retention: 'legal-retention-prune',
   search_ingest: 'search-ingest',
+  legal_first_effective_notice: 'legal-first-effective-notice',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -579,6 +588,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'attestation-notify',
   'entitlement-expiry',
   'protest-reply-reminder',
+  'legal-first-effective-notice',
   'gsc-inspect',
   'claim-owner-fallback',
   'request-confirmation-expiry',

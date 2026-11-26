@@ -1003,6 +1003,25 @@ export const NOTIFICATIONS = {
       "The change notice for a published material version of the Terms of Service or the Privacy Policy, to every unbanned account on the tier, vendor seats included. It names the version and its effective date, lists the summary of changes, links the fixed copy at /legal/<slug>/v<version>, attaches that version's PDF, and says whether the version applies by continued use, only after the account holder ticks the acceptance box at their next sign-in, or (Privacy Policy) from its date.",
     note: 'Always on: a service notice the Terms promise, so it has no unsubscribe, ignores the marketing mute and cannot be paused. Same template and checks as legal-terms-change: the consumer re-hashes the PDF on every message and sends nothing on a mismatch, and an account email lookup that is unavailable retries the whole message. The send carries an attachment, so it blind-copies no one. Each account has a legal_notice_reader_deliveries row, and /admin/legal counts and lists the accounts not reached.',
   },
+  // AECI-1870 (counsel Q60, rulings 28 and 69): the day the first versions take effect.
+  'legal-first-effective': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 12 legal_first_effective_notice job (lib/legal-first-effective-notice.ts runLegalFirstEffectiveNotice), enqueuing one message per 25 accounts on aeci-legal-notice-{env}; the queue consumer sends',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per account per effective moment: key legal-first-effective:{YYYY-MM-DD}:{profileId}. The job stamps legal_versions.first_effective_notice_enqueued_at on every row of the moment once the fan-out is queued, so a second run sends nothing. A failed send releases its key, so a queue retry reaches only the accounts not yet sent.',
+    ledger: ['notification_sends', 'fence-column'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_1_SPEC.md §27',
+    summary:
+      'Tells every unbanned account on the tier, vendor seats included, that the first in-force versions of the legal documents took effect. One email per account per effective moment, listing each document whose first in-force version took effect then, linked to its page. An owner seat also reads that the vendor portal will ask it to accept the Vendor Terms, when they are in the list. A billing email that belongs to no account is not sent it.',
+    note: 'Always on: a service notice (ruling 69), so it has no unsubscribe, ignores the marketing mute and cannot be paused. No attachment. Sent only for a first in-force version, never for a later one, and never before the moment or more than 7 days after it. The consumer refuses a message before the moment, and an account email lookup that is unavailable retries the whole message.',
+  },
   'license-unassigned-reminder': {
     channel: 'email',
     audience: 'external',

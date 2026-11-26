@@ -1968,6 +1968,129 @@ export function sendLegalTermsChangeEmail(
   });
 }
 
+// ─── The day the first versions take effect (AECI-1870) ──────────────────────
+
+/** One document of the day-of notice: the first in-force version that took effect. */
+export interface LegalFirstEffectiveDocument {
+  document: LegalPublishableDocument;
+  version: string;
+}
+
+/** What `legal-first-effective` needs for one account. */
+export interface LegalFirstEffectiveSubject {
+  to: string;
+  /** `YYYY-MM-DD`, the day the versions took effect (12:00 UTC). */
+  effectiveDay: string;
+  /** Every document whose first in-force version took effect at that moment. */
+  documents: readonly LegalFirstEffectiveDocument[];
+  /**
+   * The account is an owner seat of a vendor. With the Vendor Terms in `documents`, it
+   * gets the line about the portal's acceptance screen (AECI-1677).
+   */
+  ownerSeat: boolean;
+  dedupeKey: string;
+  entity: LedgerEntity;
+}
+
+/** The order the list names the documents in: the reader documents, then the vendor ones. */
+const LEGAL_FIRST_EFFECTIVE_ORDER: readonly LegalPublishableDocument[] = [
+  'terms',
+  'privacy',
+  'vendor_terms',
+  'managed_plan',
+  'listing_accuracy',
+  'review_guidelines',
+];
+
+/** The closing for an account with nothing to accept (ruling 69, item 3). */
+const LEGAL_FIRST_EFFECTIVE_NOTHING_TO_DO =
+  'There is nothing you need to do. If a later version reduces your rights, we will ask you to accept it the next time you sign in.';
+
+/**
+ * The plain-text and HTML blocks of the day-of notice (ruling 69, the approved copy).
+ * Exported so a spec and the operator's render check read the exact words. Every URL in
+ * the HTML must already be tagged, so `link` is applied here.
+ */
+export function legalFirstEffectiveBlocks(
+  opts: Pick<LegalFirstEffectiveSubject, 'effectiveDay' | 'documents' | 'ownerSeat'>,
+  site: string | null,
+  link: LinkTagger = (url) => url,
+): { text: string[]; html: string[] } {
+  const date = formatLongDay(opts.effectiveDay);
+  const lead = `At 12:00 UTC on ${date}, the first in-force versions of our legal documents took effect. Before today each was published as a draft.`;
+  const ordered = [...opts.documents].sort(
+    (a, b) =>
+      LEGAL_FIRST_EFFECTIVE_ORDER.indexOf(a.document) -
+      LEGAL_FIRST_EFFECTIVE_ORDER.indexOf(b.document),
+  );
+  const lines = ordered.map((d) => {
+    const title = LEGAL_DOCUMENT_TITLES[d.document];
+    const rest = `, version ${d.version}, in force from ${date}.`;
+    const url = site ? link(`${site}/legal/${LEGAL_DOCUMENT_SLUGS[d.document]}`) : null;
+    return {
+      text: url ? `- ${title}${rest} ${url}` : `- ${title}${rest}`,
+      html: `<li style="margin:0 0 6px">${url ? inlineLink(url, title) : escapeHtml(title)}${escapeHtml(rest)}</li>`,
+    };
+  });
+  const list = {
+    text: lines.map((l) => l.text).join('\n'),
+    html: `<ul style="margin:0;padding-left:20px">${lines.map((l) => l.html).join('')}</ul>`,
+  };
+  const askOwner =
+    opts.ownerSeat && opts.documents.some((d) => d.document === 'vendor_terms')
+      ? [
+          'The next time you sign in to the vendor portal, it will ask an owner seat to accept the Vendor Terms. Your listing stays claimed while it waits.',
+          'Apart from that, there is nothing you need to do. If a later version reduces your rights, we will ask you to accept it the next time you sign in.',
+        ]
+      : [LEGAL_FIRST_EFFECTIVE_NOTHING_TO_DO];
+  return {
+    text: [lead, list.text, ...askOwner],
+    html: [escapeHtml(lead), list.html, ...askOwner.map(escapeHtml)],
+  };
+}
+
+/** The subject and heading of the day-of notice (ruling 69). */
+export const LEGAL_FIRST_EFFECTIVE_SUBJECT = 'Our legal documents are now in force';
+
+/**
+ * `legal-first-effective` (AECI-1870, counsel Q60, ruling 28, ruling 69): the short notice
+ * on the day the first in-force versions of the legal documents take effect. One per
+ * account per effective moment, listing every document whose first in-force version took
+ * effect then, each linked to its page. An owner seat gets one more line when the Vendor
+ * Terms are in the list, because the portal's acceptance screen will ask it to accept
+ * them. A service email: no unsubscribe, no marketing mute, no attachment, not pausable.
+ * Replies go to `SUPPORT_EMAIL`. The consumer (`lib/legal-first-effective-notice.ts`)
+ * refuses to call it before the moment or without a site URL.
+ */
+export function sendLegalFirstEffectiveEmail(
+  c: EmailContext,
+  opts: LegalFirstEffectiveSubject,
+): Promise<EmailOutcome> {
+  const site = siteUrl(c.env);
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  const date = formatLongDay(opts.effectiveDay);
+  const render = (link: LinkTagger): EmailContent => {
+    const blocks = legalFirstEffectiveBlocks(opts, site, link);
+    return houseBody(
+      {
+        preheader: `Our legal documents took effect on ${date}.`,
+        heading: LEGAL_FIRST_EFFECTIVE_SUBJECT,
+      },
+      blocks.text,
+      blocks.html,
+    );
+  };
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'legal-first-effective',
+    subject: LEGAL_FIRST_EFFECTIVE_SUBJECT,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). Since AECI-1406
 // (E6.3) the vendor copy is the renewal notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8,

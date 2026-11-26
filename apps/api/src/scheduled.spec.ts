@@ -202,6 +202,7 @@ const ANALYTICS_CRON = '0 5 * * *';
 const RETENTION_CRON = '0 3 * * *';
 const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
+const PROTEST_REMINDER_CRON = '0 12 * * *';
 // Cloudflare's day-of-week is 1=Sunday, so Monday is `2` (AECI-661). Kept as a
 // literal rather than imported so the dispatcher test still fails if the real
 // constant drifts silently.
@@ -2268,6 +2269,27 @@ describe('normalizeJobMessage', () => {
 });
 
 describe('queue (consumer)', () => {
+  it('routes a first-effective message on the legal notice queue to its own consumer (AECI-1870)', async () => {
+    const { batch, ack, retry } = makeBatchFromBody(
+      {
+        kind: 'first-effective',
+        effectiveAt: Date.parse('2099-01-15T12:00:00.000Z'),
+        legalVersionIds: ['00000000-0000-4000-8000-000000000901'],
+        profileIds: ['00000000-0000-4000-8000-000000000001'],
+        enqueuedAt: '2026-11-26T12:00:00.000Z',
+      } as unknown as ScheduledJobMessageInput,
+      'aeci-legal-notice-staging',
+    );
+
+    await queue(batch, makeEnv(), ctx);
+
+    // The change notice path would ack it as invalid. The day-of consumer refuses a
+    // message before its moment and retries it.
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(runDailySync).not.toHaveBeenCalled();
+  });
+
   it('routes the ownership-sync queue by name, never into the job path (AECI-1418)', async () => {
     const { batch, ack, retry } = makeBatchFromBody(
       {
@@ -2571,6 +2593,10 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-820. Log-class (ADR 0022): it writes only `metrics_daily`, so it runs the
     // exempt assertion. With no `GSC_SA_KEY_JSON` here the run is `skipped`.
     [SEARCH_INGEST_CRON, 'search-ingest'],
+    // AECI-1870: the 12:00 tick runs the protest reminder and then the day-of legal
+    // notice. The notice is NOT audit-exempt (its marker writes an audit row), so it is
+    // carved out below. On an empty database it marks nothing.
+    [PROTEST_REMINDER_CRON, 'protest-reply-reminder'],
   ];
 
   /**
@@ -2590,7 +2616,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       job !== 'request-confirmation-expiry' &&
       job !== 'stripe-reconcile' &&
       job !== 'brand-asset-removal' &&
-      job !== 'acceptance-evidence-removal',
+      job !== 'acceptance-evidence-removal' &&
+      job !== 'protest-reply-reminder',
   );
 
   // `indexnow-drain` is carved out for the same reason as the prune: its delete is
@@ -2645,7 +2672,13 @@ describe('job_runs bookkeeping (§7.2)', () => {
 
     // AECI-1638: the 03:00 tick also starts the legal prune. With no RECONCILE_QUEUE
     // binding here it runs inline, so it writes its own row after the 400-day prune's.
-    const expected = cron === RETENTION_CRON ? [job, 'legal-retention-prune'] : [job];
+    // AECI-1870: the 12:00 tick runs the day-of legal notice inline after the reminder.
+    const expected =
+      cron === RETENTION_CRON
+        ? [job, 'legal-retention-prune']
+        : cron === PROTEST_REMINDER_CRON
+          ? [job, 'legal-first-effective-notice']
+          : [job];
     const rows = await jobRunRows();
     expect(rows.map((r) => r.job)).toEqual(expected);
     for (const row of rows) {
