@@ -80,6 +80,8 @@ Governing docs: `docs/LEGAL_IMPACT_REVIEW.md` for the verdict rule, `apps/web/sr
 | Q70 | Terms of Service | Three sentences changed since your colleagues' reviews: a wording check | Alexander Coffin | 2026-11-19 |
 | Q71 | Vendor Terms | Replacement wording for "No plan changes where you rank or appear" | Travis Russell | 2026-11-24 |
 | Q72 | Privacy Policy | Email consent in Canada and the United Kingdom for one unticked opt-in box | Alexander Coffin | 2026-11-24 |
+| Q73 | Listing Accuracy Policy | A vendor removing a third company's integration listing from its product, with no review by us | Kyle Usrey | 2026-11-26 |
+| Q74 | Listing Accuracy Policy | What step, if any, to add before a vendor's removal of a third company's integration listing takes effect | Alexander Coffin | 2026-11-26 |
 
 ## Questions and answers
 
@@ -1928,6 +1930,80 @@ You've covered the first three. You haven't covered the fourth. So add the posta
 
 **What we did:** Our view holds in the UK and nearly holds in Canada. Nothing built yet. This completes Q56, whose follow-up got no reply. Build rules for the box, in every country: beside it sit our postal address and one other contact point, or a link to a contact page that has both, and a link to the Privacy Policy. Every email's unsubscribe link works for at least 60 days, and we act on it within 10 business days. No confirmation email is needed for Canada or the UK.
 
+Q73 is batch 8, asked on 2026-11-25 from AECI-2035, the Sync Services work.
+
+### Q73. A vendor removing a third company's integration listing from its product, with no review by us
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory of construction-industry software and the integrations between products. Florida law governs. This is one question, with one decision at the end.
+
+Some integrations between two products are built, sold and run by a third company. We call that company's product a Sync Service. The Sync Service is not either of the two products. It may list the integrations it delivers between any two products on our site, and we tell the vendors of both products when it does.
+
+We plan to give the vendor of either product a right to remove such an integration from its own product's listing. The integration may be real, and the listing may be accurate. Our Listing Accuracy Policy would say:
+
+"We do not review a removal. It takes effect when the vendor sends it, and the integration is taken off the public site at once. The Sync Service cannot restore the integration or add it again. The vendor that removed it can withdraw the removal. We may end a removal where it was sent from an account that should not have had access to that product, where the vendor's claim to that product ends or is suspended, or where the law requires it. We tell both vendors why."
+
+The same policy says elsewhere: "We will not remove an accurate listing simply because a vendor asks us to." The new section would be stated as an exception to that sentence.
+
+Three more facts. The policy is part of our Vendor Terms, which a company accepts when it claims its listing. A Sync Service that has claimed its listing has accepted them. A Sync Service that has not claimed its listing has no contract with us. Our Terms of Service say we have no obligation to list anything.
+
+Your colleagues advised us on November 4, 2026 that we need not remove an accurate listing at a vendor's request, that a neutral rule disclosed in advance and applied evenly is a justified basis for a ranking or listing outcome, and that our time limits and policies cannot bind a company that never accepted them.
+
+Our view: we are free to decide what our directory lists. A removal rule that is published, applies to every Sync Service alike and is triggered by the vendor whose product is named gives the Sync Service no claim against us, whether or not it has a contract with us. Taking an accurate integration off the site is an omission, not a false statement.
+
+Question: does this removal right expose us to a claim by the Sync Service, such as tortious interference or a deceptive-practice claim, and if so what must the policy say or what step must we add before a removal takes effect?
+
+**Answer (Kyle Usrey, 2026-11-26):**
+
+Yes, instant, unreviewed removal creates real litigation and cost exposure, even without a contract with the third company. While strong defenses may exist, a disgruntled third party can still sue, and claims under FDUTPA carry potential prevailing-party attorney's fees.
+
+Where Your Exposure Comes From
+
+Tortious Interference with a Business Relationship: Under Florida law, a plaintiff must show (1) an existing or identifiable business relationship, (2) your knowledge of it, (3) intentional and unjustified interference, and (4) damages. If the third company sells integrations to customers or partners, it can argue an automatic, unreviewed takedown (especially of an accurate listing) disrupts those relationships without justification. Defenses like business justification or Section 230 may help, but fact disputes often survive early dismissal.
+
+FDUTPA (Fla. Stat. § 501.201 et seq.): Businesses can sue other businesses under FDUTPA for unfair or deceptive acts or practices in trade or commerce that cause actual damages. If your site promises "open" or "independent" integration listings while silently allowing vendors to wipe out accurate third-party listings on demand, a claimant could frame that gap as unfair or misleading.
+
+What Your Policy Should Say
+
+No Right to Listing or Placement: State clearly that listing on the directory is discretionary, revocable, and confers no property, exclusivity, or continued-visibility rights.
+
+Vendor / Ecosystem Controls: Explicitly disclose that product vendors may control or request removal of listings associated with their products, ecosystems, or APIs, even if the listing is accurate or complies with general directory rules.
+
+No Guarantee of Accuracy or Neutrality: Clarify that the directory does not endorse, verify, or guarantee ongoing availability of third-party integrations, and may remove or hide content without prior notice or investigation.
+
+**What we did:** Our view was too confident. The removal right creates real exposure to a tortious interference or FDUTPA claim, even from a Sync Service with no contract with us. Not applied yet. Counsel gave three things the policy should say: a listing is discretionary and revocable and gives no right to stay visible; a product's vendor may remove a listing tied to its product even when it is accurate; and we do not guarantee that a third party's integration stays listed. The answer ran out of space before it reached the second half of the question, which asked what step to add before a removal takes effect. That half is re-asked as Q74. Counsel's "no guarantee of neutrality" is not adopted as worded, because the site's own promise is that it is independent. The disclosure of the vendor's removal right is what closes the gap counsel described. Q74 answers it: a removal stays instant.
+
+### Q74. What step, if any, to add before a vendor's removal of a third company's integration listing takes effect
+
+**Asked (sent as a Word attachment with the clause quoted inline):**
+
+We are The WBS Project, Inc. (Delaware corporation, Stuart, Florida), operating AEC Integrations, a US directory of construction-industry software and the integrations between products. Florida law governs. This is one question, with one decision at the end.
+
+Your colleague advised us on November 26, 2026 on a planned rule in our Listing Accuracy Policy. Some integrations between two products are built, sold and run by a third company, which we call a Sync Service. Under the rule, the vendor of either product can remove such an integration from its own product's listing. The removal takes effect at once, with no review by us, even where the listing is accurate. The Sync Service may have no contract with us.
+
+Your colleague said this creates real exposure to a tortious interference claim and a claim under FDUTPA, and told us what the policy should say: that a listing is discretionary and revocable, that a product's vendor may remove a listing tied to its product even when it is accurate, and that we do not guarantee a third party's integration stays listed. We will add all three. The answer ran out of space before it reached the process itself.
+
+We are choosing between three ways to run a removal:
+
+A. As planned. The removal takes effect at once. We tell the Sync Service at the same moment, with the vendor's stated reason. The Sync Service can write to us, and we end a removal only on narrow grounds, such as one sent from an account that should not have had access.
+
+B. Notice first. We tell the Sync Service and the listing stays up for a short fixed period, such as five business days. The removal then takes effect without our review, unless the vendor withdraws it.
+
+C. Instant, with a required reason and a record. The removal takes effect at once, but the vendor must pick a reason from a fixed list, such as "we do not support this integration" or "it is not offered for our product". We keep the reason and the time. We tell the Sync Service at once and say how to object.
+
+Our view: with the three disclosures added, option C is enough. A recorded reason given by the vendor whose product is named is a business justification, and immediate notice to the Sync Service with a way to object shows the interference is not unjustified. A waiting period adds little, because we do not review the removal either way.
+
+Question: which of these three processes best protects us against a tortious interference or FDUTPA claim by the Sync Service, and is option C enough, or do we need the waiting period in option B or a review of our own?
+
+**Answer (Alexander Coffin, 2026-11-26):**
+
+Option C gives you the most protection, and it's enough. A waiting period or your own review probably wouldn't add much. But I'd change two things, and I'd adjust one part of your reasoning. The adjustment first. The vendor's recorded reason justifies the vendor's conduct, not automatically yours. Your own protection comes from acting on a published, disclosed, evenly applied policy about your own directory. That's why the three disclosures matter more than the timing. Under Florida law the Sync Service would also have to show actual relationships with identifiable customers that you knowingly and unjustifiably disrupted, not just lost reach in the market. That's a real hurdle for them, whichever option you pick. So why not B? The waiting period cuts damages a bit, since the Sync Service gets five days to warn its customers. It doesn't change whether you're liable, though, because you still don't review anything. And it builds a lag into a policy you're describing as the vendor's right. Small gain, real friction. The real FDUTPA risk is what the page says, not how fast the removal happens. If the vendor picks "it is not offered for our product" and that's false, and your site shows it, you've published something misleading. So:
+
+Show the public a neutral label, something like "removed at the request of [Vendor]." Keep the vendor's chosen reason in your internal record and in the notice to the Sync Service, not on the listing. Make the objection process actually able to reinstate a listing on narrow grounds. Unauthorized account, wrong product, or a reason that's plainly false on its face, say where the vendor's own public materials show it supports the integration. An objection channel that can never change anything looks like a formality.
+
+**What we did:** Option C stands: a removal stays instant, with a required reason from a fixed list, a record, and notice to the Sync Service at once. No waiting period and no review of our own. Not applied yet. Our protection is the published, evenly applied policy, so Q73's three disclosures matter more than the timing. Two changes follow. The vendor's reason is never shown to the public. It goes in our record and in the notice to the Sync Service. And an objection must be able to reinstate a listing on narrow grounds: an account that should not have had access, the wrong product, or a reason plainly false on its face. Ruling 66 settles both: the public sees nothing, and the "plainly false" ground is added.
+
 ## Chris's rulings
 
 1. **Ban structure (Q13, 2026-11-05).** Suspend at once; written notice with evidence; 7 business days to cure or rebut, a further 7 on a false-claim finding; then subscriptions end with a pro-rata refund of the unused term less fees for the period used and the itemised cost of the abuse (staff time at $150 an hour logged at the time, costs paid to others, only where the breach caused them, recoveries credited, never more than the refund due). Ending a subscription ends the edit right; the vendor keeps ownership of its text.
@@ -1997,6 +2073,8 @@ You've covered the first three. You haven't covered the fourth. So add the posta
 
 Rulings 52 to 58 were first recorded on a branch as 43 to 49, before rulings 43 to 51 reached it from `main`. Linear comments dated 2026-11-19 on AECI-1363 use the old numbers, and a later comment there gives the mapping.
 65. **Final wording of the ranking promise (Q71, 2026-11-24).** Counsel's replacement is used, widened with "such as" because counsel gave general guidance and named only trades and audiences: "Payment never changes the order in which products are listed or returned in search. A paid plan lets a vendor edit more of its own listing, such as the trades, audiences and phases tagged on its product, which can help it match more searches and appear on more category pages." It replaces "You cannot buy a position" and "That comes from what the listing says, not from the payment" in ruling 52's draft. It is text item 14.8, for the Vendor Terms, the Managed plan agreement, the Terms of Service, How ranking works and `/methodology`. Not applied yet. Counsel has not seen the widened sentence, so it goes on the sign-off brief.
+66. **How a vendor's removal of a Sync Service integration runs (Q73, Q74, AECI-2035, 2026-11-26).** A removal takes effect at once, with no waiting period and no review when it is sent. The vendor picks a reason from a fixed list. We record the reason and the time, and send both to the Sync Service at once with how to object. The public sees nothing: the integration is gone, with no note and no reason. We look at an objection on three grounds only: the removal came from an account that should not have had access, it named the wrong product, or its reason is plainly false on its face, for example where the vendor's own public materials show it supports the integration. We may also end a removal where the vendor's claim ends or is suspended, or where the law requires it. The Listing Accuracy Policy carries counsel's three disclosures: a listing is discretionary and revocable, a product's vendor may remove a listing tied to its product even when it is accurate, and we do not guarantee a third party's integration stays listed. Counsel's "no guarantee of neutrality" is not adopted.
+67. **Breach notice: the processor clock, the agreements and geolocation (Q41, 2026-11-26).** Three points, ruled from the statute text and public guidance without a new counsel question. First, if a breach is at a processor, our 30 days count from the day the processor determined it, not the day it told us, because Fla. Stat. 501.171 does not say which and that is the strict reading. Second, the six processor agreements that promise only "without undue delay" are accepted as they stand. The 10-day duty is the processor's own under 501.171(6)(a), the agreements are self-serve, and we subscribe to the security notices of Supabase, Resend and Cloudflare. Third, the statute's "personal information" also covers a name with "any information regarding an individual's geolocation", which the Q41 answer did not list and the statute does not define. We treat a name with an IP address or any location as notifiable. The breach runbook is updated. No legal page changes.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
 
