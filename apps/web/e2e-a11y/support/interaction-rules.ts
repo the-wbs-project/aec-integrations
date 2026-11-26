@@ -137,7 +137,7 @@ export interface ControlFacts {
 }
 
 export type OnInputStatus =
-  /** Reviewed: the change of context is expected and the control says so. */
+  /** Ruled by Chris: the control may change the page on change. */
   | 'allowed'
   /** Waiting for Chris's ruling. Passes, and is listed in §8.4.7 as pending. */
   | 'pending-ruling';

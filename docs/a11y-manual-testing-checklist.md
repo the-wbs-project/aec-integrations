@@ -58,12 +58,13 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 > **Interaction, automated nightly in Chrome (AECI-1882, `TESTING_STRATEGY.md` §8.4.7).** On every
 > surface in §1, the nightly checks that content shown on hover stays when the pointer moves onto it and
 > closes on `Esc` without moving focus; that a press dragged off a control and released does nothing; that
-> changing a form control does not move the page unless it is on a list of controls, every entry
-> pending Chris's ruling; that the keys a to z do nothing on the page body and send nothing; that
+> changing a form control does not move the page unless it is on a list of controls Chris ruled may act
+> on change (2026-11-26); that the keys a to z do nothing on the page body and send nothing; that
 > nothing moves for more than 5 seconds, or for more than 100ms with reduced motion; and axe and the
 > focus ring with forced colours on. It also checks that the claim, checkout, account delete and
-> moderation flows stop on a confirm step, except Approve (AECI-2121, pending ruling). Chrome's forced
-> colours is not a real Windows theme, so the manual pass above keeps its full scope and cadence.
+> moderation flows stop on a confirm step. Approve has none yet, a known barrier awaiting its fix
+> (AECI-2121, ruled 2026-11-26). Chrome's forced colours is not a real Windows theme, so the manual
+> pass above keeps its full scope and cadence.
 
 **Screen reader (VoiceOver + NVDA, every surface):**
 - [ ] Page has a correct, unique title and a single logical `h1`; heading levels don't skip.
