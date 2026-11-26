@@ -26,6 +26,8 @@ import { RouterLink } from '@angular/router';
 import { AecButton } from '../../shared/button/button';
 import { AecCard } from '../../shared/card/card';
 import { Chip } from '../../shared/chip/chip';
+import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
+import { descriptionParagraphs } from '../../products/product-about';
 import {
   FIELD_ERROR_CLASS,
   FIELD_LABEL_TYPE_CLASS,
@@ -105,7 +107,9 @@ export function proposalDecisionIsStale(err: unknown): boolean {
 /**
  * One proposed product on the "Proposed products" tab (AECI-1417, E6b.5;
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22). It shows what an accept would create: the
- * name, the description, the companies it is listed under and every taxonomy value,
+ * name, the whole description, the summary, the website, both doc links and the logo
+ * (AECI-2212), the companies it is listed under
+ * and every taxonomy value,
  * with the values that name no existing term marked "Not added". Then Accept and
  * Decline.
  *
@@ -135,7 +139,7 @@ export function proposalDecisionIsStale(err: unknown): boolean {
   selector: 'aec-vendor-proposal-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [AecButton, AecCard, Chip, RouterLink],
+  imports: [AecButton, AecCard, Chip, LogoOrInitial, RouterLink],
   template: `
     <article
       aecCard
@@ -150,10 +154,21 @@ export function proposalDecisionIsStale(err: unknown): boolean {
         <p class="text-t-13 text-(--text-secondary)">{{ proposedLabel() }}</p>
       </div>
 
-      @if (proposal().product.description_excerpt; as description) {
-        <p class="mt-2 max-w-[32rem] text-t-14 leading-[1.6] text-(--text-primary)">
-          {{ description }}
-        </p>
+      <!-- AECI-2212: the whole description, with the product page's paragraph and line
+           breaks, because an accept publishes all of it. -->
+      @if (descriptionBlocks().length > 0) {
+        <div class="mt-2 max-w-[32rem] space-y-3" data-testid="proposal-description">
+          @for (paragraph of descriptionBlocks(); track $index) {
+            <p class="break-words text-t-14 leading-[1.6] text-(--text-primary)">
+              @for (line of paragraph; track $index) {
+                @if (!$first) {
+                  <br />
+                }
+                {{ line }}
+              }
+            </p>
+          }
+        </div>
       } @else {
         <p
           class="mt-2 text-t-14 text-(--text-secondary)"
@@ -178,6 +193,42 @@ export function proposalDecisionIsStale(err: unknown): boolean {
             <dt [class]="dtClass" i18n="@@vendor.proposals.card.website">Website</dt>
             <dd class="mt-2 break-all text-(--text-primary)" data-testid="proposal-website">
               {{ website }}
+            </dd>
+          </div>
+        }
+        <!-- AECI-2212: the doc links and logo an accept publishes, each as sent. -->
+        @if (proposal().product.tool_integrations_url; as url) {
+          <div>
+            <dt [class]="dtClass" i18n="@@vendor.proposals.card.integrationsPage">
+              Integrations page
+            </dt>
+            <dd
+              class="mt-2 break-all text-(--text-primary)"
+              data-testid="proposal-tool-integrations-url"
+            >
+              {{ url }}
+            </dd>
+          </div>
+        }
+        @if (proposal().product.api_docs_url; as url) {
+          <div>
+            <dt [class]="dtClass" i18n="@@vendor.proposals.card.apiDocs">API docs</dt>
+            <dd class="mt-2 break-all text-(--text-primary)" data-testid="proposal-api-docs-url">
+              {{ url }}
+            </dd>
+          </div>
+        }
+        @if (proposal().product.logo_url; as logo) {
+          <div>
+            <dt [class]="dtClass" i18n="@@vendor.proposals.card.logo">Logo</dt>
+            <dd class="mt-2 flex items-center gap-3" data-testid="proposal-logo">
+              <aec-logo-or-initial
+                [claimStatus]="'stored'"
+                [src]="logo"
+                [name]="proposal().product.name"
+                size="sm"
+              />
+              <span class="min-w-0 break-all text-(--text-primary)">{{ logo }}</span>
             </dd>
           </div>
         }
@@ -381,6 +432,16 @@ export class VendorProposalCard {
   protected readonly proposedLabel = computed(() => {
     const date = formatTermDate(this.proposal().proposed_at, this.locale);
     return $localize`:@@vendor.proposals.card.proposedAt:Proposed ${date}:DATE:`;
+  });
+
+  /**
+   * The description split as the product page splits it (`descriptionParagraphs`). Falls
+   * back to the deprecated excerpt while an older API still serves this bundle (AECI-2212,
+   * removed by AECI-2223).
+   */
+  protected readonly descriptionBlocks = computed(() => {
+    const product = this.proposal().product;
+    return descriptionParagraphs(product.description ?? product.description_excerpt);
   });
 
   protected readonly termGroups = computed<readonly TermGroup[]>(() => {

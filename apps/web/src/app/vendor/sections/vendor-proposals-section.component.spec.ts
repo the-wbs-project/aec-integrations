@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AcceptVendorProposalResponse, VendorMeResponse } from '@aeci/shared';
+import type { AcceptVendorProposalResponse, VendorMeResponse, VendorProposal } from '@aeci/shared';
 
 import { expectVendorDocsLink } from '../components/vendor-docs-link.testing';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -146,6 +146,56 @@ describe('VendorProposalsSection', () => {
     expect(summary.textContent?.trim()).toBe(READY!.product.summary);
     expect(summary.previousElementSibling?.textContent?.trim()).toBe('Summary');
     expect(second!.querySelector('[data-testid="proposal-summary"]')).toBeNull();
+  });
+
+  // AECI-2212: an accept publishes the whole description, both doc links and the logo, so
+  // the owner sees each one first, and a field that was not sent shows no row.
+  it('shows the whole description, both doc links and the logo, and no row for one not sent', async () => {
+    const fixture = await create();
+    const [first, second] = Array.from(cards(fixture));
+    const text = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim();
+    const p = READY!.product;
+    // The product page's split: a blank line starts a paragraph, a single break is a <br>.
+    const description = first!.querySelector('[data-testid="proposal-description"]')!;
+    const paragraphs = Array.from(description.querySelectorAll('p'));
+    expect(paragraphs.map(text)).toEqual([
+      'Runs clash detection on federated models and routes each clash to the trade that owns it.',
+      'Each clash keeps its model views, its markup and its history, so the trade that owns it can close it without a meeting.',
+    ]);
+    expect(paragraphs[1]!.querySelectorAll('br')).toHaveLength(1);
+    const integrations = first!.querySelector('[data-testid="proposal-tool-integrations-url"]');
+    expect(text(integrations)).toBe(p.tool_integrations_url);
+    expect(text(integrations!.previousElementSibling)).toBe('Integrations page');
+    const apiDocs = first!.querySelector('[data-testid="proposal-api-docs-url"]');
+    expect(text(apiDocs)).toBe(p.api_docs_url);
+    expect(text(apiDocs!.previousElementSibling)).toBe('API docs');
+    const logo = first!.querySelector('[data-testid="proposal-logo"]')!;
+    expect(text(logo.previousElementSibling)).toBe('Logo');
+    expect(logo.textContent).toContain(p.logo_url);
+    expect(logo.querySelector('aec-logo-or-initial')).not.toBeNull();
+    for (const id of [
+      'proposal-description',
+      'proposal-tool-integrations-url',
+      'proposal-api-docs-url',
+      'proposal-logo',
+    ]) {
+      expect(second!.querySelector(`[data-testid="${id}"]`), id).toBeNull();
+    }
+  });
+
+  // AECI-2212: an API older than this bundle sends only the excerpt. The card shows it
+  // rather than "No description was sent." (removed by AECI-2223).
+  it('falls back to the excerpt when an older API sends no description', async () => {
+    const legacy = {
+      ...READY!,
+      product: { ...READY!.product, description: undefined, description_excerpt: 'Short text.' },
+    } as unknown as VendorProposal;
+    listProposals.mockResolvedValue({ proposals: [legacy], truncated: false });
+    const fixture = await create();
+    const card = cards(fixture)[0]!;
+    expect(card.querySelector('[data-testid="proposal-description"]')?.textContent?.trim()).toBe(
+      'Short text.',
+    );
   });
 
   it('accepts after the confirmation, then shows the dropped values and a link to the product', async () => {

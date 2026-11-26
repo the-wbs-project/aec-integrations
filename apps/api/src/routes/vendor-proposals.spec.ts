@@ -264,6 +264,7 @@ describe('GET /api/vendor/proposals', () => {
       id,
       product: {
         name: 'OpenRoads Designer',
+        description: 'Civil design for roads.',
         description_excerpt: 'Civil design for roads.',
         website: 'https://bentley.example/openroads',
         product_role: 'application',
@@ -305,6 +306,37 @@ describe('GET /api/vendor/proposals', () => {
     const byName = new Map(parsed.proposals.map((p) => [p.product.name, p.product]));
     expect(byName.get('OpenRoads')!.summary).toBe('Civil design for roads.');
     expect(byName.get('Other Tool')!.summary).toBeNull();
+  });
+
+  // AECI-2212: an accept publishes the whole description, both doc links and the logo, so
+  // the preview carries each one as sent.
+  it('carries the whole description, both doc links and the logo, and null for each one not sent', async () => {
+    const long = `${'Civil design for roads and corridors. '.repeat(30)}The end.\n\nSecond paragraph.`;
+    await propose('p:recOpenRoads', {
+      name: 'OpenRoads',
+      description: long,
+      toolIntegrationsUrl: 'https://bentley.example/openroads/integrations',
+      apiDocsUrl: 'https://bentley.example/openroads/api',
+      logoUrl: 'https://cdn.example/openroads.png',
+    });
+    await propose('p:recOther', { name: 'Other Tool', description: '   ' });
+    const parsed = ListVendorProposalsResponseSchema.parse((await list()).body);
+    const byName = new Map(parsed.proposals.map((p) => [p.product.name, p.product]));
+    expect(long.length).toBeGreaterThan(400);
+    expect(byName.get('OpenRoads')).toMatchObject({
+      description: long,
+      // The deprecated excerpt stays for one deploy (AECI-2223).
+      description_excerpt: expect.stringMatching(/…$/),
+      tool_integrations_url: 'https://bentley.example/openroads/integrations',
+      api_docs_url: 'https://bentley.example/openroads/api',
+      logo_url: 'https://cdn.example/openroads.png',
+    });
+    expect(byName.get('Other Tool')).toMatchObject({
+      description: null,
+      tool_integrations_url: null,
+      api_docs_url: null,
+      logo_url: null,
+    });
   });
 
   it('is empty for a vendor with none, and leaves out decided and other vendors’ proposals', async () => {
@@ -466,6 +498,53 @@ describe('POST /api/vendor/proposals/:id/accept', () => {
     const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
     expect(row!.summary).toBe('Civil design for roads.');
     expect(row!.descriptionEditedAt).not.toBeNull();
+  });
+
+  // AECI-2212: the preview and the accept read one normalized product, so a blank value
+  // the card shows no row for is never published either.
+  it('stores a whitespace-only description, website, doc link or logo as null, as the preview shows it', async () => {
+    const id = await propose('p:recOpenRoads', {
+      name: 'OpenRoads',
+      description: '  \n ',
+      website: ' ',
+      toolIntegrationsUrl: '   ',
+      apiDocsUrl: '\t',
+      logoUrl: ' ',
+    });
+    const [preview] = ListVendorProposalsResponseSchema.parse((await list()).body).proposals;
+    expect(preview!.product).toMatchObject({
+      description: null,
+      description_excerpt: null,
+      website: null,
+      tool_integrations_url: null,
+      api_docs_url: null,
+      logo_url: null,
+    });
+    const { status, body } = await accept(id);
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row).toMatchObject({
+      description: null,
+      website: null,
+      toolIntegrationsUrl: null,
+      apiDocsUrl: null,
+      logoUrl: null,
+    });
+  });
+
+  it('stores the doc links and logo exactly as the preview shows them', async () => {
+    const id = await propose('p:recOpenRoads', {
+      name: 'OpenRoads',
+      toolIntegrationsUrl: 'https://bentley.example/openroads/integrations',
+      apiDocsUrl: 'https://bentley.example/openroads/api',
+      logoUrl: 'https://cdn.example/openroads.png',
+    });
+    const [preview] = ListVendorProposalsResponseSchema.parse((await list()).body).proposals;
+    const { body } = await accept(id);
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row!.toolIntegrationsUrl).toBe(preview!.product.tool_integrations_url);
+    expect(row!.apiDocsUrl).toBe(preview!.product.api_docs_url);
+    expect(row!.logoUrl).toBe(preview!.product.logo_url);
   });
 
   it('suffixes a colliding slug with the first vendor’s slug, as promote does', async () => {

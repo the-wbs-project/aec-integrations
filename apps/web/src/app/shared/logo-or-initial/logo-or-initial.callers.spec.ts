@@ -102,6 +102,8 @@ const CALLERS: Record<string, Partial<Record<Kind, number>>> = {
   'vendor/components/vendor-integration-create.ts': { portal: 2 },
   'vendor/components/vendor-integrations-section.ts': { portal: 2 },
   'vendor/components/vendor-product-connectors.ts': { portal: 1 },
+  // AECI-2212: the logo a proposal would publish, shown to the owner before an accept.
+  'vendor/components/vendor-proposal-card.ts': { portal: 1 },
   // AECI-2040: the chosen card on each side of a Sync Service's new pair. Like the
   // counterpart card in vendor-integration-create, its logo comes from the combobox's
   // public `GET /api/products` search, which already withholds an unclaimed logo.
