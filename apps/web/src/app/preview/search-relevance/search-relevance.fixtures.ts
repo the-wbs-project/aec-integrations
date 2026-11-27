@@ -31,9 +31,13 @@ function product(
     | 'updated_at_ts'
     | 'product_role'
     | 'connector_kind'
+    | 'connected_product_names'
   > &
     Partial<
-      Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases' | 'product_role' | 'connector_kind'>
+      Pick<
+        AlgoliaProductRecord,
+        'trades' | 'trade_aliases' | 'product_role' | 'connector_kind' | 'connected_product_names'
+      >
     >,
 ): AlgoliaProductRecord {
   return {
@@ -55,6 +59,8 @@ function product(
     product_role: 'application',
     // AECI-1662: so an application carries no kind. Faceted only, never ranked.
     connector_kind: null,
+    // AECI-2090: an application delivers no pairs, so it connects nothing.
+    connected_product_names: [],
     ...fields,
   };
 }

@@ -50,6 +50,7 @@ import {
 import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
 import { json } from '../http';
+import { CONNECTOR_MOVED_AUDIT_ACTION } from '../lib/algolia-sync';
 import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import type { DbFactory } from '../lib/handler-utils';
 import {
@@ -5920,6 +5921,53 @@ describe('promote refreshes every vendor whose reach moved (AECI-1897)', () => {
       expect.arrayContaining(['product:zapier', 'product:agave-erp-sync', 'product:navisworks']),
     );
     expect(edgeProductSlugs(body)).toContain('agave-erp-sync');
+    // AECI-2090 — the old connector is named for the nightly Algolia window, once.
+    const moved = (await t.db.select().from(auditLog)).filter(
+      (e) => e.action === CONNECTOR_MOVED_AUDIT_ACTION,
+    );
+    expect(moved).toHaveLength(1);
+    expect(moved[0]).toMatchObject({ entityId: pairId, productId: uuid(2) });
+  });
+
+  it('names the connector a de-routed pair left in a connector_moved audit row (AECI-2090)', async () => {
+    await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+    await seedProduct(uuid(2), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    const first = await run({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(1) },
+          poweredByProduct: { supabaseId: uuid(2) },
+          mechanismKind: 'iPaaS',
+        },
+      ],
+    });
+    const created = (await first.res.json()) as PromoteResponse;
+    const pairId = created.integrations[0]!.id;
+
+    // An explicit null connector on a native edge moves the row to `integrations`.
+    const second = await run({
+      product: { ref: 'p1', supabaseId: created.product!.id, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: pairId,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(1) },
+          poweredByProduct: null,
+          mechanismKind: 'native',
+        },
+      ],
+    });
+    expect(second.res.status).toBe(200);
+    expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(0);
+    const moved = (await t.db.select().from(auditLog)).filter(
+      (e) => e.action === CONNECTOR_MOVED_AUDIT_ACTION,
+    );
+    expect(moved).toHaveLength(1);
+    expect(moved[0]).toMatchObject({ entityId: pairId, productId: uuid(2) });
   });
 
   it('carries the dropped vendors through a replay of the same job', async () => {

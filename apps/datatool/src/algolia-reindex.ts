@@ -39,6 +39,7 @@ import {
 } from '@aeci/shared/algolia-batch';
 import {
   algoliaSortKey,
+  connectedProductNamesField,
   flattenTradeAliases,
   productSortFields,
 } from '@aeci/shared/algolia-records';
@@ -230,6 +231,9 @@ function parseAliasGroups(value: unknown): (string[] | null)[] {
 
 export async function buildProductRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const productsHidden = await hasHiddenColumn(db, 'products');
+  const retiredColumn = await hasRetiredColumn(db);
+  const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
+  const vetoedColumn = await hasVetoedColumn(db);
   const hides = await activeFieldHides(db, 'product');
   const { results } = await db
     .prepare(
@@ -254,7 +258,23 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
          (SELECT group_concat(tt.name, '${SEP}') FROM product_trades pt
             JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trades,
          (SELECT group_concat(tt.aliases, '${SEP}') FROM product_trades pt
-            JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trade_aliases
+            JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trade_aliases,
+         -- AECI-2090: the promoted endpoints of the live rows this product delivers,
+         -- one column per arm, minus the product itself. The same rule as
+         -- toAlgoliaProduct; the shared helper sorts and dedupes, so group_concat's
+         -- unspecified order does not matter.
+         (SELECT group_concat(ce.name, '${SEP}') FROM integrations ci
+            JOIN products ce ON ce.id IN (ci.source_product_id, ci.target_product_id)
+            WHERE ci.powered_by_product_id = p.id AND ce.id <> p.id
+              AND ce.promotion_status = 'promoted'
+              AND ${liveIntegrationSqlIf('ci', retiredColumn, productsHidden, vetoedColumn)})
+           AS connected_via_integrations,
+         (SELECT group_concat(pe.name, '${SEP}') FROM connector_evidenced_pairs cp
+            JOIN products pe ON pe.id IN (cp.product_a_id, cp.product_b_id)
+            WHERE cp.connector_product_id = p.id AND pe.id <> p.id
+              AND pe.promotion_status = 'promoted'
+              AND ${liveEvidencedPairSqlIf('cp', pairsRetiredColumn, productsHidden, vetoedColumn)})
+           AS connected_via_pairs
        -- AECI-1238: a hidden product is not a member, so a rebuild must not re-add it.
        FROM products p WHERE p.promotion_status = 'promoted'
          AND ${visibleProductSqlIf('p', productsHidden)}`,
@@ -281,6 +301,8 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       phases: string | null;
       trades: string | null;
       trade_aliases: string | null;
+      connected_via_integrations: string | null;
+      connected_via_pairs: string | null;
     }>();
   return results.map((r) => {
     const trades = splitNames(r.trades);
@@ -330,6 +352,12 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       // application never carries a kind. The record schema makes the key required, so
       // a rebuild that dropped it would fail the parse rather than reset every kind.
       connector_kind: connectorKindFor(r.product_role, r.connector_kind),
+      // AECI-2090 — identical to `toAlgoliaProduct` through the shared helper. The
+      // record schema makes the key required, so a rebuild that dropped it fails.
+      connected_product_names: connectedProductNamesField(
+        [...splitNames(r.connected_via_integrations), ...splitNames(r.connected_via_pairs)],
+        r.objectID,
+      ),
     };
   });
 }

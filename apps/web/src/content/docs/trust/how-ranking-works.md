@@ -19,7 +19,7 @@ When two listings are level on the sort you chose, two more steps decide between
 
 **First, how well a listing matches what you typed.** This counts most. A listing ranks higher when it matches more of your words, with fewer typos, and with the words closer together. Where the match is found matters too.
 
-- For a product, a match in its name counts most. Then come its vendor's name, then its categories, audiences, phases and trades, then its description. Common alternative names for a trade also match, so a search in everyday words can still find the right products.
+- For a product, a match in its name counts most. Then come its vendor's name, then its categories, audiences, phases and trades, then its description. Common alternative names for a trade also match, so a search in everyday words can still find the right products. For a product that connects other products, such as a Sync Service or an integration platform, the names of the products it connects also match, last of all. So a search for the two products you use finds the services that connect them.
 - For a vendor, a match in the company name counts most. Then come its description, then its headquarters.
 
 **Second, when listings match about equally well, completeness decides.** A complete listing tells a buyer enough to judge it.
@@ -113,7 +113,7 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 We record this page as a dated version, because the Terms of Service and the Vendor Terms link it. Each change to this page is a new version.
 
-- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 27, 2026. Adds the Browse menu, the integrations wheel at the top of a product page, the order of the other lists the redesigned product page adds, the order of the integrations on a pair page, what a Sync Service's page lists and the closest matches on a pair page with no integration. Names the home page row Most viewed and its fallback Largest categories. Says "product" where earlier versions said "partner". Says payment never changes the order of listings or search results, and that a paid plan can put a product on more category pages.
+- [Version 1.2](/docs/trust/how-ranking-works/v1.2) (this version): recorded November 27, 2026. Adds the Browse menu, the integrations wheel at the top of a product page, the order of the other lists the redesigned product page adds, the order of the integrations on a pair page, what a Sync Service's page lists, that a search matches the names of the products a connecting product, such as a Sync Service, connects, and the closest matches on a pair page with no integration. Names the home page row Most viewed and its fallback Largest categories. Says "product" where earlier versions said "partner". Says payment never changes the order of listings or search results, and that a paid plan can put a product on more category pages.
 - [Version 1.1](/docs/trust/how-ranking-works/v1.1): recorded November 18, 2026. Says what a paid plan does change, and adds the order of each list on a product page.
 - [Version 1.0](/docs/trust/how-ranking-works/v1.0): recorded November 16, 2026. The first recorded version.
 

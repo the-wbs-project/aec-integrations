@@ -37,6 +37,7 @@ function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductR
     logo_url: null,
     product_role: 'application',
     connector_kind: null,
+    connected_product_names: [],
     ...overrides,
   };
 }

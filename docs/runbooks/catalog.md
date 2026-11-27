@@ -733,7 +733,7 @@ After the SQL runs, in run order:
 
 ## After a new Algolia record field
 
-Not an alert. Run this once per environment after a deploy that adds a field to an Algolia record. The first case is AECI-1662 (2026-11-24): the product record gained `connector_kind`, which the `/search` "Connector type" filter and the search card chip read (`SEARCH_RANKING.md` §3.1).
+Not an alert. Run this once per environment after a deploy that adds a field to an Algolia record. The first case is AECI-1662 (2026-11-24): the product record gained `connector_kind`, which the `/search` "Connector type" filter and the search card chip read (`SEARCH_RANKING.md` §3.1). The second is AECI-2090 (2026-11-27): `connected_product_names`, which makes a Sync Service findable by the products it connects. Without it a Sync Service matches only its own name and description.
 
 **Why it is needed.** The nightly sync rewrites only rows whose `updated_at` moved. An existing record keeps its old shape until its product is touched. A product record without `connector_kind` reads as unclassified: its card says "Connector" and it matches neither filter option. The CI apply step adds the facet to the index settings, but it rewrites no records.
 
@@ -744,7 +744,9 @@ In run order, per environment (staging, then demo, then production):
 1. **Check the deploy.** The environment's settings apply step must have run (`SEARCH_RANKING.md` §1.1). Without it the facet returns no counts.
 2. **Pick the path.** The cheapest is the watermark reset for `products` (`SEARCH_RANKING.md` §1.2). It schedules a full products sweep at the next 08:00 UTC run and never empties the index. The datatool full reindex is faster but clears the index, so search returns nothing while it runs. Use it only off-peak.
 3. **Reset the `products` watermark** with the script in `scripts/ops/2026-09-algolia-integration-watermark-reset/`, `--entity products`. Run the dry run first, then `--apply`. Production also needs `--allow-production`. The README there holds the commands.
-4. **Verify after the next 08:00 UTC run.** Open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. In production on 2026-11-24 the kind was set only where an admin had set it, so a short list is expected.
+4. **Verify after the next 08:00 UTC run.** Check the field the deploy added:
+   - `connector_kind` (AECI-1662): open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. In production on 2026-11-24 the kind was set only where an admin had set it, so a short list is expected.
+   - `connected_product_names` (AECI-2090): search `/search` for two products a known Sync Service connects, such as "Procore Acumatica". The Sync Services that deliver the pair must appear.
 
 Do not run the reindex to fix one product. A change of its kind re-indexes it by id. Saving the same value does nothing.
 

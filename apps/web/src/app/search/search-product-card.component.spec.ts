@@ -28,6 +28,7 @@ const baseRecord: AlgoliaProductRecord = {
   logo_url: null,
   product_role: 'application',
   connector_kind: null,
+  connected_product_names: [],
 };
 
 @Component({
