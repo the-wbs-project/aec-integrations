@@ -443,3 +443,33 @@ describe('an owned row (AECI-2045)', () => {
     expect(root.querySelector('[data-testid="integration-not-found"]')).not.toBeNull();
   });
 });
+
+describe('a Sync Service row an endpoint vendor sees (AECI-2110, §11e.6)', () => {
+  const SYNC_ROW = {
+    ...INTEGRATION_PROCORE_DETAIL,
+    attestable: false,
+    powered_by: { id: 'conn-1', slug: 'rivets-sync', name: 'Rivets Sync', logo_url: null },
+    sync_service_rights: {
+      veto_id: null,
+      open_reports: [],
+      open_flow_claim_ids: [],
+      flows: [],
+      flows_decided_by_owner: false,
+    },
+  };
+
+  it('offers the three rights in Change requests', async () => {
+    api.getIntegrations.mockResolvedValue({ integrations: [SYNC_ROW], owned: [] });
+    const { root } = await open(`/products/${PRIMARY}/integrations/${SYNC_ROW.id}`);
+    const block = root.querySelector('#change-requests [data-sync-service-rights]');
+    expect(block).toBeTruthy();
+    expect(block!.textContent).toContain('Remove this integration from our product');
+  });
+
+  it('renders no rights block on a row without them', async () => {
+    const { root } = await open(
+      `/products/${PRIMARY}/integrations/${INTEGRATION_PROCORE_DETAIL.id}`,
+    );
+    expect(root.querySelector('[data-sync-service-rights]')).toBeNull();
+  });
+});

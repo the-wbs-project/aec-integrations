@@ -63,6 +63,10 @@ import { ID_STYLES, IN_TEXT_LINK } from './integration-detail-styles';
 import { IntegrationLinksSection } from './integration-links';
 import { IntegrationOverview } from './integration-overview';
 import { IntegrationSettings } from './integration-settings';
+import {
+  VendorSyncServiceRights,
+  type SyncRightsTarget,
+} from '../components/vendor-sync-service-rights';
 import { IntegrationSharedData } from './integration-shared-data';
 import { OwnedIntegrationOverview } from './owned-integration-overview';
 import { VendorTip } from './vendor-tip';
@@ -111,6 +115,7 @@ const SPY_TOP_PX = 80;
     IntegrationLinksSection,
     IntegrationChangeRequests,
     IntegrationSettings,
+    VendorSyncServiceRights,
     VendorDocsLink,
     OwnedIntegrationOverview,
     VendorOwnedFlows,
@@ -348,6 +353,15 @@ const SPY_TOP_PX = 80;
               aria-labelledby="change-requests-heading"
             >
               <aec-integration-change-requests [integration]="i" />
+              @if (syncRightsTarget(); as rights) {
+                <!-- AECI-2110 (§11e.6): an endpoint vendor's rights on a Sync Service row. -->
+                <div class="mt-6" data-sync-service-rights>
+                  <aec-vendor-sync-service-rights
+                    [target]="rights"
+                    (changed)="reloadIntegrations()"
+                  />
+                </div>
+              }
             </section>
 
             <section
@@ -580,6 +594,28 @@ export class VendorIntegrationDetailPage {
       null
     );
   });
+
+  /**
+   * AECI-2110 (§11e.6): the entry shaped for the Sync Service rights block, or `null`
+   * when the API gave it no rights (not a Sync Service row, retired, or the caller's own).
+   */
+  protected readonly syncRightsTarget = computed<SyncRightsTarget | null>(() => {
+    const i = this.integration();
+    if (!i?.sync_service_rights || !i.powered_by) return null;
+    return {
+      id: i.id,
+      sync_service_rights: i.sync_service_rights,
+      connector: { name: i.powered_by.name },
+      owner: i.owner ? { name: i.owner.name } : null,
+      context_product: i.context_product,
+      other_product: i.other_product,
+    };
+  });
+
+  /** After a veto or report: the row's rights and listing changed. */
+  protected reloadIntegrations(): void {
+    void this.store.reload('integrations');
+  }
 
   /**
    * AECI-2045: a row the caller owns that the endpoint list does not carry (`owned[]`,

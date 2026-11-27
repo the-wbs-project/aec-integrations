@@ -43,6 +43,7 @@
  * fetches it when the tab mounts. It is a pure read, so no `audit_log` row.
  */
 
+import { toPairFrame } from '../lib/sync-service-pair-contests';
 import {
   INTEGRATION_CONTEST_FIELDS,
   isSyncService,
@@ -233,7 +234,7 @@ async function evidencedContestTargets(
  * kind, the caller's connector products, the claims, the caller's open vetoes and
  * reports), each chunked for D1's bound-parameter cap.
  */
-async function syncServiceRightsFor(
+export async function syncServiceRightsFor(
   db: Db,
   vendorId: string,
   pairs: readonly {
@@ -244,6 +245,13 @@ async function syncServiceRightsFor(
     builtByVendorId: string | null;
     claimedAt: string | null;
   }[],
+  /**
+   * AECI-2110: `integration` reads the same rights for connector-powered `integrations`
+   * rows (§11e.6). There `productAId` / `productBId` are the row's source and target, its
+   * claims sit on `claims.integration_id` framed source → target, and the flows are
+   * returned in the pair frame (A sorts first by id), as every pair-right wire is.
+   */
+  anchor: 'evidenced_pair' | 'integration' = 'evidenced_pair',
 ): Promise<Map<string, SyncServiceRights>> {
   const out = new Map<string, SyncServiceRights>();
   if (pairs.length === 0) return out;
@@ -270,32 +278,40 @@ async function syncServiceRightsFor(
   );
   if (eligible.length === 0) return out;
   const ids = eligible.map((p) => p.id);
+  const onRows = anchor === 'integration';
+  const claimAnchor = onRows ? claims.integrationId : claims.connectorEvidencedPairId;
+  const vetoAnchor = onRows
+    ? syncServicePairVetoes.integrationId
+    : syncServicePairVetoes.evidencedPairId;
+  const reportAnchor = onRows
+    ? syncServicePairContests.integrationId
+    : syncServicePairContests.evidencedPairId;
   const [claimRows, vetoRows, reportRows] = await Promise.all([
     Promise.all(
       chunked(ids).map((chunk) =>
         db
           .select({
             id: claims.id,
-            pairId: claims.connectorEvidencedPairId,
+            pairId: claimAnchor,
             direction: claims.direction,
             name: taxonomyDataObjects.name,
             order: taxonomyDataObjects.displayOrder,
           })
           .from(claims)
           .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
-          .where(inArray(claims.connectorEvidencedPairId, chunk)),
+          .where(inArray(claimAnchor, chunk)),
       ),
     ).then((pages) => pages.flat()),
     Promise.all(
       chunked(ids).map((chunk) =>
         db
-          .select({ id: syncServicePairVetoes.id, pairId: syncServicePairVetoes.evidencedPairId })
+          .select({ id: syncServicePairVetoes.id, pairId: vetoAnchor })
           .from(syncServicePairVetoes)
           .where(
             and(
               eq(syncServicePairVetoes.vendorId, vendorId),
               isNull(syncServicePairVetoes.endedAt),
-              inArray(syncServicePairVetoes.evidencedPairId, chunk),
+              inArray(vetoAnchor, chunk),
             ),
           ),
       ),
@@ -304,7 +320,7 @@ async function syncServiceRightsFor(
       chunked(ids).map((chunk) =>
         db
           .select({
-            pairId: syncServicePairContests.evidencedPairId,
+            pairId: reportAnchor,
             kind: syncServicePairContests.kind,
             claimId: syncServicePairContests.claimId,
           })
@@ -313,7 +329,7 @@ async function syncServiceRightsFor(
             and(
               eq(syncServicePairContests.submitterVendorId, vendorId),
               eq(syncServicePairContests.status, 'open'),
-              inArray(syncServicePairContests.evidencedPairId, chunk),
+              inArray(reportAnchor, chunk),
             ),
           ),
       ),
@@ -332,7 +348,9 @@ async function syncServiceRightsFor(
       .map((r) => ({
         claim_id: r.id,
         data_object_name: r.name,
-        direction: r.direction as PairFlowDirection,
+        direction: onRows
+          ? toPairFrame(r.direction, pair.productAId < pair.productBId)
+          : (r.direction as PairFlowDirection),
       }));
     const reports = reportRows.filter((r) => r.pairId === pair.id);
     out.set(pair.id, {

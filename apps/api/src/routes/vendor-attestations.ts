@@ -103,6 +103,7 @@
  * on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)).
  */
 
+import { syncServiceRightsFor } from './vendor-connectors';
 import {
   ApiErrorCode,
   attestationNoteProblem,
@@ -1369,9 +1370,29 @@ export function createListVendorIntegrationsHandler(
       hiddenFieldsByEntity(db, 'integration', integrationIds, vendorId),
       hiddenFieldsByEntity(db, 'connector_evidenced_pair', pairIds, vendorId),
     ]);
+    // AECI-2110 (§11e.6): an endpoint vendor's three rights on a Sync Service row, as
+    // the Connectors section offers them on a delivered pair. One read set for all.
+    const rights = await syncServiceRightsFor(
+      db,
+      vendorId,
+      rows
+        .filter(
+          (row) => authorities.has(row.id) && row.poweredByProductId && row.retiredAt === null,
+        )
+        .map((row) => ({
+          id: row.id,
+          connectorProductId: row.poweredByProductId!,
+          productAId: row.sourceProduct.id,
+          productBId: row.targetProduct.id,
+          builtByVendorId: row.builtByVendorId,
+          claimedAt: row.claimedAt,
+        })),
+      'integration',
+    );
     for (const entry of surface) {
       entry.locked_fields = integrationLocks.get(entry.id) ?? [];
       entry.hidden_fields = integrationHides.get(entry.id) ?? [];
+      entry.sync_service_rights = rights.get(entry.id) ?? null;
     }
     for (const row of ownedRows) {
       const pair = row.anchor === 'evidenced_pair';
