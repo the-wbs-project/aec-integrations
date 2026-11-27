@@ -4218,6 +4218,9 @@ export interface ContestEmailFacts {
   proposedValue: string | null;
   /** Both endpoint slugs, for the pair-page link, or `null` when unresolved. */
   pairSlugs: readonly [string, string] | null;
+  /** The ledger entity. `integration_field_challenge` when absent; a Sync Service pair
+   *  report's protest passes `sync_service_pair_contest` (AECI-2110). */
+  entityType?: 'integration_field_challenge' | 'sync_service_pair_contest';
 }
 
 /** One seat of the vendor a vendor-facing protest email goes to. */
@@ -4311,7 +4314,7 @@ export function sendContestProtestOpenedEmail(
         [escapeHtml(why), escapeHtml(reply), escapeHtml(PROTEST_IS_ADVICE)],
       ),
     dedupeKey: opts.dedupeKey,
-    entity: { type: 'integration_field_challenge', id: opts.contestId },
+    entity: { type: opts.entityType ?? 'integration_field_challenge', id: opts.contestId },
   });
 }
 
@@ -4489,7 +4492,7 @@ export function sendContestProtestReplyReminderEmail(
     subject: `Reminder: reply by ${due} on ${opts.integrationName}`,
     render: (link) => houseBody(shared(link), [lead, reply], [escapeHtml(lead), escapeHtml(reply)]),
     dedupeKey: opts.dedupeKey,
-    entity: { type: 'integration_field_challenge', id: opts.contestId },
+    entity: { type: opts.entityType ?? 'integration_field_challenge', id: opts.contestId },
   });
 }
 

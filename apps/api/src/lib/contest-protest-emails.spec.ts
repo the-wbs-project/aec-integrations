@@ -13,9 +13,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Db } from '../db/client';
 import {
+  claims,
   integrationFieldChallenges,
   integrations,
   notificationSends,
+  syncServicePairContests,
+  taxonomyDataObjects,
   productVendors,
   products,
   profiles,
@@ -635,5 +638,55 @@ describe('runProtestReplyReminderSweep (AECI-1205)', () => {
       },
     });
     expect(fetchSeatEmails).not.toHaveBeenCalled();
+  });
+});
+
+describe('the reminder covers Sync Service data flow report protests (AECI-2110)', () => {
+  it('reminds the owner seats once, naming the flow as the detail', async () => {
+    const PROTESTED = '2026-08-20T09:30:00.000Z';
+    const DUE = addContestDays(PROTESTED, 14);
+    await t.db.insert(taxonomyDataObjects).values({
+      id: uuid(400),
+      slug: 'rfis',
+      name: 'RFIs',
+      displayOrder: 1,
+    });
+    await t.db.insert(claims).values({
+      id: uuid(401),
+      integrationId: I_MAIN,
+      dataObjectId: uuid(400),
+      direction: 'a_to_b',
+    });
+    await t.db.insert(syncServicePairContests).values({
+      id: uuid(402),
+      kind: 'data_flow',
+      integrationId: I_MAIN,
+      claimId: uuid(401),
+      currentDirection: 'a_to_b',
+      proposedDirection: null,
+      reason: 'We do not send RFIs.',
+      submitterVendorId: VENDOR_A,
+      routedTo: 'owner',
+      ownerVendorId: VENDOR_B,
+      status: 'declined',
+      decidedAt: '2026-08-15T00:00:00.000Z',
+      protestStatus: 'open',
+      protestBasis: 'declined',
+      protestReason: 'Please look again.',
+      protestedAt: PROTESTED,
+      protestReplyDueAt: DUE,
+    });
+    const run = () =>
+      runProtestReplyReminderSweep(cronCtx(), t.db as Db, {
+        now: new Date(addContestDays(DUE, -3)),
+        fetchSeatEmails,
+      });
+    const first = await run();
+    expect(first).toMatchObject({ due: 1, capped: 0 });
+    expect(first.emails.sent).toBe(2);
+    const mail = sent();
+    expect(mail.map((m) => m.to).sort()).toEqual(['kim@bentley.com', 'sam@bentley.com']);
+    expect(mail[0]!.text).toContain('"RFIs data flow"');
+    expect((await run()).emails.duplicate).toBe(2);
   });
 });

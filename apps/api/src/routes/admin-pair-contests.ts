@@ -60,6 +60,7 @@ import {
   PAIR_CONTEST_ENTITY_TYPE,
   pairContestWireRows,
   pairKeyUnchangedSentinel,
+  pairWorkflowStepStmts,
   type PairContestRow,
 } from '../lib/sync-service-pair-contests';
 import {
@@ -378,6 +379,18 @@ export function createAdminDecidePairContestHandler(
           ),
         ),
       pairContestChangedSentinel(db),
+      // AECI-2110: the report's workflow, closed in the decision's batch.
+      ...pairWorkflowStepStmts(
+        db,
+        row,
+        { which: 'report', toState: accepted ? 'accepted' : 'declined' },
+        {
+          actorId: session.userId,
+          reason: `${accepted ? 'accepted' : 'declined'} by AEC Integrations`,
+          ...(mode ? { metadata: { appliedMode: mode } } : {}),
+        },
+        now,
+      ),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
 
@@ -569,6 +582,13 @@ export function createAdminDecidePairProtestHandler(
             ),
           ),
         pairContestChangedSentinel(db),
+        ...pairWorkflowStepStmts(
+          db,
+          row,
+          { which: 'protest', toState: upheld ? 'upheld' : 'rejected' },
+          { actorId: session.userId, reason: `protest ${payload.decision}` },
+          now,
+        ),
         ...audits.map((entry) => auditInsert(db, entry)),
       ] as BatchTuple);
     } catch (error) {

@@ -17,6 +17,10 @@
  *   - {@link runProtestReplyReminderSweep}: the daily `protest_reply_reminder` cron.
  *     An open protest with no reply whose deadline falls in the next 3 days sends
  *     the owner's seats `contest-protest-reply-reminder`.
+ *   - {@link emailPairProtestFiled} (AECI-2110, §11e.5): a protest on a Sync Service
+ *     data flow report. The owner's seats get `contest-protest-opened`, the same
+ *     template, with the flow as the "field". The sweep covers these protests too.
+ *     AECi's alert goes out from the route (`sendPairContestSubmittedNotification`).
  *
  * **At most once, with no schema change.** Every send carries a `notification_sends`
  * dedupe key (AECI-1202). Each per-seat key ends in the seat's profile id, because the
@@ -39,11 +43,18 @@ import {
   CONTEST_OWNER_SILENCE_DAYS,
   PAIR_PROTEST_WINDOW_DAYS,
   type ContestProtestBasis,
+  type PairContest,
+  type PairFlowDirection,
 } from '@aeci/shared';
 import { and, eq, gt, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrationFieldChallenges, products, vendors } from '../db/schema';
+import {
+  integrationFieldChallenges,
+  products,
+  syncServicePairContests,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { logToPosthog } from '../posthog';
 import {
@@ -323,6 +334,91 @@ async function ownerSeats(
   return byVendor.get(vendorId) ?? [];
 }
 
+// ─── Sync Service data flow report protests (AECI-2110) ──────────────────────
+
+/** A pair-frame direction in words: "Revit to Procore", or "Both ways". */
+function pairDirectionWords(
+  direction: PairFlowDirection | null,
+  a: string | null,
+  b: string | null,
+): string {
+  if (direction === null) return 'Not listed';
+  if (direction === 'both') return 'Both ways';
+  const [from, to] = direction === 'a_to_b' ? [a, b] : [b, a];
+  return from && to ? `${from} to ${to}` : direction === 'a_to_b' ? 'A to B' : 'B to A';
+}
+
+/** The facts of a data flow report, shaped for the field-contest templates: the
+ *  "field" is the data flow, the values are its direction on record and proposed. */
+function pairReportEmailFacts(wire: PairContest): ContestEmailFacts {
+  const a = wire.pair.product_a?.name ?? null;
+  const b = wire.pair.product_b?.name ?? null;
+  const flow = wire.flow?.data_object_name ?? 'data';
+  const pairSlugs =
+    wire.pair.product_a && wire.pair.product_b
+      ? ([wire.pair.product_a.slug, wire.pair.product_b.slug] as const)
+      : null;
+  return {
+    contestId: wire.id,
+    integrationName: wire.pair.name?.trim() || (a && b ? `${a} and ${b}` : 'an integration'),
+    field: `${flow} data flow`,
+    currentValue: pairDirectionWords(wire.flow?.current_direction ?? null, a, b),
+    proposedValue: pairDirectionWords(wire.flow?.proposed_direction ?? null, a, b),
+    pairSlugs,
+    entityType: 'sync_service_pair_contest',
+  };
+}
+
+async function vendorRef(db: Db, vendorId: string): Promise<VendorRef | undefined> {
+  const [row] = await db
+    .select({ name: vendors.companyName, slug: vendors.slug })
+    .from(vendors)
+    .where(eq(vendors.id, vendorId))
+    .limit(1);
+  return row;
+}
+
+/**
+ * Email the owner's seats about a protest on a data flow report that just committed,
+ * with its 14-day reply deadline. `wire` is the report after the batch. Never rejects.
+ */
+export async function emailPairProtestFiled(
+  c: EmailContext,
+  db: Db,
+  wire: PairContest | undefined,
+  protest: {
+    basis: ContestProtestBasis;
+    reason: string;
+    protestedAt: string;
+    replyDueAt: string;
+  },
+  deps: ProtestEmailDeps = {},
+): Promise<void> {
+  try {
+    if (!wire?.owner_vendor_id) return;
+    const ownerVendorId = wire.owner_vendor_id;
+    const owner = await vendorRef(db, ownerVendorId);
+    const facts = pairReportEmailFacts(wire);
+    const seats = await ownerSeats(db, c.env, ownerVendorId, deps);
+    for (const seat of seats) {
+      await sendContestProtestOpenedEmail(c, {
+        ...facts,
+        to: seat.email,
+        vendorId: ownerVendorId,
+        vendorSlug: owner?.slug ?? null,
+        vendorName: owner?.name ?? null,
+        submitterVendorName: wire.submitter_name ?? 'A vendor',
+        basis: protest.basis,
+        protestReason: protest.reason,
+        replyDueAt: protest.replyDueAt,
+        dedupeKey: protestOpenedKey(wire.id, protest.protestedAt, seat.profileId),
+      });
+    }
+  } catch (error) {
+    warn(c, `Pair protest email failed for ${wire?.id ?? 'unknown'}`, error);
+  }
+}
+
 // ─── Owner decline ───────────────────────────────────────────────────────────
 
 /**
@@ -424,7 +520,10 @@ export async function runProtestReplyReminderSweep(
     capped: rows.length - batch.length,
     emails: emptyOutcomes(),
   };
-  if (batch.length === 0) return result;
+  if (batch.length === 0) {
+    await remindPairProtests(c, db, deps, nowIso, horizonIso, result);
+    return result;
+  }
 
   const ownerIds = batch.map((r) => r.ownerVendorId).filter((id): id is string => !!id);
   const seatsByVendor = await loadVendorSeatRecipients(db, c.env, ownerIds, deps.fetchSeatEmails);
@@ -449,5 +548,57 @@ export async function runProtestReplyReminderSweep(
       result.emails[outcome]++;
     }
   }
+  await remindPairProtests(c, db, deps, nowIso, horizonIso, result);
   return result;
+}
+
+/** The same reminder for protests on Sync Service data flow reports (AECI-2110). */
+async function remindPairProtests(
+  c: EmailContext,
+  db: Db,
+  deps: ProtestEmailDeps,
+  nowIso: string,
+  horizonIso: string,
+  result: ProtestReminderResult,
+): Promise<void> {
+  const t = syncServicePairContests;
+  const rows = await db
+    .select()
+    .from(t)
+    .where(
+      and(
+        eq(t.protestStatus, 'open'),
+        isNull(t.protestReply),
+        gt(t.protestReplyDueAt, nowIso),
+        lte(t.protestReplyDueAt, horizonIso),
+      ),
+    )
+    .orderBy(t.protestReplyDueAt, t.id);
+  const batch = rows.slice(0, PROTEST_REMINDER_BATCH_CAP);
+  result.due += rows.length;
+  result.capped += rows.length - batch.length;
+  if (batch.length === 0) return;
+  const ownerIds = batch.map((r) => r.ownerVendorId).filter((id): id is string => !!id);
+  const seatsByVendor = await loadVendorSeatRecipients(db, c.env, ownerIds, deps.fetchSeatEmails);
+  const wires = new Map((await pairContestWireRows(db, batch)).map((w) => [w.id, w]));
+  for (const row of batch) {
+    const wire = wires.get(row.id);
+    if (!wire || !row.ownerVendorId || !row.protestedAt || !row.protestReplyDueAt) continue;
+    const seats = seatsByVendor.get(row.ownerVendorId) ?? [];
+    if (seats.length === 0) continue;
+    const owner = await vendorRef(db, row.ownerVendorId);
+    for (const seat of seats) {
+      const outcome = await sendContestProtestReplyReminderEmail(c, {
+        ...pairReportEmailFacts(wire),
+        to: seat.email,
+        vendorId: row.ownerVendorId,
+        vendorSlug: owner?.slug ?? null,
+        vendorName: owner?.name ?? null,
+        submitterVendorName: wire.submitter_name ?? 'A vendor',
+        replyDueAt: row.protestReplyDueAt,
+        dedupeKey: protestReminderKey(row.id, row.protestedAt, seat.profileId),
+      });
+      result.emails[outcome]++;
+    }
+  }
 }

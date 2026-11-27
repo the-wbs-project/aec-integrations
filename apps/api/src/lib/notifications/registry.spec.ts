@@ -60,8 +60,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-2139 added `portal-flow-corrected-by-aeci` and `portal-flow-correction-lifted-by-aeci`: 104.
  * AECI-1870 added `legal-first-effective`: 105.
  * AECI-2229 added `pair-report-submitted-owner`: 106.
+ * AECI-2110 added `linear-owner-write-issue`: 107.
  */
-const EXPECTED_COUNT = 106;
+const EXPECTED_COUNT = 107;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -127,7 +128,7 @@ describe('notification registry shape', () => {
       'email+portal': 1,
       'supabase-email': 1,
       portal: 38,
-      linear: 4,
+      linear: 5,
     });
   });
 

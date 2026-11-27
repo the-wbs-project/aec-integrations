@@ -20,8 +20,9 @@
  * `409 INTEGRATION_CHANGED_WHILE_SAVING`.
  *
  * An unclaimed row is written the same way. Promote still writes an unclaimed row,
- * so the next promote of the edge can set a different owner; the runbook says to
- * record the owner upstream too. A retired row is not refused: no rule bars it, and
+ * so the next promote of the edge can set a different owner. Since AECI-2110 (ruled
+ * 2026-11-27) the write on an unclaimed row files a `REVIEW - Record integration
+ * owner: …` Linear issue after commit, so the review lane records the owner upstream. A retired row is not refused: no rule bars it, and
  * the owner is who may restore it.
  *
  * After commit: the pair, endpoint and connector purge (`anchorPurgeTags`), the by-id
@@ -40,7 +41,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -71,8 +72,15 @@ import {
   isContestRaceError,
   loadContestTarget,
   locateContestAnchor,
+  pairPathFor,
   type ContestTarget,
 } from '../lib/integration-contests';
+import {
+  createLinearIssueForOwnerWrite,
+  type LinearContext,
+  type LinearIssueOutcome,
+  type LinearOwnerWriteIssueInput,
+} from '../lib/linear';
 import { dispatchMirrorSync, mirrorVendorEntries } from '../lib/ownership-sync';
 import { forwardModerationBatch, planOwnerReassign, readJson } from './admin-contests';
 import { endpointSlugs } from './vendor-contests';
@@ -214,8 +222,89 @@ async function pairOf(db: Db, target: ContestTarget): Promise<AdminDeliveredPair
   return pairs[0]!;
 }
 
+/** The Linear filer, injectable so specs never reach Linear. */
+export type FileOwnerWriteIssue = (
+  c: LinearContext,
+  input: LinearOwnerWriteIssueInput,
+) => Promise<LinearIssueOutcome>;
+
+/**
+ * After an owner write on an UNCLAIMED row commits (AECI-2110): file the review-lane
+ * issue, then record its id as a log-class audit row on the row. Never rejects: a
+ * failure warns through the filer and changes nothing.
+ */
+async function fileOwnerWriteIssue(
+  c: AdminContext,
+  db: Db,
+  fileIssue: FileOwnerWriteIssue,
+  target: ContestTarget,
+  anchorKind: 'integration' | 'evidenced_pair',
+  previousOwner: string | null,
+  newOwner: string | null,
+  adminReason: string,
+): Promise<void> {
+  try {
+    const productIds = [
+      target.sourceProductId,
+      target.targetProductId,
+      target.poweredByProductId,
+    ].filter((x): x is string => !!x);
+    const named = await db
+      .select({ id: products.id, name: products.name, slug: products.slug })
+      .from(products)
+      .where(inArray(products.id, productIds));
+    const product = new Map(named.map((p) => [p.id, p]));
+    const vendorIds = [previousOwner, newOwner].filter((x): x is string => !!x);
+    const vendorRows = vendorIds.length
+      ? await db
+          .select({ id: vendors.id, name: vendors.companyName })
+          .from(vendors)
+          .where(inArray(vendors.id, vendorIds))
+      : [];
+    const vendorName = new Map(vendorRows.map((v) => [v.id, v.name]));
+    const source = product.get(target.sourceProductId);
+    const targetProduct = product.get(target.targetProductId);
+    const slugs = await endpointSlugs(db, target.sourceProductId, target.targetProductId);
+    const outcome = await fileIssue(c, {
+      notification: 'linear-owner-write-issue',
+      integrationId: target.id,
+      anchor: anchorKind,
+      integrationName: target.name,
+      sourceProductName: source?.name ?? target.sourceProductId,
+      targetProductName: targetProduct?.name ?? target.targetProductId,
+      connectorProductName: target.poweredByProductId
+        ? (product.get(target.poweredByProductId)?.name ?? null)
+        : null,
+      pairPath: pairPathFor(slugs),
+      previousOwnerName: previousOwner ? (vendorName.get(previousOwner) ?? null) : null,
+      previousOwnerVendorId: previousOwner,
+      newOwnerName: newOwner ? (vendorName.get(newOwner) ?? null) : null,
+      newOwnerVendorId: newOwner,
+      adminReason,
+    });
+    if (outcome.status !== 'created') return;
+    const entry: AuditLogEntry = {
+      actorId: null,
+      actorType: 'system',
+      action: 'integration.owner_write.linear_linked',
+      entityType: anchorKind === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
+      entityId: target.id,
+      metadata: {
+        source: 'admin-owner-write',
+        linear_issue_id: outcome.issueId,
+        linear_issue_url: outcome.issueUrl,
+      },
+    };
+    await db.batch([auditInsert(db, entry)] as BatchTuple);
+    forwardModerationBatch(c, [entry], []);
+  } catch (error) {
+    console.warn(`admin owner write: Linear follow-up failed for ${target.id}`, error);
+  }
+}
+
 export function createAdminSetIntegrationOwnerHandler(
   dbFor: DbFactory = getDb,
+  fileIssue: FileOwnerWriteIssue = createLinearIssueForOwnerWrite,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -341,6 +430,23 @@ export function createAdminSetIntegrationOwnerHandler(
       'admin',
       db,
     );
+
+    // AECI-2110: an unclaimed row is still promote's, so the review lane must record
+    // the same owner upstream or the next promote undoes it.
+    if (target.claimedAt === null) {
+      c.executionCtx.waitUntil(
+        fileOwnerWriteIssue(
+          c,
+          db,
+          fileIssue,
+          target,
+          anchor.kind === 'evidenced_pair' ? 'evidenced_pair' : 'integration',
+          target.builtByVendorId,
+          newOwner,
+          payload.reason,
+        ),
+      );
+    }
 
     const after = await loadContestTarget(db, anchor);
     const body = { changed: true, pair: await pairOf(db, after ?? target) };

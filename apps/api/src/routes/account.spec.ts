@@ -988,7 +988,7 @@ describe('DELETE /api/account', () => {
     ]);
   });
 
-  it('pins the inbound FKs to profiles(id) at thirty-one — AUTH_AND_RLS.md §8 is the register', () => {
+  it('pins the inbound FKs to profiles(id) at thirty-two — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -1028,6 +1028,7 @@ describe('DELETE /api/account', () => {
       // AECI-2042 (0132). SET NULL, and nulled explicitly by the erasure.
       'sync_service_pair_contests.decided_by',
       'sync_service_pair_contests.protest_decided_by',
+      'sync_service_pair_contests.protest_replied_by',
       'sync_service_pair_contests.protested_by',
       'sync_service_pair_contests.submitted_by',
       'sync_service_pair_vetoes.ended_by',

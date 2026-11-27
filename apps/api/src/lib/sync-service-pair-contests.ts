@@ -38,6 +38,7 @@
  */
 
 import {
+  PAIR_PROTEST_COOLDOWN_DAYS,
   pairProtestWindow,
   type PairContest,
   type PairContestKind,
@@ -55,7 +56,7 @@ import {
   taxonomyDataObjects,
   vendors,
 } from '../db/schema';
-import type { BatchStmt } from './audit';
+import { workflowTransitionInsert, type BatchStmt } from './audit';
 import { isVendorHeld, ONE_ROW } from './integration-claims';
 import {
   evidencedPairsOnPairKeyWhere,
@@ -63,6 +64,7 @@ import {
   type PairKey,
   type PairKeyRow,
 } from './sync-service-pair-rights';
+import { pairContestWorkflowStmts } from './workflow-restore';
 
 export const PAIR_CONTEST_ENTITY_TYPE = 'sync_service_pair_contest';
 
@@ -203,11 +205,177 @@ export async function openDuplicate(
   return hit ?? null;
 }
 
-/** Wire rows. Four reads for the whole list, never one per row. */
+// ─── Workflow rows (AECI-2110) ───────────────────────────────────────────────
+
+/**
+ * `workflow_instances.workflow_type` for a report and for its protest. Reused, not
+ * added, as the field contests reuse it: the type CHECK is closed and opening it is a
+ * table recreate (`schema.ts` `workflowInstances`). `entity_id` is the report id.
+ */
+export const PAIR_CONTEST_WORKFLOW_TYPE = 'correction_request';
+
+/** `final_outcome` per terminal report status, and per terminal protest status. */
+const REPORT_FINAL_OUTCOME = {
+  accepted: 'approved',
+  declined: 'rejected',
+  withdrawn: 'cancelled',
+} as const;
+const PROTEST_FINAL_OUTCOME = {
+  upheld: 'approved',
+  rejected: 'rejected',
+  withdrawn: 'cancelled',
+} as const;
+
+export type PairReportTerminal = keyof typeof REPORT_FINAL_OUTCOME;
+export type PairProtestTerminal = keyof typeof PROTEST_FINAL_OUTCOME;
+
+/**
+ * The statements that record one report or protest step in its workflow: the
+ * instance's state (or its creation under the deterministic id when the link is NULL,
+ * for a report filed before AECI-2110 or a pruned instance), then the transition. Place
+ * them AFTER the guarded UPDATE and its sentinel, so a lost race writes none of them.
+ */
+export function pairWorkflowStepStmts(
+  db: Db,
+  row: Pick<PairContestRow, 'id' | 'workflowId' | 'protestWorkflowId'>,
+  step:
+    | { which: 'report'; toState: PairReportTerminal }
+    | { which: 'protest'; toState: PairProtestTerminal | 'open' },
+  entry: { actorId: string | null; reason?: string; metadata?: Record<string, unknown> },
+  now: string,
+): BatchStmt[] {
+  const terminal =
+    step.which === 'report'
+      ? { finalOutcome: REPORT_FINAL_OUTCOME[step.toState] }
+      : step.toState === 'open'
+        ? null
+        : { finalOutcome: PROTEST_FINAL_OUTCOME[step.toState] };
+  const instance = pairContestWorkflowStmts(
+    db,
+    row,
+    step.which,
+    now,
+    terminal ? { currentState: step.toState, completedAt: now, ...terminal } : undefined,
+  );
+  return [
+    ...instance.stmts,
+    workflowTransitionInsert(db, {
+      workflowId: instance.workflowId,
+      fromState: 'open',
+      toState: step.toState,
+      actorId: entry.actorId,
+      reason: entry.reason,
+      metadata: entry.metadata,
+    }),
+  ];
+}
+
+// ─── Protest evidence, reply and cooldown (AECI-2110, §11b.12 applied) ──────
+
+/** A stored evidence column, read with a fallback to `[]` so one bad value cannot fail
+ *  a list (§11b.12.5's rule). */
+export function parsePairEvidence(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The evidence links to store: deduplicated in order, `null` when there are none. */
+export function storedPairEvidence(urls: readonly string[]): string | null {
+  const unique = [...new Set(urls)];
+  return unique.length ? JSON.stringify(unique) : null;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * When a rejected protest still bars a new data flow report on the same flow, or
+ * `null`: 90 days from AECi's decision while the flow's direction is still the one the
+ * report was about (§11b.12.8's "unless the value on record changes"). `liveDirection`
+ * is the claim's direction now, in the pair frame; `null` when the claim is gone.
+ */
+export function pairCooldownUntil(
+  row: Pick<PairContestRow, 'protestStatus' | 'protestDecidedAt' | 'currentDirection'>,
+  liveDirection: string | null,
+  now: Date,
+): string | null {
+  if (row.protestStatus !== 'rejected' || !row.protestDecidedAt) return null;
+  if (liveDirection === null || liveDirection !== row.currentDirection) return null;
+  const until = Date.parse(row.protestDecidedAt) + PAIR_PROTEST_COOLDOWN_DAYS * DAY_MS;
+  return now.getTime() < until ? new Date(until).toISOString() : null;
+}
+
+/**
+ * The two refusals a data flow report meets after the duplicate check (§11b.12.8,
+ * applied to pair reports by AECI-2110), by the same submitting vendor on the same flow:
+ * an open protest (`CONTEST_PROTEST_OPEN`), or a rejected protest still in its cooldown
+ * (`CONTEST_COOLDOWN`, the latest end). Handler reads with no in-batch sentinel, as for
+ * field contests: neither writes anything public.
+ */
+export async function pairProtestSubmitRefusal(
+  db: Db,
+  args: { submitterVendorId: string; claimId: string; liveDirection: string },
+  now: Date,
+): Promise<
+  | { code: 'CONTEST_PROTEST_OPEN'; contestId: string }
+  | { code: 'CONTEST_COOLDOWN'; until: string }
+  | null
+> {
+  const t = syncServicePairContests;
+  const rows = await db
+    .select({
+      id: t.id,
+      protestStatus: t.protestStatus,
+      protestDecidedAt: t.protestDecidedAt,
+      currentDirection: t.currentDirection,
+    })
+    .from(t)
+    .where(
+      and(
+        eq(t.submitterVendorId, args.submitterVendorId),
+        eq(t.kind, 'data_flow'),
+        eq(t.claimId, args.claimId),
+        sql`${t.protestStatus} IN ('open', 'rejected')`,
+      ),
+    );
+  const open = rows.find((r) => r.protestStatus === 'open');
+  if (open) return { code: 'CONTEST_PROTEST_OPEN', contestId: open.id };
+  let latest: string | null = null;
+  for (const r of rows) {
+    const until = pairCooldownUntil(r, args.liveDirection, now);
+    if (until && (latest === null || until > latest)) latest = until;
+  }
+  return latest ? { code: 'CONTEST_COOLDOWN', until: latest } : null;
+}
+
+/**
+ * In a protest file batch: aborts when the submitter has another OPEN data flow report
+ * on the same flow, excluding this one. One live dispute per flow per vendor, from the
+ * protest side (§11b.12.15 ruling 8).
+ */
+export function noOtherOpenPairReportSentinel(
+  db: Db,
+  row: Pick<PairContestRow, 'id' | 'submitterVendorId' | 'claimId'>,
+): BatchStmt {
+  const t = syncServicePairContests;
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM ${t} WHERE ${t.submitterVendorId} = ${row.submitterVendorId} AND ${t.kind} = 'data_flow' AND ${t.claimId} IS ${row.claimId} AND ${t.status} = 'open' AND ${t.id} <> ${row.id}) THEN json(${PAIR_CONTEST_CHANGED_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+}
+
+/** Wire rows. Four reads for the whole list, never one per row. `side: 'submitted'`
+ *  adds the submitter-only `cooldown_until`. */
 export async function pairContestWireRows(
   db: Db,
   rows: readonly PairContestRow[],
   now: Date = new Date(),
+  opts: { side?: 'submitted' | 'received' | 'admin' } = {},
 ): Promise<PairContest[]> {
   if (rows.length === 0) return [];
   const intIds = rows.map((r) => r.integrationId).filter((x): x is string => !!x);
@@ -251,6 +419,7 @@ export async function pairContestWireRows(
             id: claims.id,
             slug: taxonomyDataObjects.slug,
             name: taxonomyDataObjects.name,
+            direction: claims.direction,
           })
           .from(claims)
           .innerJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
@@ -291,6 +460,7 @@ export async function pairContestWireRows(
       : [null, null];
     const window = pairProtestWindow(r, now);
     const f = r.claimId ? flow.get(r.claimId) : undefined;
+    const liveDirection = f && a ? toPairFrame(f.direction, a.source < a.target) : null;
     return {
       id: r.id,
       kind: r.kind as PairContestKind,
@@ -328,12 +498,18 @@ export async function pairContestWireRows(
               status: r.protestStatus as 'open' | 'upheld' | 'rejected' | 'withdrawn',
               basis: r.protestBasis as 'declined' | 'silence',
               reason: r.protestReason,
+              evidence_urls: parsePairEvidence(r.protestEvidence),
               protested_at: r.protestedAt,
+              reply_due_at: r.protestReplyDueAt,
+              reply: r.protestReply,
+              reply_evidence_urls: parsePairEvidence(r.protestReplyEvidence),
+              replied_at: r.protestRepliedAt,
               decision_note: r.protestDecisionNote,
               decided_at: r.protestDecidedAt,
             }
           : null,
       protest_closes_at: window?.closesAt ?? null,
+      cooldown_until: opts.side === 'submitted' ? pairCooldownUntil(r, liveDirection, now) : null,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
     };

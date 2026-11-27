@@ -74,6 +74,7 @@ const REPORT: AdminPairContest = {
   accept_mode: null,
   protest: null,
   protest_closes_at: null,
+  cooldown_until: null,
   created_at: '2026-11-23T09:30:00.000Z',
   updated_at: '2026-11-23T09:30:00.000Z',
   key_rows: [
@@ -434,6 +435,7 @@ describe('AdminPairRights — an owner-routed data flow report (AECI-2139)', () 
     accept_mode: null,
     protest: null,
     protest_closes_at: null,
+    cooldown_until: null,
     created_at: '2026-11-22T09:30:00.000Z',
     updated_at: '2026-11-22T09:30:00.000Z',
     key_rows: null,

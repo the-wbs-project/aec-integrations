@@ -29,9 +29,12 @@ import {
   syncServicePairContests,
   taxonomyDataObjects,
   vendors,
+  workflowInstances,
+  workflowTransitions,
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -46,7 +49,9 @@ import {
   createFilePairProtestHandler,
   createListVendorPairContestsHandler,
   createSubmitPairContestHandler,
+  createReplyPairProtestHandler,
   createWithdrawPairContestHandler,
+  createWithdrawPairProtestHandler,
 } from './vendor-pair-contests';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -190,6 +195,11 @@ function app(auth: AuthzVariables['auth']) {
   a.post('/api/vendor/pair-contests/:id/withdraw', createWithdrawPairContestHandler(t.factory));
   a.post('/api/vendor/pair-contests/:id/decision', createDecidePairContestHandler(t.factory));
   a.post('/api/vendor/pair-contests/:id/protest', createFilePairProtestHandler(t.factory));
+  a.post('/api/vendor/pair-contests/:id/protest/reply', createReplyPairProtestHandler(t.factory));
+  a.post(
+    '/api/vendor/pair-contests/:id/protest/withdraw',
+    createWithdrawPairProtestHandler(t.factory),
+  );
   a.get('/api/admin/pair-contests', createAdminListPairContestsHandler(t.factory));
   a.patch('/api/admin/pair-contests/:id', createAdminDecidePairContestHandler(t.factory));
   a.patch('/api/admin/pair-contests/:id/protest', createAdminDecidePairProtestHandler(t.factory));
@@ -497,5 +507,312 @@ describe('a report re-checks the gate at commit (AECI-2042 review)', () => {
     const again = await existence();
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('PAIR_CONTEST_DUPLICATE');
+  });
+});
+
+// ─── AECI-2110: the parts AECI-2042 cut back ─────────────────────────────────
+
+const DAY = 86_400_000;
+
+/** A data flow report on PAIR, declined by the owner, ready to protest. */
+async function declinedReport(): Promise<string> {
+  const id = (await flow()).body.contest.id as string;
+  await call(AUTH_RIVETS, `/api/vendor/pair-contests/${id}/decision`, 'POST', {
+    decision: 'decline',
+    note: 'We do send RFIs.',
+  });
+  return id;
+}
+
+const protestOn = (id: string, body: unknown = { reason: 'Our docs show no RFI sync.' }) =>
+  call(AUTH_ACUMATICA, `/api/vendor/pair-contests/${id}/protest`, 'POST', body);
+const replyTo = (id: string, body: unknown, auth = AUTH_RIVETS) =>
+  call(auth, `/api/vendor/pair-contests/${id}/protest/reply`, 'POST', body);
+const reportRow = async (id: string) =>
+  (await t.db.query.syncServicePairContests.findFirst({
+    where: eq(syncServicePairContests.id, id),
+  }))!;
+const transitionsOf = async (workflowId: string) =>
+  t.db
+    .select()
+    .from(workflowTransitions)
+    .where(eq(workflowTransitions.workflowId, workflowId))
+    .orderBy(workflowTransitions.createdAt);
+const notices = async (vendorId: string, event: string) =>
+  (await t.db.select().from(auditLog)).filter(
+    (r) =>
+      r.action === 'notification.sent' &&
+      r.vendorId === vendorId &&
+      (r.metadata as { event?: string } | null)?.event === event,
+  );
+
+describe('the vendor writes its own protest, with links (AECI-2110)', () => {
+  it('stores the reason and deduplicated links, and sets a 14-day reply window', async () => {
+    const id = await declinedReport();
+    const res = await protestOn(id, {
+      reason: 'Their help page lists no RFI sync.',
+      evidence_urls: ['https://example.test/a', 'https://example.test/a', 'https://example.test/b'],
+    });
+    expect(res.status).toBe(200);
+    expect(PairContestResponseSchema.parse(res.body).contest.protest).toMatchObject({
+      reason: 'Their help page lists no RFI sync.',
+      evidence_urls: ['https://example.test/a', 'https://example.test/b'],
+      reply: null,
+    });
+    const p = res.body.contest.protest;
+    expect(Date.parse(p.reply_due_at) - Date.parse(p.protested_at)).toBe(14 * DAY);
+    const owner = await notices(RIVETS, 'protest_filed');
+    expect((owner[0]!.metadata as { replyDueAt?: string }).replyDueAt).toBe(p.reply_due_at);
+  });
+
+  it('refuses a link that is not a web address, and more than three', async () => {
+    const id = await declinedReport();
+    expect((await protestOn(id, { reason: 'x', evidence_urls: ['ftp://x'] })).status).toBe(400);
+    const four = ['a', 'b', 'c', 'd'].map((x) => `https://example.test/${x}`);
+    expect((await protestOn(id, { reason: 'x', evidence_urls: four })).status).toBe(400);
+  });
+
+  it('is refused while the submitter has another report open on the same flow', async () => {
+    const id = await declinedReport();
+    expect((await flow()).status).toBe(201);
+    const res = await protestOn(id);
+    expect(res.body.error).toMatchObject({
+      code: 'PAIR_PROTEST_NOT_ALLOWED',
+      details: { reason: 'contest_open' },
+    });
+  });
+});
+
+describe('the owner replies once (AECI-2110, §11b.12.6)', () => {
+  it('only the snapshot owner, once, before the due date; the submitter is told', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    expect((await replyTo(id, { reply: 'x' }, AUTH_PROCORE)).status).toBe(404);
+    expect((await replyTo(id, { reply: 'x' }, AUTH_ACUMATICA)).status).toBe(404);
+    const res = await replyTo(id, {
+      reply: 'Our release notes list RFIs.',
+      evidence_urls: ['https://example.test/notes'],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.contest.protest).toMatchObject({
+      reply: 'Our release notes list RFIs.',
+      reply_evidence_urls: ['https://example.test/notes'],
+    });
+    expect(res.body.contest.protest.replied_at).toBeTruthy();
+    expect(await notices(ACUMATICA, 'protest_replied')).toHaveLength(1);
+    const again = await replyTo(id, { reply: 'Again.' });
+    expect(again.body.error.code).toBe('PROTEST_REPLY_EXISTS');
+  });
+
+  it('closes at the due instant', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    await t.db
+      .update(syncServicePairContests)
+      .set({ protestReplyDueAt: new Date(Date.now() - 1000).toISOString() })
+      .where(eq(syncServicePairContests.id, id));
+    expect((await replyTo(id, { reply: 'Late.' })).body.error.code).toBe('PROTEST_REPLY_CLOSED');
+  });
+
+  it('is refused on a decided protest, and on a report with no protest', async () => {
+    const bare = await declinedReport();
+    expect((await replyTo(bare, { reply: 'x' })).status).toBe(404);
+    const id = (await call(AUTH_ACUMATICA, '/api/vendor/pair-contests', 'GET')).body.submitted[0]
+      .id as string;
+    await protestOn(id);
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${id}/protest`, 'PATCH', {
+      decision: 'rejected',
+      note: 'We agree with the owner.',
+    });
+    expect((await replyTo(id, { reply: 'x' })).body.error.code).toBe('PROTEST_NOT_OPEN');
+  });
+
+  it('a withdrawn protest tells the owner', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    const res = await call(
+      AUTH_ACUMATICA,
+      `/api/vendor/pair-contests/${id}/protest/withdraw`,
+      'POST',
+    );
+    expect(res.body.contest.protest.status).toBe('withdrawn');
+    expect(await notices(RIVETS, 'protest_withdrawn')).toHaveLength(1);
+  });
+});
+
+describe('the 90-day cooldown after AECi agrees with the owner (AECI-2110, §11b.12.8)', () => {
+  async function rejected(): Promise<string> {
+    const id = await declinedReport();
+    await protestOn(id);
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${id}/protest`, 'PATCH', {
+      decision: 'rejected',
+      note: 'We agree with the owner.',
+    });
+    return id;
+  }
+
+  it('an open protest bars a new report on the same flow', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    const res = await flow();
+    expect(res.body.error).toMatchObject({
+      code: 'CONTEST_PROTEST_OPEN',
+      details: { contest_id: id },
+    });
+  });
+
+  it('a rejected protest bars it for 90 days, and the submitter sees until when', async () => {
+    const id = await rejected();
+    const res = await flow();
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_COOLDOWN');
+    const decidedAt = (await reportRow(id)).protestDecidedAt!;
+    expect(res.body.error.details.until).toBe(
+      new Date(Date.parse(decidedAt) + 90 * DAY).toISOString(),
+    );
+    const mine = await call(AUTH_ACUMATICA, '/api/vendor/pair-contests', 'GET');
+    expect(mine.body.submitted[0].cooldown_until).toBe(res.body.error.details.until);
+    const theirs = await call(AUTH_RIVETS, '/api/vendor/pair-contests', 'GET');
+    expect(theirs.body.received[0].cooldown_until).toBeNull();
+  });
+
+  it('ends at day 90', async () => {
+    const id = await rejected();
+    await t.db
+      .update(syncServicePairContests)
+      .set({ protestDecidedAt: new Date(Date.now() - 90 * DAY - 1000).toISOString() })
+      .where(eq(syncServicePairContests.id, id));
+    expect((await flow()).status).toBe(201);
+  });
+
+  it('a change to the flow direction lifts it', async () => {
+    await rejected();
+    await t.db.update(claims).set({ direction: 'both' }).where(eq(claims.id, CLAIM));
+    expect((await flow()).status).toBe(201);
+  });
+
+  it('an upheld protest starts no cooldown', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${id}/protest`, 'PATCH', {
+      decision: 'upheld',
+      note: 'We agree with Acumatica.',
+    });
+    expect((await flow()).status).toBe(201);
+  });
+});
+
+describe('pair reports write workflow rows like field contests (AECI-2110)', () => {
+  it('a submit opens a correction_request instance; a decline closes it', async () => {
+    const id = await declinedReport();
+    const row = await reportRow(id);
+    const instance = await t.db.query.workflowInstances.findFirst({
+      where: eq(workflowInstances.id, row.workflowId!),
+    });
+    expect(instance).toMatchObject({
+      workflowType: 'correction_request',
+      entityId: id,
+      currentState: 'declined',
+      finalOutcome: 'rejected',
+    });
+    expect((await transitionsOf(row.workflowId!)).map((x) => [x.fromState, x.toState])).toEqual([
+      [null, 'open'],
+      ['open', 'declined'],
+    ]);
+  });
+
+  it('a protest has its own instance: filed, replied, decided', async () => {
+    const id = await declinedReport();
+    await protestOn(id);
+    await replyTo(id, { reply: 'We do.' });
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${id}/protest`, 'PATCH', {
+      decision: 'upheld',
+      note: 'We agree with Acumatica.',
+    });
+    const row = await reportRow(id);
+    expect(row.protestWorkflowId).not.toBe(row.workflowId);
+    expect((await transitionsOf(row.protestWorkflowId!)).map((x) => [x.toState, x.reason])).toEqual(
+      [
+        ['open', 'protest filed'],
+        ['open', 'owner replied'],
+        ['upheld', 'protest upheld'],
+      ],
+    );
+    const instance = await t.db.query.workflowInstances.findFirst({
+      where: eq(workflowInstances.id, row.protestWorkflowId!),
+    });
+    expect(instance).toMatchObject({ currentState: 'upheld', finalOutcome: 'approved' });
+  });
+
+  it('a silence protest closes the report instance as declined in the same batch', async () => {
+    const id = (await flow()).body.contest.id as string;
+    await t.db
+      .update(syncServicePairContests)
+      .set({ createdAt: new Date(Date.now() - 31 * DAY).toISOString() })
+      .where(eq(syncServicePairContests.id, id));
+    await protestOn(id);
+    const row = await reportRow(id);
+    expect((await transitionsOf(row.workflowId!)).map((x) => [x.toState, x.reason])).toEqual([
+      ['open', 'report submitted'],
+      ['declined', 'owner silent 30 days'],
+    ]);
+    const lapsed = (await t.db.select().from(auditLog)).filter(
+      (r) => r.action === 'integration.pair_contest.lapsed',
+    );
+    expect(lapsed).toHaveLength(1);
+  });
+
+  it('a report filed before AECI-2110, with no instance, gets one on its next step', async () => {
+    const id = (await existence()).body.contest.id as string;
+    const old = (await reportRow(id)).workflowId!;
+    await t.db
+      .update(syncServicePairContests)
+      .set({ workflowId: null })
+      .where(eq(syncServicePairContests.id, id));
+    await t.db.delete(workflowInstances).where(eq(workflowInstances.id, old));
+    await call(AUTH_ACUMATICA, `/api/vendor/pair-contests/${id}/withdraw`, 'POST');
+    const row = await reportRow(id);
+    expect(row.workflowId).toBe(`restored-pair-report-${id}`);
+    expect((await transitionsOf(row.workflowId!)).map((x) => x.toState)).toEqual(['withdrawn']);
+  });
+
+  it('an AECi decision closes the instance with the decision', async () => {
+    const id = (await existence(PAIR_SEEDED)).body.contest.id as string;
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${id}`, 'PATCH', { decision: 'decline' });
+    const row = await reportRow(id);
+    const instance = await t.db.query.workflowInstances.findFirst({
+      where: eq(workflowInstances.id, row.workflowId!),
+    });
+    expect(instance).toMatchObject({ currentState: 'declined', finalOutcome: 'rejected' });
+  });
+});
+
+describe('the contests badge counts the Sync Service section (AECI-2110)', () => {
+  const badge = async () => (await readAdminQueueCounts(t.db)).pending_contests;
+
+  it('counts open AECi-routed reports and open protests, never owner-routed reports', async () => {
+    expect(await badge()).toBe(0);
+    await existence();
+    expect(await badge()).toBe(1);
+    const owner = await declinedReport();
+    expect(await badge()).toBe(1);
+    await protestOn(owner);
+    expect(await badge()).toBe(2);
+  });
+
+  it('counts one retraction per pair key until the AECi-held row leaves the site', async () => {
+    const first = (await existence(PAIR_SEEDED)).body.contest.id as string;
+    const second = (await existence(PAIR_SEEDED, AUTH_PROCORE)).body.contest.id as string;
+    const accept = { decision: 'accept', note: 'Gone.', source_url: 'https://example.test/x' };
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${first}`, 'PATCH', accept);
+    await call(AUTH_ADMIN, `/api/admin/pair-contests/${second}`, 'PATCH', accept);
+    const list = await call(AUTH_ADMIN, '/api/admin/pair-contests?retractions=true', 'GET');
+    expect(list.body.data).toHaveLength(1);
+    expect(await badge()).toBe(1);
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ retiredAt: new Date().toISOString() })
+      .where(eq(connectorEvidencedPairs.id, PAIR_SEEDED));
+    expect(await badge()).toBe(0);
   });
 });

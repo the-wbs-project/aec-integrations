@@ -1421,6 +1421,25 @@ export const syncServicePairContests = sqliteTable(
       onDelete: 'set null',
     }),
     protestDecidedAt: text('protest_decided_at'),
+    /** A JSON array of up to three `http(s)` URLs (AECI-2110, §11b.12.5's rule). */
+    protestEvidence: text('protest_evidence'),
+    /** `protested_at + 14 days`, stored so a later constant change moves no deadline. */
+    protestReplyDueAt: text('protest_reply_due_at'),
+    /** The owner's one reply (AECI-2110). */
+    protestReply: text('protest_reply'),
+    protestReplyEvidence: text('protest_reply_evidence'),
+    protestRepliedBy: text('protest_replied_by').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    protestRepliedAt: text('protest_replied_at'),
+    /** The report's `correction_request` workflow instance (AECI-2110). */
+    workflowId: text('workflow_id').references(() => workflowInstances.id, {
+      onDelete: 'set null',
+    }),
+    /** The protest's own `correction_request` instance, as §11b.12.7. */
+    protestWorkflowId: text('protest_workflow_id').references(() => workflowInstances.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

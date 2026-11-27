@@ -72,12 +72,16 @@
  * the tile and the 05:00 email lead with one number.
  */
 
-import { and, count, eq, isNull, or } from 'drizzle-orm';
+import { and, count, eq, isNull, or, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
+  connectorEvidencedPairs,
   gscRecrawlQueue,
   integrationFieldChallenges,
+  integrations,
+  syncServicePairContests,
+  syncServiceVetoObjections,
   reviewResponses,
   reviewUpdates,
   reviews,
@@ -113,6 +117,9 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     updateRows,
     productRequestRows,
     releaseRequestRows,
+    pairReportRows,
+    objectionRows,
+    retractionRows,
   ] = await db.batch([
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
     db
@@ -167,6 +174,28 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .select({ value: count() })
       .from(licenseReleaseRequests)
       .where(eq(licenseReleaseRequests.status, 'open')),
+    // AECI-2110: the Sync Service section of `/admin/contests` joins the `contests`
+    // badge (one badge for one screen, §11b.12.15 ruling 12). Open AECi-routed reports,
+    // plus every open protest. Disjoint: a protested report's `status` is `declined`.
+    // Owner-routed reports are the owner's, shown read-only, and not counted.
+    db
+      .select({ value: count() })
+      .from(syncServicePairContests)
+      .where(
+        or(
+          and(
+            eq(syncServicePairContests.routedTo, 'aeci'),
+            eq(syncServicePairContests.status, 'open'),
+          ),
+          eq(syncServicePairContests.protestStatus, 'open'),
+        ),
+      ),
+    // Open objections to a removal, five business days to answer (AECI-2192).
+    db
+      .select({ value: count() })
+      .from(syncServiceVetoObjections)
+      .where(eq(syncServiceVetoObjections.status, 'open')),
+    retractionCount(db),
   ]);
 
   return {
@@ -177,8 +206,45 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       (releaseRequestRows[0]?.value ?? 0),
     pending_claims: claimRows[0]?.value ?? 0,
     pending_reindex: reindexRows[0]?.value ?? 0,
-    pending_contests: contestRows[0]?.value ?? 0,
+    pending_contests:
+      (contestRows[0]?.value ?? 0) +
+      (pairReportRows[0]?.value ?? 0) +
+      (objectionRows[0]?.value ?? 0) +
+      (retractionRows[0]?.value ?? 0),
     pending_review_responses: replyRows[0]?.value ?? 0,
     pending_review_updates: updateRows[0]?.value ?? 0,
   };
+}
+
+/**
+ * The "To retract in the review app" entries (AECI-2170), counted for the badge
+ * (AECI-2110): one per pair key that has an accepted existence report and still a live
+ * row AEC Integrations holds (not retired, not claimed, not added by a vendor). The
+ * same rule as `GET /api/admin/pair-contests?retractions=true` (`isUpstreamLive` over
+ * `rowsOnPairKeys`), in SQL so the header probe stays one round trip. The key is the
+ * report's anchor's connector and its two endpoints, id-sorted.
+ */
+function retractionCount(db: Db) {
+  const r = syncServicePairContests;
+  const i = integrations;
+  const p = connectorEvidencedPairs;
+  const keys = sql`(SELECT DISTINCT
+      coalesce(ai.powered_by_product_id, ap.connector_product_id) AS c,
+      min(coalesce(ai.source_product_id, ap.product_a_id), coalesce(ai.target_product_id, ap.product_b_id)) AS a,
+      max(coalesce(ai.source_product_id, ap.product_a_id), coalesce(ai.target_product_id, ap.product_b_id)) AS b
+    FROM ${r}
+    LEFT JOIN ${i} AS ai ON ai.id = ${r.integrationId}
+    LEFT JOIN ${p} AS ap ON ap.id = ${r.evidencedPairId}
+    WHERE ${r.status} = 'accepted' AND ${r.kind} = 'existence')`;
+  const upstreamLive = (claimed: string, origin: string, retired: string) =>
+    sql.raw(`${retired} IS NULL AND ${claimed} IS NULL AND ${origin} <> 'vendor'`);
+  return db
+    .select({ value: count() })
+    .from(sql`${keys} AS k`)
+    .where(
+      sql`k.c IS NOT NULL AND (
+        EXISTS (SELECT 1 FROM ${p} AS q WHERE q.connector_product_id = k.c AND q.product_a_id = k.a AND q.product_b_id = k.b AND ${upstreamLive('q.claimed_at', 'q.origin', 'q.retired_at')})
+        OR EXISTS (SELECT 1 FROM ${i} AS j WHERE j.powered_by_product_id = k.c AND ((j.source_product_id = k.a AND j.target_product_id = k.b) OR (j.source_product_id = k.b AND j.target_product_id = k.a)) AND ${upstreamLive('j.claimed_at', 'j.origin', 'j.retired_at')})
+      )`,
+    );
 }

@@ -42,6 +42,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
+import { readAdminQueueCounts } from '../lib/admin-queue-counts';
 import type { AuthzVariables } from '../lib/authz';
 import { businessWindowEnd } from '../lib/business-days';
 import { sendVetoObjectionSubmittedNotification } from '../lib/email';
@@ -510,5 +511,19 @@ describe('an older removal with free text', () => {
       reason_code: null,
       reason: 'Our own words, from before the fixed list.',
     });
+  });
+});
+
+describe('the contests badge counts open objections (AECI-2110)', () => {
+  it('one per open objection, gone once AECi decides it', async () => {
+    const vetoId = await removal();
+    const before = (await readAdminQueueCounts(t.db)).pending_contests;
+    const filed = await object(vetoId, FALSE_ON_ITS_FACE);
+    expect((await readAdminQueueCounts(t.db)).pending_contests).toBe(before + 1);
+    await call(AUTH_ADMIN, `/api/admin/veto-objections/${filed.body.objection.id}`, 'PATCH', {
+      decision: 'decline',
+      note: 'The page does not show it.',
+    });
+    expect((await readAdminQueueCounts(t.db)).pending_contests).toBe(before);
   });
 });

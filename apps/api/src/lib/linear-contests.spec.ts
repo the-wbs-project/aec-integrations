@@ -33,6 +33,7 @@ import {
   buildContestTitle,
   CONTEST_LINKED_ACTION,
   createLinearIssueForContest,
+  createLinearIssueForOwnerWrite,
   drizzleContestLinearStore,
   type LinearContestIssueInput,
   type LinearContestStore,
@@ -375,5 +376,60 @@ describe('runContestIssueReconciliation', () => {
     const createIssue = vi.fn().mockResolvedValue({ status: 'failed', reason: 'no_api_key' });
     const result = await runContestIssueReconciliation(ctx(), t.db, { createIssue, now: NOW });
     expect(result).toMatchObject({ retried: 1, cleared: 0, stillFailing: 1 });
+  });
+});
+
+describe('createLinearIssueForOwnerWrite (AECI-2110)', () => {
+  const OWNER_INPUT = {
+    notification: 'linear-owner-write-issue' as const,
+    integrationId: uuid(30),
+    anchor: 'evidenced_pair' as const,
+    integrationName: null,
+    sourceProductName: 'Procore',
+    targetProductName: 'Acumatica',
+    connectorProductName: 'Rivets Sync',
+    pairPath: '/products/acumatica/integrations/procore',
+    previousOwnerName: null,
+    previousOwnerVendorId: null,
+    newOwnerName: 'Rivets',
+    newOwnerVendorId: uuid(1),
+    adminReason: 'Rivets sells it.',
+  };
+
+  it('files "REVIEW - Record integration owner" on the AECi team, no project', async () => {
+    const fetchImpl = fetchWith(issueOk);
+    const outcome = await createLinearIssueForOwnerWrite(ctx(), OWNER_INPUT, fetchImpl);
+    expect(outcome).toMatchObject({ status: 'created', issueId: 'iss_c1' });
+    const [, init] = vi.mocked(fetchImpl).mock.calls[0]!;
+    const sent = JSON.parse(String(init!.body)) as {
+      variables: { input: Record<string, unknown> };
+    };
+    expect(sent.variables.input).toMatchObject({
+      teamId: AECI_TEAM_ID,
+      title: 'REVIEW - Record integration owner: Procore ↔ Acumatica',
+    });
+    expect(sent.variables.input).not.toHaveProperty('projectId');
+    const description = String(sent.variables.input.description);
+    expect(description).toContain('connector_evidenced_pairs');
+    expect(description).toContain('**Owner before:** _no owner on file_');
+    expect(description).toContain('Rivets (`' + uuid(1) + '`)');
+    expect(description).toContain('> Rivets sells it.');
+  });
+
+  it('never throws, and files nothing without a key', async () => {
+    const fetchImpl = fetchWith(issueOk);
+    expect(
+      await createLinearIssueForOwnerWrite(ctx({ LINEAR_API_KEY: '' }), OWNER_INPUT, fetchImpl),
+    ).toEqual({
+      status: 'failed',
+      reason: 'no_api_key',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const broken = vi.fn(async () => {
+      throw new Error('boom');
+    }) as unknown as typeof fetch;
+    expect((await createLinearIssueForOwnerWrite(ctx(), OWNER_INPUT, broken)).status).toBe(
+      'failed',
+    );
   });
 });

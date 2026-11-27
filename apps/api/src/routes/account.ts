@@ -782,6 +782,10 @@ export function createDeleteAccountHandler(
         .set({ protestDecidedBy: null })
         .where(eq(syncServicePairContests.protestDecidedBy, userId)),
       db
+        .update(syncServicePairContests)
+        .set({ protestRepliedBy: null })
+        .where(eq(syncServicePairContests.protestRepliedBy, userId)),
+      db
         .update(syncServicePairVetoes)
         .set({ filedBy: null })
         .where(eq(syncServicePairVetoes.filedBy, userId)),

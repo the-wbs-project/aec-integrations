@@ -718,6 +718,10 @@ function pairRightTitle(notification: VendorPairRightNotification): string {
       return $localize`:@@vendor.pairRights.notify.reportDeclined:Your report on an integration was declined`;
     case 'protest_filed':
       return $localize`:@@vendor.pairRights.notify.protestFiled:AEC Integrations was asked to review your answer on a data flow`;
+    case 'protest_replied':
+      return $localize`:@@vendor.pairRights.notify.protestReplied:The owner replied to your review request on a data flow`;
+    case 'protest_withdrawn':
+      return $localize`:@@vendor.pairRights.notify.protestWithdrawn:A review request on a data flow of your integration was withdrawn`;
     case 'protest_decided':
       return $localize`:@@vendor.pairRights.notify.protestDecided:AEC Integrations answered a review of a data flow. Its answer is advice.`;
     case 'objection_declined':

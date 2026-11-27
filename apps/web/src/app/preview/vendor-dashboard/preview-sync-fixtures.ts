@@ -293,6 +293,7 @@ export const PREVIEW_RECEIVED_FLOW_REPORT: PairContest = {
   accept_mode: null,
   protest: null,
   protest_closes_at: null,
+  cooldown_until: null,
   created_at: '2026-11-22T10:00:00.000Z',
   updated_at: '2026-11-22T10:00:00.000Z',
 };

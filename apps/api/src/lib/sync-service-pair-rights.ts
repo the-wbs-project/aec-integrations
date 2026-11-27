@@ -646,6 +646,8 @@ export interface PairRightNotificationMetadata {
   endReason?: RemovalEndReason | null;
   pairPublic: boolean | null;
   pairSlugs: readonly [string, string] | null;
+  /** AECI-2110: on a `protest_filed` row to the owner, when its one reply closes. */
+  replyDueAt?: string | null;
 }
 
 export function pairRightNotificationAudit(
