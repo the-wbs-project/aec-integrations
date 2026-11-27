@@ -67,4 +67,12 @@ describe('VendorLockedNote', () => {
     const el = render({ ...LOCK, source_url: null });
     expect(el.querySelector('[data-testid="locked-note-source"]')).toBeNull();
   });
+
+  // AECI-2123: 12px text at max-w-prose (65ch) ran about 91 characters a line. A rem cap
+  // holds it near 69 and does not re-wrap at the font swap (DESIGN.md, font loading).
+  it('caps the line at a rem measure sized for 12px text', () => {
+    const note = render(LOCK).querySelector('[data-testid="locked-note"]')!;
+    expect(note.classList).toContain('max-w-[24rem]');
+    expect(note.classList).not.toContain('max-w-prose');
+  });
 });

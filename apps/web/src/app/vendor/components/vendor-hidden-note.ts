@@ -18,6 +18,9 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
  * vendor that sees the record, such as the other endpoint of an integration, gets both
  * as `null`. Its note then says only that the value is under review: no reason, no
  * source, and no dispute line, because the dispute is the holder's.
+ *
+ * The line caps at `24rem`, about 69 characters of 12px Atkinson (AECI-2123). `max-w-prose`
+ * ran about 91, because `ch` is a wide digit. A rem measure also holds through the font swap.
  */
 @Component({
   selector: 'aec-vendor-hidden-note',
@@ -25,7 +28,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
   template: `
     <p
       [id]="noteId()"
-      class="max-w-prose text-xs text-(--text-secondary)"
+      class="max-w-[24rem] text-xs text-(--text-secondary)"
       data-testid="hidden-note"
     >
       @if (hide().reason === null) {

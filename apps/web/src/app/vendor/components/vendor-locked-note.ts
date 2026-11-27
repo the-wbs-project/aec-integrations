@@ -18,6 +18,9 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
  * `null`. Its note then says who set the value and links the source, which the public
  * page shows anyway. It has no reason and no dispute line, because the dispute is the
  * holder's.
+ *
+ * The line caps at `24rem`, about 69 characters of 12px Atkinson (AECI-2123). `max-w-prose`
+ * ran about 91, because `ch` is a wide digit. A rem measure also holds through the font swap.
  */
 @Component({
   selector: 'aec-vendor-locked-note',
@@ -25,7 +28,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
   template: `
     <p
       [id]="noteId()"
-      class="max-w-prose text-xs text-(--text-secondary)"
+      class="max-w-[24rem] text-xs text-(--text-secondary)"
       data-testid="locked-note"
     >
       <span class="font-semibold text-(--text-primary)" i18n="@@vendor.locked.setBy"
