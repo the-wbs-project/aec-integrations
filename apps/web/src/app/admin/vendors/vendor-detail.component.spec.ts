@@ -17,7 +17,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import {
+  ActivatedRoute,
+  convertToParamMap,
+  type ParamMap,
+  provideRouter,
+  Router,
+} from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,7 +36,7 @@ import type {
   AdminVendorProductsResponse,
   AdminVendorSeatRow,
 } from '@aeci/shared';
-import { of } from 'rxjs';
+import { BehaviorSubject, of } from 'rxjs';
 
 import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 import type { AdminVendorTab } from './vendor-detail';
@@ -43,6 +49,8 @@ import { VendorDetail } from './vendor-detail';
 
 const VENDOR_ID = '00000000-0000-4000-8000-000000000010';
 const SEAT_ID = '00000000-0000-4000-8000-000000000020';
+/** A second vendor, for the in-place route move (AECI-2131). */
+const OTHER_VENDOR_ID = '00000000-0000-4000-8000-000000000011';
 
 function makeSeat(over: Partial<AdminVendorSeatRow> = {}): AdminVendorSeatRow {
   return {
@@ -218,6 +226,8 @@ async function setup(
   api: ApiMock,
   provisionApi: ProvisionMock = { provisionSeat: vi.fn() },
   tab: AdminVendorTab = 'vendor',
+  /** AECI-2131: emit on this to move the reused instance to another vendor. */
+  paramMap$ = new BehaviorSubject<ParamMap>(convertToParamMap({ id: VENDOR_ID })),
 ) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -244,9 +254,10 @@ async function setup(
         provide: ActivatedRoute,
         useValue: {
           snapshot: {
-            paramMap: new Map([['id', VENDOR_ID]]),
+            paramMap: paramMap$.value,
             queryParamMap: convertToParamMap(tab === 'vendor' ? {} : { tab }),
           },
+          paramMap: paramMap$,
           queryParamMap: of(convertToParamMap(tab === 'vendor' ? {} : { tab })),
         },
       },
@@ -316,6 +327,96 @@ function openDiff(el: HTMLElement, fixture: { detectChanges: () => void }): void
 }
 
 describe('VendorDetail', () => {
+  describe('a move to another vendor re-uses the page (AECI-2131)', () => {
+    const otherVendor = makeVendor({
+      id: OTHER_VENDOR_ID,
+      slug: 'bentley',
+      company_name: 'Bentley Systems',
+    });
+
+    /** Answers by id, the way the API does. */
+    function twoVendorApi(): ApiMock {
+      const api = makeApiMock(makeVendor(), [], [makeProductRow()]);
+      api.getVendor = vi.fn(async (id: string) =>
+        structuredClone(id === OTHER_VENDOR_ID ? otherVendor : makeVendor()),
+      );
+      api.listProducts = vi.fn(async (id: string) => ({
+        data: [
+          makeProductRow(id === OTHER_VENDOR_ID ? { name: 'OpenRoads', slug: 'openroads' } : {}),
+        ],
+        page: 1,
+        perPage: 25,
+        total: 1,
+      }));
+      return api;
+    }
+
+    async function moveTo(
+      fixture: { detectChanges(): void; whenStable(): Promise<unknown> },
+      paramMap$: BehaviorSubject<ParamMap>,
+      id: string,
+    ) {
+      paramMap$.next(convertToParamMap({ id }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('loads and names the new vendor, with its own audit trail', async () => {
+      const paramMap$ = new BehaviorSubject(convertToParamMap({ id: VENDOR_ID }));
+      const { fixture, el, api } = await setup(twoVendorApi(), undefined, 'vendor', paramMap$);
+      expect(el.querySelector('#admin-vendor-heading')?.textContent?.trim()).toBe('Autodesk, Inc.');
+
+      await moveTo(fixture, paramMap$, OTHER_VENDOR_ID);
+      expect(api.getVendor).toHaveBeenLastCalledWith(OTHER_VENDOR_ID);
+      expect(api.listAudit).toHaveBeenLastCalledWith(OTHER_VENDOR_ID, expect.anything());
+      expect(el.querySelector('#admin-vendor-heading')?.textContent?.trim()).toBe(
+        'Bentley Systems',
+      );
+    });
+
+    it('reloads the open Products tab for the new vendor', async () => {
+      const paramMap$ = new BehaviorSubject(convertToParamMap({ id: VENDOR_ID }));
+      const { fixture, el, api } = await setup(twoVendorApi(), undefined, 'products', paramMap$);
+      expect(el.textContent).toContain('Revit');
+
+      await moveTo(fixture, paramMap$, OTHER_VENDOR_ID);
+      expect(api.listProducts).toHaveBeenLastCalledWith(OTHER_VENDOR_ID, expect.anything());
+      expect(el.textContent).toContain('OpenRoads');
+      expect(el.textContent).not.toContain('Revit');
+    });
+
+    it('reloads the open Billing tab for the new vendor', async () => {
+      const paramMap$ = new BehaviorSubject(convertToParamMap({ id: VENDOR_ID }));
+      const { fixture, api } = await setup(twoVendorApi(), undefined, 'billing', paramMap$);
+      expect(api.getBilling).toHaveBeenCalledWith(VENDOR_ID);
+
+      await moveTo(fixture, paramMap$, OTHER_VENDOR_ID);
+      expect(api.getBilling).toHaveBeenLastCalledWith(OTHER_VENDOR_ID);
+    });
+
+    it('drops a late reply for the vendor it moved away from', async () => {
+      const paramMap$ = new BehaviorSubject(convertToParamMap({ id: VENDOR_ID }));
+      const api = twoVendorApi();
+      let resolveFirst: (v: AdminVendorDetail) => void = () => {};
+      api.getVendor = vi.fn((id: string) =>
+        id === VENDOR_ID
+          ? new Promise<AdminVendorDetail>((resolve) => (resolveFirst = resolve))
+          : Promise.resolve(structuredClone(otherVendor)),
+      );
+      const { fixture, el } = await setup(api, undefined, 'vendor', paramMap$);
+
+      await moveTo(fixture, paramMap$, OTHER_VENDOR_ID);
+      resolveFirst(makeVendor());
+      await settle();
+      fixture.detectChanges();
+      expect(el.querySelector('#admin-vendor-heading')?.textContent?.trim()).toBe(
+        'Bentley Systems',
+      );
+    });
+  });
+
   describe('the heading names the entity (AECI-777)', () => {
     it('shows the vendor name once loaded, not the word "Vendor"', async () => {
       const { el } = await setup(makeApiMock(makeVendor()));

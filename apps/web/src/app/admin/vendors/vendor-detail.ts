@@ -12,6 +12,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -22,6 +23,7 @@ import {
   BrnDialogTitle,
 } from '@spartan-ng/brain/dialog';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
 
 import type {
   AdminAuditRow,
@@ -279,7 +281,16 @@ export class VendorDetail {
   private readonly route = inject(ActivatedRoute);
   private readonly breadcrumbs = inject(AdminBreadcrumbStore);
 
-  protected readonly vendorId = signal(this.route.snapshot.paramMap.get('id') ?? '');
+  /** The live param map, not the snapshot (AECI-2131): a move from one vendor's
+   *  page to another re-uses this component instance, so a snapshot read would keep
+   *  showing, and acting on, the first vendor. */
+  protected readonly vendorId = toSignal(this.route.paramMap.pipe(map((p) => p.get('id') ?? '')), {
+    initialValue: this.route.snapshot.paramMap.get('id') ?? '',
+  });
+
+  /** The id the page last loaded for, so the load effect can tell its first run
+   *  (load once, as before) from a move to another vendor (reset, then load). */
+  private loadedVendorId: string | null = null;
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
 
@@ -408,10 +419,24 @@ export class VendorDetail {
   private readonly hydrated = signal(false);
 
   constructor() {
-    afterNextRender(() => {
-      this.hydrated.set(true);
-      void this.load();
-      void this.loadAudit();
+    afterNextRender(() => this.hydrated.set(true));
+
+    // The page's loads, keyed on the route id (AECI-2131). On a move to another
+    // vendor every per-vendor field resets first, and the open tab reloads here
+    // because its lazy effect below only re-fires when the tab changes.
+    effect(() => {
+      const id = this.vendorId();
+      if (!this.hydrated()) return;
+      untracked(() => {
+        const moved = this.loadedVendorId !== null && this.loadedVendorId !== id;
+        this.loadedVendorId = id;
+        if (moved) this.resetVendorState();
+        void this.load();
+        void this.loadAudit();
+        if (!moved) return;
+        if (this.tab() === 'products') void this.loadProducts();
+        else if (this.tab() === 'billing') void this.loadBilling();
+      });
     });
 
     // Lazy per-tab loads. The audit trail is fetched up front because the page
@@ -442,6 +467,46 @@ export class VendorDetail {
     void this.load();
   }
 
+  /** Drop everything that belongs to the vendor the page was showing, so nothing of
+   *  it stays on screen, or in a pending confirmation, once the route names another. */
+  private resetVendorState(): void {
+    this.vendor.set(null);
+    this.notFound.set(false);
+    this.loadFailed.set(false);
+    this.liveMessage.set('');
+
+    this.revokePendingId.set(null);
+    this.revokeConfirmId.set(null);
+    this.revokeFailedMessage.set('');
+    this.revokeReason.set('');
+    this.revokeReasonError.set(false);
+    this.revokeInternalNote.set('');
+
+    this.logoSavedPending = false;
+    this.logoDialog()?.close();
+    this.logoDialogMessage.set('');
+
+    this.productRows.set([]);
+    this.productTotal.set(0);
+    this.productPage.set(1);
+    this.productsLoading.set(true);
+    this.productsFailed.set(false);
+    this.productsRequested = false;
+
+    this.billing.set(null);
+    this.billingLoading.set(true);
+    this.billingFailed.set(false);
+    this.billingRequested = false;
+
+    this.auditRows.set([]);
+    this.auditTotal.set(0);
+    this.auditPage.set(1);
+    this.auditScope.set('all');
+    this.auditLoading.set(true);
+    this.auditFailed.set(false);
+    this.auditEmailsAvailable.set(true);
+  }
+
   private async load(): Promise<void> {
     const id = this.vendorId();
     if (!id) {
@@ -453,14 +518,18 @@ export class VendorDetail {
     this.loadFailed.set(false);
     this.notFound.set(false);
     try {
-      this.vendor.set(await this.api.getVendor(id));
+      const vendor = await this.api.getVendor(id);
+      // A reply for a vendor the route has moved away from is dropped (AECI-2131).
+      if (this.vendorId() !== id) return;
+      this.vendor.set(vendor);
     } catch (err) {
+      if (this.vendorId() !== id) return;
       // A 404 is a different message from "we couldn't load it": one means the
       // id is wrong, the other means retrying might work.
       if (isStatus(err, 404)) this.notFound.set(true);
       else this.loadFailed.set(true);
     } finally {
-      this.loading.set(false);
+      if (this.vendorId() === id) this.loading.set(false);
     }
   }
 
@@ -573,6 +642,8 @@ export class VendorDetail {
     this.revokeFailedMessage.set('');
     try {
       await this.api.revokeSeat(id, seat.user_id, reason, this.revokeInternalNote());
+      // The route moved to another vendor while the revoke ran: its roster is not this one.
+      if (this.vendorId() !== id) return;
       const index = this.seats().findIndex((s) => s.user_id === seat.user_id);
       this.vendor.update((v) =>
         v && v.seats ? { ...v, seats: v.seats.filter((s) => s.user_id !== seat.user_id) } : v,
@@ -636,8 +707,10 @@ export class VendorDetail {
     void this.loadAudit();
     this.billingRequested = false;
     if (this.tab() === 'billing') void this.loadBilling();
+    const id = this.vendorId();
     try {
-      this.vendor.set(await this.api.getVendor(this.vendorId()));
+      const vendor = await this.api.getVendor(id);
+      if (this.vendorId() === id) this.vendor.set(vendor);
     } catch {
       // See above.
     }
@@ -654,8 +727,10 @@ export class VendorDetail {
     void this.loadAudit();
     this.productsRequested = false;
     if (this.tab() === 'products') void this.loadProducts(true);
+    const id = this.vendorId();
     try {
-      this.vendor.set(await this.api.getVendor(this.vendorId()));
+      const vendor = await this.api.getVendor(id);
+      if (this.vendorId() === id) this.vendor.set(vendor);
     } catch {
       // See above.
     }
@@ -716,14 +791,16 @@ export class VendorDetail {
         page: this.productPage(),
         perPage: this.productPerPage,
       });
+      if (this.vendorId() !== id) return;
       this.productRows.set(response.data);
       this.productTotal.set(response.total);
     } catch {
+      if (this.vendorId() !== id) return;
       this.productsFailed.set(true);
       this.productRows.set([]);
       this.productTotal.set(0);
     } finally {
-      this.productsLoading.set(false);
+      if (this.vendorId() === id) this.productsLoading.set(false);
     }
   }
 
@@ -742,11 +819,12 @@ export class VendorDetail {
     if (!this.billing()) this.billingLoading.set(true);
     this.billingFailed.set(false);
     try {
-      this.billing.set(await this.api.getBilling(id));
+      const billing = await this.api.getBilling(id);
+      if (this.vendorId() === id) this.billing.set(billing);
     } catch {
-      this.billingFailed.set(true);
+      if (this.vendorId() === id) this.billingFailed.set(true);
     } finally {
-      this.billingLoading.set(false);
+      if (this.vendorId() === id) this.billingLoading.set(false);
     }
   }
 
@@ -781,15 +859,17 @@ export class VendorDetail {
         perPage: this.auditPerPage,
         scope: this.auditScope(),
       });
+      if (this.vendorId() !== id) return;
       this.auditRows.set(response.data);
       this.auditTotal.set(response.total);
       this.auditEmailsAvailable.set(response.actor_emails_available);
     } catch {
+      if (this.vendorId() !== id) return;
       this.auditFailed.set(true);
       this.auditRows.set([]);
       this.auditTotal.set(0);
     } finally {
-      this.auditLoading.set(false);
+      if (this.vendorId() === id) this.auditLoading.set(false);
     }
   }
 }
