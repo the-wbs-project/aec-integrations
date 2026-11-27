@@ -69,6 +69,38 @@ test.describe('reporting and catalog pages — console recipe as an admin (AECI-
     test.skip(!cookies, NO_SESSION);
   });
 
+  // AECI-2127: in Chromium the date input's last Tab stop is its calendar-picker
+  // button, and there the input matches only :focus-within. Shift+Tab from the
+  // "to" field lands on the "from" field's picker, the stop that drew no ring.
+  for (const { path, from, to } of [
+    { path: '/admin/activity', from: '#admin-activity-from', to: '#admin-activity-to' },
+    {
+      path: '/admin/reindex',
+      from: '#admin-reindex-history-from',
+      to: '#admin-reindex-history-to',
+    },
+  ]) {
+    test(`${path}: a date input keeps its focus ring on the calendar-picker Tab stop`, async ({
+      page,
+      context,
+    }) => {
+      await context.addCookies(cookies!);
+      await stubAll(page);
+      await page.goto(path);
+      await page.locator(to).focus();
+      await page.keyboard.press('Shift+Tab');
+      const ring = await page.locator(from).evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          active: document.activeElement === el,
+          style: s.outlineStyle,
+          width: s.outlineWidth,
+        };
+      });
+      expect(ring).toEqual({ active: true, style: 'solid', width: '3px' });
+    });
+  }
+
   for (const width of [1440, 390, 320]) {
     for (const { path, ready } of PAGES) {
       test(`${path} at ${width}: zero axe violations with rows and forms open, no sideways scroll`, async ({

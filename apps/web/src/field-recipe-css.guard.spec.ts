@@ -41,6 +41,24 @@ describe('.aec-field-control', () => {
     expect(r).toContain('outline-offset: 3px');
   });
 
+  it('paints the ring from :focus-within on date and time controls (AECI-2127)', () => {
+    // Chromium's calendar-picker button is the date input's last Tab stop. While
+    // it holds focus the host matches only :focus-within, so the ring must come
+    // from there, with its own style and colour. `:where()` keeps it no heavier
+    // than the invalid rule, so a focused invalid field keeps its red edge.
+    const start = css.indexOf(".aec-field-control:where(\n    [type='date'],");
+    expect(start).toBeGreaterThan(-1);
+    const r = css.slice(start, css.indexOf('}', start));
+    expect(r).toContain("[type='datetime-local']");
+    expect(r).toContain('):focus-within');
+    expect(r).toContain('border-color: var(--accent-primary)');
+    expect(r).toContain('outline: 3px solid var(--accent-primary)');
+    expect(r).toContain('outline-offset: 3px');
+    expect(css.indexOf(".aec-field-control[aria-invalid='true'] {")).toBeGreaterThan(
+      css.indexOf('):focus-within {'),
+    );
+  });
+
   it('draws a 2px error edge that keeps the box size, declared after focus so it wins', () => {
     const r = rule(".aec-field-control[aria-invalid='true']");
     expect(r).toContain('border-color: var(--status-error)');

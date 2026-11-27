@@ -913,15 +913,6 @@ h1.aec-docs-title,
   border-inline-start-color: var(--border-strong);
 }
 
-/* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
-   trigger), AECI-1764. Unlayered, so it moves every caller at once, including
-   hand-written copies of the class, and wins over any utility beside it.
-   Edge: `--border-field`, 3.71:1 on white. Shape: 12px radius, 44px floor, no
-   shadow. Focus: the edge goes Forest and the 3px outline sits 3px out (an
-   outline, so forced colours keeps it). Invalid: a 2px `--status-error` edge,
-   keyed off `aria-invalid` so the attribute that tells a screen reader is the
-   one that paints it. Invalid is declared last, so it also wins while focused. */
-
 /* The one chip (AECI-1763, DESIGN.md §5 Badges, clash 22). `aec-chip` sets the
    data attributes and nothing else, so this block is the whole recipe. It is
    unlayered for the history the `.aec-nav-tab` note records, and the chip's edge
@@ -1098,11 +1089,14 @@ button.aec-chip:focus-visible {
   }
 }
 
-/* The shared form-control border (FIELD_INPUT_CLASS and the `aec-select`
-   trigger). Unlayered for the history the `.aec-nav-tab` note records. Rest is
-   the 3:1 `--border-input`. Invalid is
-   `--status-error`, keyed off `aria-invalid` so the attribute that tells a
-   screen reader is the one that paints the edge. */
+/* The shared form-control recipe (FIELD_INPUT_CLASS and the `aec-select`
+   trigger), AECI-1764. Unlayered, so it moves every caller at once, including
+   hand-written copies of the class, and wins over any utility beside it.
+   Edge: `--border-field`, 3.71:1 on white. Shape: 12px radius, 44px floor, no
+   shadow. Focus: the edge goes Forest and the 3px outline sits 3px out (an
+   outline, so forced colours keeps it). Invalid: a 2px `--status-error` edge,
+   keyed off `aria-invalid` so the attribute that tells a screen reader is the
+   one that paints it. Invalid is declared last, so it also wins while focused. */
 .aec-field-control {
   border-color: var(--border-field);
   border-radius: var(--radius-control);
@@ -1117,6 +1111,25 @@ button.aec-chip:focus-visible {
 .aec-field-control:focus-visible {
   border-color: var(--accent-primary);
   outline-width: 3px;
+  outline-offset: 3px;
+}
+
+/* A date or time control in Chromium (AECI-2127). Its last internal Tab stop is
+   the calendar-picker button, and while that button holds focus the input itself
+   matches only `:focus-within`, never `:focus-visible`. Shift+Tab lands there
+   first, so the ring above vanished for a keyboard user. This rule paints the same
+   ring from `:focus-within`, with its own style and colour because the recipe's
+   outline utilities are `focus-visible:` only. The type list sits in `:where()`
+   so this rule weighs the same as the invalid rule below, which then wins. */
+.aec-field-control:where(
+    [type='date'],
+    [type='datetime-local'],
+    [type='month'],
+    [type='week'],
+    [type='time']
+  ):focus-within {
+  border-color: var(--accent-primary);
+  outline: 3px solid var(--accent-primary);
   outline-offset: 3px;
 }
 
