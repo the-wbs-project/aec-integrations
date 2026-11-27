@@ -44,6 +44,7 @@ import {
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
   sendContestSubmittedOwnerEmail,
+  sendPairReportSubmittedOwnerEmail,
   sendClaimOwnerFallbackAlert,
   sendCronJobFailedAlert,
   sendLitigationHoldReminder,
@@ -473,6 +474,25 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         contestReason: 'It is one-way',
         answerBy: '2026-10-16T14:30:00.000Z',
         dedupeKey: 'contest-submitted-owner:ct-1:p',
+      }),
+  },
+  'pair-report-submitted-owner': {
+    links: true,
+    send: (c) =>
+      sendPairReportSubmittedOwnerEmail(c, {
+        ...SEAT,
+        reportId: 'pc-1',
+        integrationName: 'Revit and MicroStation',
+        flowName: 'Models',
+        currentDirection: 'a_to_b',
+        proposedDirection: 'both',
+        productAName: 'Revit',
+        productBName: 'MicroStation',
+        submitterVendorName: 'Autodesk',
+        reason: 'It syncs both ways',
+        answerBy: '2026-10-16T14:30:00.000Z',
+        pairSlugs: ['revit', 'microstation'],
+        dedupeKey: 'pair-report-submitted-owner:pc-1:p',
       }),
   },
   'contest-protest-reply-reminder': {

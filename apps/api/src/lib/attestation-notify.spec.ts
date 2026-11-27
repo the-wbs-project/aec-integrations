@@ -23,6 +23,7 @@ import {
   digestDay,
   groupFindings,
   loadOpenOwnerContestCounts,
+  loadOpenOwnerPairReportCounts,
   loadUnreadThreadCounts,
   NOTIFICATION_SENT_ACTION,
   NOTIFICATION_SUPPRESSION_DAYS,
@@ -41,12 +42,14 @@ import {
   claimThreadReads,
   claimThreads,
   claims,
+  connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   notificationPreferences,
   notificationSends,
   products,
   profiles,
+  syncServicePairContests,
   taxonomyDataObjects,
   vendors,
 } from '../db/schema';
@@ -1176,6 +1179,174 @@ describe('runAttestationNotifySweep — open change requests line (AECI-1942)', 
 
   it('sends once per seat per day: a same-day replay is a duplicate', async () => {
     await contest();
+    await sweep([]);
+    await sweep([]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runAttestationNotifySweep — open data flow reports line (AECI-2229)', () => {
+  const PAIR_ONE = u(751);
+  const CLAIM_ONE = u(752);
+  let n = 0;
+
+  beforeEach(async () => {
+    n = 0;
+    await t.db.insert(products).values([
+      { id: u(761), slug: 'acme-sync', name: 'Acme Sync', productRole: 'connector' },
+      { id: u(762), slug: 'globex-app', name: 'Globex App' },
+      { id: u(763), slug: 'initech-app', name: 'Initech App' },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR_ONE,
+      connectorProductId: u(761),
+      productAId: u(762),
+      productBId: u(763),
+      direction: 'a_to_b',
+      builtByVendorId: ACME,
+    });
+    await t.db.insert(taxonomyDataObjects).values({ id: u(764), slug: 'rfis', name: 'RFIs' });
+    await t.db.insert(claims).values({
+      id: CLAIM_ONE,
+      connectorEvidencedPairId: PAIR_ONE,
+      dataObjectId: u(764),
+      direction: 'a_to_b',
+    });
+  });
+
+  async function report(
+    over: Partial<typeof syncServicePairContests.$inferInsert> = {},
+  ): Promise<void> {
+    await t.db.insert(syncServicePairContests).values({
+      id: u(770 + ++n),
+      kind: 'data_flow',
+      evidencedPairId: PAIR_ONE,
+      claimId: CLAIM_ONE,
+      currentDirection: 'a_to_b',
+      proposedDirection: 'both',
+      reason: 'RFIs go both ways.',
+      submitterVendorId: GLOBEX,
+      routedTo: 'owner',
+      ownerVendorId: ACME,
+      status: 'open',
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+      ...over,
+    });
+  }
+
+  function sentBodies(): Array<{ to: string; subject: string; text: string }> {
+    return fetchSpy.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+  }
+
+  describe('loadOpenOwnerPairReportCounts', () => {
+    it('counts open owner-routed reports per owner vendor', async () => {
+      await report();
+      await report({ proposedDirection: null });
+      expect(Object.fromEntries(await loadOpenOwnerPairReportCounts(t.db as Db))).toEqual({
+        [ACME]: 2,
+      });
+    });
+
+    it('ignores a decided or withdrawn report, and one routed to AECi', async () => {
+      await report({ status: 'declined', decidedAt: daysAgo(1) });
+      await report({ status: 'accepted', decidedAt: daysAgo(1) });
+      await report({ status: 'withdrawn' });
+      await report({ routedTo: 'aeci', ownerVendorId: null });
+      await report({
+        kind: 'existence',
+        claimId: null,
+        currentDirection: null,
+        proposedDirection: null,
+        routedTo: 'aeci',
+        ownerVendorId: null,
+      });
+      expect((await loadOpenOwnerPairReportCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('still counts a report past its 30-day window: the owner may answer late', async () => {
+      await report({ createdAt: daysAgo(70), updatedAt: daysAgo(70) });
+      expect((await loadOpenOwnerPairReportCounts(t.db as Db)).get(ACME)).toBe(1);
+    });
+  });
+
+  it('sends a digest whose only content is the report line, and writes no ledger row', async () => {
+    await report();
+
+    const result = await sweep([]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('1 data flow report is waiting for your answer');
+    expect(sent[0].text).toContain(
+      'Accept or decline each one under Data flow reports you received in Messages',
+    );
+    // It never quotes the report: the counter-party wrote it.
+    expect(sent[0].text).not.toContain('RFIs go both ways.');
+    expect(result).toMatchObject({ found: 0, digestsSent: 1 });
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it('adds the line to a digest that also lists findings, in one email', async () => {
+    await report();
+    await report({ proposedDirection: null });
+
+    await sweep([finding({ vendorId: ACME })]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('Procore confirmed RFIs with Revit');
+    expect(sent[0].text).toContain(
+      '2 data flow reports are waiting for your answer. Answer each one under Data flow reports you received',
+    );
+  });
+
+  it('leads with the change request line when both are open, and carries the report line too', async () => {
+    await report();
+    await t.db.insert(integrations).values({
+      id: u(780),
+      sourceProductId: u(762),
+      targetProductId: u(763),
+      builtByVendorId: ACME,
+    });
+    await t.db.insert(integrationFieldChallenges).values({
+      id: u(781),
+      integrationId: u(780),
+      field: 'name',
+      currentValue: 'Globex for Initech',
+      proposedValue: 'Initech for Globex',
+      reason: 'The listing reads the other way.',
+      submitterVendorId: GLOBEX,
+      routedTo: 'owner',
+      ownerVendorId: ACME,
+      status: 'open',
+      createdAt: daysAgo(2),
+      updatedAt: daysAgo(2),
+    });
+
+    await sweep([]);
+
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe('1 change request is waiting for your answer');
+    expect(sent[0].text).toContain('1 data flow report is waiting for your answer.');
+  });
+
+  it('tells only the owner, never the submitter', async () => {
+    await report();
+    await sweep([]);
+    expect(sentBodies().map((m) => m.to)).not.toContain('globex@example.com');
+  });
+
+  it('respects the nudge mute: a muted seat gets no report-only digest', async () => {
+    await report();
+    await mute(ACME_SEAT);
+    await sweep([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends once per seat per day: a same-day replay is a duplicate', async () => {
+    await report();
     await sweep([]);
     await sweep([]);
     expect(fetchSpy).toHaveBeenCalledTimes(1);

@@ -2,11 +2,13 @@
  * The protest and decline emails (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.12.10).
  *
- * Four senders, all fire-and-forget after a committed write or from a cron:
+ * Five senders, all fire-and-forget after a committed write or from a cron:
  *
  *   - {@link emailContestSubmittedToOwner} (AECI-1942, §11b.8): an owner-routed
  *     contest was submitted. The owner vendor's seats get `contest-submitted-owner`
  *     with the date after which their silence counts as a decline (30 days).
+ *   - {@link emailPairReportSubmittedToOwner} (AECI-2229, §11e.7): the same for an
+ *     owner-routed Sync Service data flow report, as `pair-report-submitted-owner`.
  *   - {@link emailProtestFiled}: a protest was filed. The owner vendor's seats get
  *     `contest-protest-opened` with the 14-day reply deadline, and `SUPPORT_EMAIL`
  *     gets `protest-submitted-alert`.
@@ -32,7 +34,12 @@
  * send failure to an outcome.
  */
 
-import { addContestDays, CONTEST_OWNER_SILENCE_DAYS, type ContestProtestBasis } from '@aeci/shared';
+import {
+  addContestDays,
+  CONTEST_OWNER_SILENCE_DAYS,
+  PAIR_PROTEST_WINDOW_DAYS,
+  type ContestProtestBasis,
+} from '@aeci/shared';
 import { and, eq, gt, inArray, isNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -44,12 +51,14 @@ import {
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
   sendContestSubmittedOwnerEmail,
+  sendPairReportSubmittedOwnerEmail,
   sendProtestSubmittedAlert,
   type ContestEmailFacts,
   type EmailContext,
   type EmailOutcome,
 } from './email';
 import { contestAnchorOf, loadContestTarget, type ContestRow } from './integration-contests';
+import { pairContestWireRows, type PairContestRow } from './sync-service-pair-contests';
 import {
   loadVendorSeatRecipients,
   type FetchSeatEmails,
@@ -82,6 +91,8 @@ export const declineWindowKey = (contestId: string, profileId: string) =>
   `contest-declined-protest-window:${contestId}:${profileId}`;
 export const contestSubmittedOwnerKey = (contestId: string, profileId: string) =>
   `contest-submitted-owner:${contestId}:${profileId}`;
+export const pairReportSubmittedOwnerKey = (reportId: string, profileId: string) =>
+  `pair-report-submitted-owner:${reportId}:${profileId}`;
 
 // ─── Shared reads ────────────────────────────────────────────────────────────
 
@@ -184,6 +195,63 @@ export async function emailContestSubmittedToOwner(
     }
   } catch (error) {
     warn(c, `Contest owner email failed for ${row.id}`, error);
+  }
+}
+
+// ─── Data flow report submitted to the owner ─────────────────────────────────
+
+/**
+ * Email the owner's seats about an owner-routed Sync Service data flow report that
+ * just committed (AECI-2229, §11e.7). `row` is the report as the submit batch wrote it.
+ * Only a data flow report on a claimed pair routes to the owner (§11e.4). An
+ * AECi-routed report sends nothing here; the route sends AECi its own alert. The
+ * answer date is the submit plus the 30 days after which `pairProtestWindow` lets the
+ * submitter protest the owner's silence. Never rejects.
+ */
+export async function emailPairReportSubmittedToOwner(
+  c: EmailContext,
+  db: Db,
+  row: PairContestRow,
+  deps: ProtestEmailDeps = {},
+): Promise<void> {
+  try {
+    if (row.routedTo !== 'owner' || !row.ownerVendorId || row.kind !== 'data_flow') return;
+    const ownerVendorId = row.ownerVendorId;
+    const [wire] = await pairContestWireRows(db, [row]);
+    if (!wire?.flow) return;
+    const owner = await db.query.vendors.findFirst({
+      columns: { companyName: true, slug: true },
+      where: eq(vendors.id, ownerVendorId),
+    });
+    const a = wire.pair.product_a;
+    const b = wire.pair.product_b;
+    const integrationName =
+      wire.pair.name?.trim() || (a && b ? `${a.name} and ${b.name}` : 'an integration');
+    const answerBy = addContestDays(row.createdAt, PAIR_PROTEST_WINDOW_DAYS);
+    const seats = await ownerSeats(db, c.env, ownerVendorId, deps);
+    // One connection at a time: sequential sends.
+    for (const seat of seats) {
+      await sendPairReportSubmittedOwnerEmail(c, {
+        to: seat.email,
+        vendorId: ownerVendorId,
+        vendorSlug: owner?.slug ?? null,
+        vendorName: owner?.companyName ?? null,
+        reportId: row.id,
+        integrationName,
+        flowName: wire.flow.data_object_name,
+        currentDirection: wire.flow.current_direction,
+        proposedDirection: wire.flow.proposed_direction,
+        productAName: a?.name ?? null,
+        productBName: b?.name ?? null,
+        submitterVendorName: wire.submitter_name ?? 'A vendor',
+        reason: row.reason,
+        answerBy,
+        pairSlugs: a && b ? [a.slug, b.slug] : null,
+        dedupeKey: pairReportSubmittedOwnerKey(row.id, seat.profileId),
+      });
+    }
+  } catch (error) {
+    warn(c, `Data flow report owner email failed for ${row.id}`, error);
   }
 }
 

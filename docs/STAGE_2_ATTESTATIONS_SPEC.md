@@ -1601,6 +1601,11 @@ seat) is history. See the as-built note at the end of §7.3.
   ahead of the thread line, because the contest's 30-day answer window runs against it. Like the
   thread line it is enough to send a digest alone, writes no `notification.sent` row, and never
   quotes the request.
+- **Open data flow reports (AECI-2229).** The digest also carries one line per seat, "{N} data flow
+  reports are waiting for your answer". It counts the open Sync Service data flow reports routed to
+  the seat's company as owner (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.7). With no finding it leads the
+  digest when there is no change requests line, and ahead of the thread line. It follows the same
+  rules as the change requests line.
 - **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day (since AECI-1220: `SUPPORT_EMAIL`).
   The key is `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`. It is per
   address because several addresses would otherwise collide on one key.

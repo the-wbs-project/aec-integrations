@@ -541,6 +541,24 @@ export const NOTIFICATIONS = {
       "Tells the owner's seats a vendor contested a field on its integration, and the date after which its silence counts as a decline.",
     note: 'AECI-1942. Owner-routed submits only, sent beside the portal-contest-submitted row. The attestation nudge mute does not cover it: missing it can cost the owner the field. Always on: carries the 30-day answer date.',
   },
+  'pair-report-submitted-owner': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/integrations/:id/pair-contests (routes/vendor-pair-contests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per seat per report: key pair-report-submitted-owner:{reportId}:{profileId}. A report is submitted once.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e.7',
+    summary:
+      "Tells the owner's seats an endpoint vendor reported a wrong data flow on its Sync Service pair, and the date after which its silence lets the vendor ask AECi to review it.",
+    note: 'AECI-2229. Owner-routed data flow reports only, sent beside the portal-sync-service-pair-report row. An existence report routes to AECi and sends nothing here. The attestation nudge mute does not cover it: missing it can cost the owner the flow. Always on: carries the 30-day answer date.',
+  },
   'contest-protest-reply-reminder': {
     channel: 'email',
     audience: 'external',
@@ -811,8 +829,8 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
-      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads and a line counting the change requests waiting for its answer.',
-    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads that still have their claim (AECI-1542), with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. AECI-1942 added the contest line, "{N} change requests are waiting for your answer": open owner-routed field contests whose owner is the seat\'s vendor. It follows the same rules as the thread line. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
+      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads, a line counting the change requests waiting for its answer and a line counting the data flow reports waiting for its answer.',
+    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads that still have their claim (AECI-1542), with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. AECI-1942 added the contest line, "{N} change requests are waiting for your answer": open owner-routed field contests whose owner is the seat\'s vendor. It follows the same rules as the thread line. AECI-2229 added the data flow report line, "{N} data flow reports are waiting for your answer": open owner-routed Sync Service data flow reports whose owner is the seat\'s vendor, with the same rules. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
   },
   'attestation-ops-digest': {
     channel: 'email',
@@ -1456,7 +1474,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11e',
     summary:
       'Tells the owner when a data flow report on its Sync Service pair is filed or withdrawn, and the filing vendor when a report it filed is decided or its protest is answered (rulings 9 and 10 on AECI-2035).',
-    note: 'Not pausable: a portal row, not email. An existence report routes to AECi, so its filing tells no vendor.',
+    note: 'Since AECI-2229 the pair-report-submitted-owner email carries the report_submitted event too, and the attestation-digest counts the open ones. Not pausable: a portal row, not email. An existence report routes to AECi, so its filing tells no vendor.',
   },
   'portal-claim-added': {
     channel: 'portal',

@@ -9,9 +9,10 @@
  *   2. sends ONE `attestation-digest` per unmuted seat per day, listing every due
  *      finding for that seat's vendor, plus one line counting the seat's unread
  *      private row threads (§15.8, AECI-1537), and one line counting the open
- *      change requests waiting for the vendor's answer (AECI-1942). Either line
- *      alone is enough to send; neither writes a ledger row, since the portal has
- *      its own thread and contest notices;
+ *      change requests waiting for the vendor's answer (AECI-1942), and one line
+ *      counting the open Sync Service data flow reports waiting for it (AECI-2229).
+ *      Any of these lines alone is enough to send; none writes a ledger row, since
+ *      the portal has its own thread, contest and report notices;
  *   3. sends ONE `attestation-ops-digest` per `SUPPORT_EMAIL` address per day,
  *      listing every due ops finding;
  *   4. records every due finding in `audit_log` (the ledger that is also the portal
@@ -124,6 +125,7 @@ import {
   claimThreads,
   integrationFieldChallenges,
   profiles,
+  syncServicePairContests,
   vendors,
 } from '../db/schema';
 import type { AttestationNotificationId } from './notifications/registry';
@@ -503,6 +505,35 @@ export async function loadOpenOwnerContestCounts(db: Db): Promise<Map<string, nu
   return out;
 }
 
+/**
+ * Open Sync Service data flow reports per owner vendor (AECI-2229, §11e.7), as vendor
+ * id to count.
+ *
+ * A report counts while it is `open` and routed to its owner, the vendor frozen on the
+ * row at submit. Those are the reports whose 30-day answer window runs against that
+ * vendor (`pairProtestWindow`). An AECi-routed report (an existence report, or a data
+ * flow report on an unclaimed pair) is AECi's to answer and does not count. A late
+ * report still counts: the owner may answer it until the submitter protests.
+ *
+ * `sync_service_pair_contests_status_idx` leads with `(status, routed_to)`.
+ */
+export async function loadOpenOwnerPairReportCounts(db: Db): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ vendorId: syncServicePairContests.ownerVendorId, n: sql<number>`count(*)` })
+    .from(syncServicePairContests)
+    .where(
+      and(
+        eq(syncServicePairContests.status, 'open'),
+        eq(syncServicePairContests.routedTo, 'owner'),
+        isNotNull(syncServicePairContests.ownerVendorId),
+      ),
+    )
+    .groupBy(syncServicePairContests.ownerVendorId);
+  const out = new Map<string, number>();
+  for (const r of rows) if (r.vendorId) out.set(r.vendorId, Number(r.n));
+  return out;
+}
+
 async function loadVendorNames(db: Db, vendorIds: readonly string[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   for (const batch of chunk([...new Set(vendorIds)], SEAT_LOOKUP_CHUNK)) {
@@ -577,7 +608,16 @@ export async function runAttestationNotifySweep(
   const unreadThreads = await loadUnreadThreadCounts(db);
   // AECI-1942: the open change requests line rides it the same way.
   const openContests = await loadOpenOwnerContestCounts(db);
-  if (found.length === 0 && unreadThreads.size === 0 && openContests.size === 0) return result;
+  // AECI-2229: so does the open data flow reports line.
+  const openPairReports = await loadOpenOwnerPairReportCounts(db);
+  if (
+    found.length === 0 &&
+    unreadThreads.size === 0 &&
+    openContests.size === 0 &&
+    openPairReports.size === 0
+  ) {
+    return result;
+  }
 
   // Suppression first, then the cap, so a suppressed backlog cannot starve the
   // findings that are actually due.
@@ -615,13 +655,23 @@ export async function runAttestationNotifySweep(
   // ── Every read, and the lazy token create, BEFORE the first send. A throw here
   //    aborts the run with nothing sent and nothing recorded.
   // A vendor with no finding is in the run only for its seats' unread threads, and
-  // only those seats get a digest. A vendor with open change requests (AECI-1942) is
-  // in the run for every seat, because the requests are the company's.
+  // only those seats get a digest. A vendor with open change requests (AECI-1942) or
+  // open data flow reports (AECI-2229) is in the run for every seat, because the
+  // requests are the company's.
   const threadVendorIds = [...unreadThreads.values()].map((t) => t.vendorId);
-  const vendorIds = [...new Set([...byVendor.keys(), ...openContests.keys(), ...threadVendorIds])];
+  const vendorIds = [
+    ...new Set([
+      ...byVendor.keys(),
+      ...openContests.keys(),
+      ...openPairReports.keys(),
+      ...threadVendorIds,
+    ]),
+  ];
   const seatsByVendor = await loadVendorSeats(db, vendorIds);
   for (const [vendorId, seats] of seatsByVendor) {
-    if (byVendor.has(vendorId) || openContests.has(vendorId)) continue;
+    if (byVendor.has(vendorId) || openContests.has(vendorId) || openPairReports.has(vendorId)) {
+      continue;
+    }
     seatsByVendor.set(
       vendorId,
       seats.filter((id) => unreadThreads.has(id)),
@@ -689,6 +739,7 @@ export async function runAttestationNotifySweep(
           findings: digest,
           unreadThreads: unreadThreads.get(profileId)?.count ?? 0,
           openContests: openContests.get(vendorId) ?? 0,
+          openPairReports: openPairReports.get(vendorId) ?? 0,
           muteToken: pref?.muteToken ?? null,
           dedupeKey: vendorDigestKey(vendorId, profileId, day),
         }),
