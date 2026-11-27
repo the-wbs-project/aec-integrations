@@ -1987,6 +1987,8 @@ or the support copy, on this tier, from this page. §13 D24 records the choices 
   the click handler, never from an `effect()`). The dialog says what stops or restarts and
   that it applies to this tier only, and takes an optional reason that goes in the audit row.
   The table updates from the PUT's response. A polite live region announces the change.
+  While the PUT runs the dialog cannot be closed: Escape, the backdrop and Cancel are all
+  refused. A refused change keeps the dialog open and moves focus to its alert (AECI-2130).
 - **What a pause does to a send.** The transport reads the switches once per send call: one
   D1 query, on the primary, for that template and the support copy. A paused template makes
   no Resend call, writes a ledger row with outcome `paused`, counts `aeci.email.send` with
