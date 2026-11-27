@@ -688,7 +688,69 @@ describe('ContestQueue', () => {
   });
 
   it('keeps the structure axe relies on: one h2, named groups, one live region', async () => {
-    const { el } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
+    // AECI-2191: the Sync Service lists are loaded too, one record each, so every table
+    // on the page renders.
+    const pair = {
+      integration_id: uuid(30),
+      anchor: 'evidenced_pair',
+      name: 'Procore and Acumatica (Rivets Sync)',
+      connector: { id: uuid(20), name: 'Rivets Sync', slug: 'rivets-sync' },
+      product_a: { id: uuid(10), name: 'Procore', slug: 'procore' },
+      product_b: { id: uuid(11), name: 'Acumatica', slug: 'acumatica' },
+    };
+    const report = {
+      id: uuid(301),
+      kind: 'existence',
+      pair,
+      flow: null,
+      reason: 'Not offered.',
+      submitter_name: 'Acumatica Inc',
+      routed_to: 'aeci',
+      owner_name: null,
+      status: 'open',
+      protest: null,
+      key_rows: [],
+      retract_by: null,
+      decided_at: null,
+      created_at: '2026-11-23T09:30:00.000Z',
+    };
+    const api = Object.assign(makeApiMock([makeContest({ id: 'k1' })]), {
+      listPairContests: vi.fn(async (q: { protests?: boolean; retractions?: boolean } = {}) => ({
+        data: [
+          q.retractions
+            ? {
+                ...report,
+                id: uuid(302),
+                status: 'accepted',
+                retract_by: '2026-12-02T05:00:00.000Z',
+              }
+            : q.protests
+              ? {
+                  ...report,
+                  id: uuid(303),
+                  status: 'declined',
+                  protest: { status: 'open', reason: 'No.', protested_at: report.created_at },
+                }
+              : report,
+        ],
+      })),
+      listVetoes: vi.fn(async () => ({
+        data: [
+          {
+            id: uuid(401),
+            pair,
+            vendor_name: 'Procore Inc',
+            reason_code: 'not_supported',
+            reason: 'We do not support this integration',
+            filed_at: '2026-11-21T09:30:00.000Z',
+            objection: null,
+            objection_answer_due: null,
+            owner_name: null,
+          },
+        ],
+      })),
+    });
+    const { el } = await setup(api);
     expect(el.querySelectorAll('h2')).toHaveLength(1);
     expect(el.querySelector('h1')).toBeNull();
     const groups = [...el.querySelectorAll('[role="group"]')];
@@ -699,17 +761,41 @@ describe('ContestQueue', () => {
       expect(label?.textContent?.trim()).toBeTruthy();
     }
     expect(el.querySelectorAll('[aria-live]')).toHaveLength(1);
-    // AECI-2102: one table, its region named by the caption; each record a row header.
-    // AECI-2042's Sync Service section below the table is a separate section with its
-    // own h3 and h4 headings, so no heading may sit anywhere else: none per record.
-    const pairRights = el.querySelector('aec-admin-pair-rights') as HTMLElement;
-    const headings = [...el.querySelectorAll('h3, h4')];
-    expect(headings.filter((h) => !pairRights.contains(h))).toEqual([]);
-    // AECI-2170 adds "To retract in the review app": four h4 lists.
-    expect(headings.map((h) => h.tagName)).toEqual(['H3', 'H4', 'H4', 'H4', 'H4']);
-    const region = el.querySelector('[role="region"]') as HTMLElement;
-    expect(el.querySelector(`#${region.getAttribute('aria-labelledby')}`)?.tagName).toBe('CAPTION');
-    expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(1);
+    // AECI-2191, as on /admin/requests: one heading per table and none below them, so no
+    // exclusion. The Sync Service section nests under this page's h2, so its umbrella is
+    // an h3 and each of its four tables an h4 (AECI-2170 added the retractions).
+    expect(
+      [...el.querySelectorAll('h2, h3, h4, h5, h6')].map(
+        (h) => `${h.tagName} ${h.textContent?.trim()}`,
+      ),
+    ).toEqual([
+      'H2 Change requests',
+      'H3 Sync Service integrations',
+      'H4 Reports',
+      'H4 To retract in the review app',
+      "H4 Reviews of an owner's answer",
+      'H4 Removals in force',
+    ]);
+    expect(el.querySelector('table :is(h1, h2, h3, h4, h5, h6)')).toBeNull();
+    // Five tables, each a region named by its caption; each record a row header.
+    const regions = [...el.querySelectorAll('[role="region"]')];
+    expect(
+      regions.map((region) => {
+        const caption = el.querySelector(`#${region.getAttribute('aria-labelledby')}`);
+        return [
+          caption?.tagName,
+          caption?.textContent?.trim(),
+          region.querySelectorAll('tbody th[scope="row"]').length,
+        ];
+      }),
+    ).toEqual([
+      ['CAPTION', 'Change requests', 1],
+      ['CAPTION', 'Reports', 1],
+      ['CAPTION', 'To retract in the review app', 1],
+      ['CAPTION', "Reviews of an owner's answer", 1],
+      ['CAPTION', 'Removals in force', 1],
+    ]);
+    expect(el.querySelectorAll('tbody th[scope="row"]')).toHaveLength(5);
   });
 
   it('is one table row per change request, its detail opened by a named disclosure (AECI-2102)', async () => {

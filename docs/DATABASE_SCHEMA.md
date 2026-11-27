@@ -2192,6 +2192,16 @@ company V keeps an expired row only when the row is V's. `auditRowOfVendor` in
 | a `review` row of V's product | moderation of reviews of V's products |
 | a `vendor_request` row whose request targets V, or V's product | claims on V, including rejections, which name no vendor |
 | `actor_id` is a profile with `vendor_id = V` | what V's current seats did |
+| a Sync Service removal, objection or report, an owner's answer, or AECi's flow correction, whose table names V as filer or owner, or reaches V's integration, evidenced pair, claim or pair key (connector, A, B) | Sync Service records, for every party (AECI-2191) |
+| a claim thread V is on or whose claim is V's, its messages and acknowledgments; a field contest V filed or owns or on V's row | threads and contests, which name only the acting side |
+| a review reply or update on a review of V's product; a product version or product request about V's product | review and product records filed under their own ids |
+| a billing account, license grant, agreement acceptance, suspension, seat invite, product proposal or DMCA notice whose row names V | V's own records, when a notice row names its recipient instead |
+
+`AUDIT_ENTITY_HOLD_TIES` in the same file classifies every `entity_type` as `entity` (a tie above
+reads its table), `row-keys` (only the row's own keys reach it) or `none` (no company owns it). A
+spec fails when a value in `AUDIT_ENTITY_TYPES` is unclassified, or when the classification and
+the branches disagree. An admin row about one of V's seats (`entity_type = 'profile'`) is not
+V's: only what a current seat did is (Chris's ruling of 2026-11-27, AECI-2191).
 
 **The workflow tables use the same ties (AECI-1913).** `workflowRowOfVendor` in the same file
 reads a `workflow_instances` row as V's when any of these holds. Its transitions follow it.

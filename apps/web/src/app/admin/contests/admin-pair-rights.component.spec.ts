@@ -160,6 +160,24 @@ const buttonsByText = (f: ComponentFixture<unknown>, label: string) =>
   [...el(f).querySelectorAll('button')].filter(
     (b) => b.textContent?.trim() === label && !b.closest('form[hidden]'),
   );
+/** Open a record's detail row by its leading disclosure (AECI-2191). */
+const openRow = async (f: ComponentFixture<unknown>, key: string) => {
+  const toggle = el(f).querySelector<HTMLButtonElement>(`button[aria-controls="${key}-detail"]`)!;
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(el(f).querySelector<HTMLElement>(`#${key}-detail`)!.hidden).toBe(true);
+  toggle.click();
+  await settle(f);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(el(f).querySelector<HTMLElement>(`#${key}-detail`)!.hidden).toBe(false);
+};
+/** A list's console table: the region, named by its caption (AECI-2191). */
+const regionOf = (f: ComponentFixture<unknown>, list: string) => {
+  const region = el(f).querySelector<HTMLElement>(`[${list}] [role="region"]`);
+  if (!region) return null;
+  const caption = el(f).querySelector(`#${region.getAttribute('aria-labelledby')}`);
+  return { region, caption, rowHeads: [...region.querySelectorAll('tbody th[scope="row"]')] };
+};
+const VETO_KEY = `veto-${VETO.id}`;
 const type = (node: HTMLTextAreaElement, value: string) => {
   node.value = value;
   node.dispatchEvent(new Event('input'));
@@ -186,9 +204,11 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
     const t = text(fixture);
     expect(t).toContain('Received Nov 22, 2026');
     expect(t).toContain('Answer by Nov 30, 2026');
-    expect(el(fixture).querySelector('[data-testid="objection-overdue"]')?.textContent).toContain(
-      'Answer overdue',
-    );
+    const chip = el(fixture).querySelector<HTMLElement>('[data-testid="objection-overdue"]');
+    expect(chip?.textContent).toContain('Answer overdue');
+    // AECI-2191: the chip sits in the removal's row, in the Objection column, critical.
+    expect(chip?.closest('tbody')?.querySelector('tr')?.contains(chip!)).toBe(true);
+    expect(chip?.querySelector('.aec-chip')?.getAttribute('data-tone')).toBe('critical');
   });
 
   it('does not mark an objection overdue before its answer-by date', async () => {
@@ -209,6 +229,7 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
 
   it('accepting an objection needs a note and sends the decision', async () => {
     const fixture = await mount();
+    await openRow(fixture, VETO_KEY);
     buttonsByText(fixture, 'Accept and end the removal')[0]!.click();
     await settle(fixture);
     const form = el(fixture).querySelector<HTMLFormElement>(
@@ -227,6 +248,7 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
 
   it('declining needs a note too', async () => {
     const fixture = await mount();
+    await openRow(fixture, VETO_KEY);
     buttonsByText(fixture, 'Decline')[0]!.click();
     await settle(fixture);
     const forms = [
@@ -248,6 +270,7 @@ describe('AdminPairRights — removals and objections (AECI-2192)', () => {
 
   it('"End this removal" needs one of the five end reasons and a note', async () => {
     const fixture = await mount();
+    await openRow(fixture, VETO_KEY);
     buttonsByText(fixture, 'End this removal')[0]!.click();
     await settle(fixture);
     const form = el(fixture).querySelector<HTMLFormElement>(`#lift-form-${VETO.id}`)!;
@@ -287,6 +310,7 @@ describe('AdminPairRights — a not offered report acts on the whole pair (AECI-
   it('previews every listing the accept retires, whose, and how many to retract', async () => {
     lists([REPORT], []);
     const fixture = await mount();
+    await openRow(fixture, `rpt-${REPORT.id}`);
     buttonsByText(fixture, 'Accept')[0]!.click();
     await settle(fixture);
     const preview = el(fixture).querySelector('[data-admin-accept-preview]')!;
@@ -310,6 +334,7 @@ describe('AdminPairRights — a not offered report acts on the whole pair (AECI-
   it('says it retires nothing when no vendor holds a live listing', async () => {
     lists([{ ...REPORT, key_rows: REPORT.key_rows!.filter((k) => k.held === 'aeci') }], []);
     const fixture = await mount();
+    await openRow(fixture, `rpt-${REPORT.id}`);
     buttonsByText(fixture, 'Accept')[0]!.click();
     await settle(fixture);
     const preview = el(fixture).querySelector('[data-admin-accept-preview]')!;
@@ -320,6 +345,7 @@ describe('AdminPairRights — a not offered report acts on the whole pair (AECI-
   it('after the accept, the status names the listings left to retract', async () => {
     lists([REPORT], []);
     const fixture = await mount();
+    await openRow(fixture, `rpt-${REPORT.id}`);
     buttonsByText(fixture, 'Accept')[0]!.click();
     await settle(fixture);
     const note = el(fixture).querySelector<HTMLTextAreaElement>(`#rpt-note-${REPORT.id}`)!;
@@ -359,6 +385,14 @@ describe('AdminPairRights — a not offered report acts on the whole pair (AECI-
     ]);
     expect(item.querySelector('[data-testid="retraction-overdue"]')?.textContent).toContain(
       'Overdue',
+    );
+    expect(
+      item.querySelector('[data-testid="retraction-overdue"] .aec-chip')?.getAttribute('data-tone'),
+    ).toBe('critical');
+    // AECI-2191: a plain table row, its header the pair.
+    expect(item.tagName).toBe('TR');
+    expect(item.querySelector('th[scope="row"]')?.textContent?.trim()).toBe(
+      'Procore and Acumatica (Rivets Sync)',
     );
   });
 
@@ -424,5 +458,151 @@ describe('AdminPairRights — an owner-routed data flow report (AECI-2139)', () 
     expect(href).toContain('flowRow=00000000-0000-4000-8000-000000000030');
     expect(href).toContain('flowAnchor=evidenced_pair');
     expect(href).toContain('flowClaim=00000000-0000-4000-8000-000000000060');
+  });
+});
+
+describe('AdminPairRights — each list is a console table (AECI-2191)', () => {
+  const PROTEST: AdminPairContest = {
+    ...REPORT,
+    id: '00000000-0000-4000-8000-000000000302',
+    status: 'declined',
+    routed_to: 'owner',
+    key_rows: null,
+    protest: {
+      status: 'open',
+      basis: 'declined',
+      reason: 'Rivets still sells this sync.',
+      protested_at: '2026-11-24T09:30:00.000Z',
+      decision_note: null,
+      decided_at: null,
+    },
+  };
+  const all = () =>
+    api['listPairContests']!.mockImplementation(
+      async (q: { protests?: boolean; retractions?: boolean } = {}) => ({
+        data: q.retractions ? [ACCEPTED] : q.protests ? [PROTEST] : [REPORT],
+      }),
+    );
+  const headers = (region: HTMLElement) =>
+    [...region.querySelectorAll('thead th')].map((th) => th.textContent!.trim());
+
+  it('renders four regions, each named by its caption, with a row header per record', async () => {
+    all();
+    const fixture = await mount();
+    expect(el(fixture).querySelectorAll('[role="region"]')).toHaveLength(4);
+    const expected: [string, string, string[], string[]][] = [
+      [
+        'data-admin-pair-reports',
+        'Reports',
+        ['Details', 'Report', 'Filed by', 'Submitted', 'Status'],
+        ['Not offered: Procore and Acumatica (Rivets Sync)'],
+      ],
+      [
+        'data-admin-retractions',
+        'To retract in the review app',
+        ['Integration', 'Dates', 'Listings to retract'],
+        ['Procore and Acumatica (Rivets Sync)'],
+      ],
+      [
+        'data-admin-pair-protests',
+        "Reviews of an owner's answer",
+        ['Details', 'Report', 'Submitted'],
+        ['Not offered: Procore and Acumatica (Rivets Sync)'],
+      ],
+      [
+        'data-admin-vetoes',
+        'Removals in force',
+        ['Details', 'Integration', 'Removed by', 'Submitted', 'Objection'],
+        ['Procore and Acumatica (Rivets Sync)'],
+      ],
+    ];
+    for (const [list, name, cols, rows] of expected) {
+      const t = regionOf(fixture, list)!;
+      expect(t.region.getAttribute('tabindex')).toBe('0');
+      expect(t.caption?.tagName).toBe('CAPTION');
+      expect(t.caption?.textContent?.trim()).toBe(name);
+      expect(headers(t.region)).toEqual(cols);
+      expect(t.rowHeads.map((th) => th.textContent!.trim())).toEqual(rows);
+      // A detail row spans the whole table.
+      for (const td of t.region.querySelectorAll('tr[hidden] > td')) {
+        expect(td.getAttribute('colspan')).toBe(String(cols.length));
+      }
+    }
+    // No heading inside any table: a record is a row, not a card.
+    expect(el(fixture).querySelector('table :is(h1, h2, h3, h4, h5, h6)')).toBeNull();
+  });
+
+  it('opens reports, reviews and removals by a named disclosure; retractions have none', async () => {
+    all();
+    const fixture = await mount();
+    const names = [...el(fixture).querySelectorAll('aec-admin-disclosure-button button')].map(
+      (b) => [b.getAttribute('aria-controls'), b.textContent!.trim()],
+    );
+    expect(names).toEqual([
+      [
+        `rpt-${REPORT.id}-detail`,
+        'Not offered: Procore and Acumatica (Rivets Sync), filed by Acumatica Inc',
+      ],
+      [
+        `pp-${PROTEST.id}-detail`,
+        "Review of the owner's answer to Not offered: Procore and Acumatica (Rivets Sync)",
+      ],
+      [`${VETO_KEY}-detail`, 'Removal of Procore and Acumatica (Rivets Sync) by Procore Inc'],
+    ]);
+    const retractions = regionOf(fixture, 'data-admin-retractions')!.region;
+    expect(retractions.querySelector('button, tr[hidden]')).toBeNull();
+
+    await openRow(fixture, `pp-${PROTEST.id}`);
+    const detail = el(fixture).querySelector<HTMLElement>(`#pp-${PROTEST.id}-detail`)!;
+    expect(detail.textContent).toContain('Rivets still sells this sync.');
+    expect(detail.textContent).toContain('Your answer is advice. It does not change the listing.');
+    const upheld = [...detail.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Agree with the report',
+    )!;
+    // Each decision button is described by its row's header.
+    expect(upheld.getAttribute('aria-describedby')).toBe(`pp-${PROTEST.id}-head`);
+    upheld.click();
+    await settle(fixture);
+    expect(detail.querySelector(`#pp-note-${PROTEST.id}`)).not.toBeNull();
+  });
+
+  it('carries each row status on a dense chip from the one tone map', async () => {
+    all();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-25T12:00:00.000Z'));
+    const fixture = await mount();
+    const reportChip = el(fixture).querySelector(
+      '[data-admin-pair-report] tr:first-child .aec-chip',
+    );
+    expect(reportChip?.textContent?.trim()).toBe('Open');
+    expect(reportChip?.getAttribute('data-tone')).toBe('waiting');
+    const vetoChip = el(fixture).querySelector('[data-admin-veto] tr:first-child .aec-chip');
+    expect(vetoChip?.textContent?.trim()).toBe('Open');
+    expect(vetoChip?.getAttribute('data-tone')).toBe('waiting');
+  });
+
+  it('marks an owner-routed report "With the owner", and a removal with no open objection with a dash', async () => {
+    api['listPairContests']!.mockImplementation(async (q: { protests?: boolean } = {}) => ({
+      data: q.protests ? [] : [{ ...REPORT, routed_to: 'owner' }],
+    }));
+    api['listVetoes']!.mockResolvedValue({ data: [{ ...VETO, objection: null }] });
+    const fixture = await mount();
+    const chip = el(fixture).querySelector('[data-admin-pair-report] tr:first-child .aec-chip');
+    expect(chip?.textContent?.trim()).toBe('With the owner');
+    expect(chip?.getAttribute('data-tone')).toBe('waiting');
+    const vetoRow = el(fixture).querySelector('[data-admin-veto] tr:first-child')!;
+    expect(vetoRow.querySelector('.aec-chip')).toBeNull();
+    expect(vetoRow.querySelector('[aria-label="No open objection"]')?.textContent).toBe('–');
+  });
+
+  it('shows one line and no table for every empty list', async () => {
+    api['listVetoes']!.mockResolvedValue({ data: [] });
+    const fixture = await mount();
+    expect(el(fixture).querySelector('table, [role="region"]')).toBeNull();
+    const line = (list: string) =>
+      [...el(fixture).querySelectorAll(`[${list}] p`)].map((p) => p.textContent!.trim()).at(-1);
+    expect(line('data-admin-pair-reports')).toBe('No open reports.');
+    expect(line('data-admin-retractions')).toBe('Nothing to retract.');
+    expect(line('data-admin-pair-protests')).toBe('No open reviews.');
+    expect(line('data-admin-vetoes')).toBe('No removals in force.');
   });
 });

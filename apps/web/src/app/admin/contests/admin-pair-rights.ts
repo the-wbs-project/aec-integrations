@@ -28,9 +28,15 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../../shared/form-field/form-field-classes';
+import {
+  CONSOLE_CAPTION_CLASS,
+  CONSOLE_PANEL_CLASS,
+  CONSOLE_TABLE,
+} from '../console/console-table';
 import { AdminDangerAction } from '../console/danger-action';
+import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone } from '../console/status-tones';
-import { QUEUE_FORM_CLASS } from '../reviews/queue-classes';
+import { QUEUE_DETAIL_GRID_CLASS, QUEUE_FORM_CLASS } from '../reviews/queue-classes';
 
 import { AdminContestsApi } from './admin-contests-api';
 
@@ -72,10 +78,17 @@ type Form = {
  *
  * The forms that stay hand-built (Accept, and the two protest answers) use the console
  * queue's form recipe and the shared field classes (`QUEUE_FORM_CLASS`, `FIELD_*`).
+ *
+ * AECI-2191: each list is a console table (`CONSOLE_TABLE`), a region named by its
+ * visually hidden caption, one `th scope="row"` per record. Reports, protests and
+ * removals open a detail row with the record and its forms (`AdminDisclosureButton`).
+ * An open objection sits in its removal's detail row as a flat panel, and its row's
+ * Objection column carries the chip. The retractions have nothing to decide here, so
+ * they are a plain table. An empty list is one line and no table.
  */
 @Component({
   selector: 'aec-admin-pair-rights',
-  imports: [AdminDangerAction, AecButton, Chip, DatePipe, RouterLink],
+  imports: [AdminDangerAction, AdminDisclosureButton, AecButton, Chip, DatePipe, RouterLink],
   host: { class: 'block' },
   template: `
     <section class="mt-10 space-y-6" aria-labelledby="admin-pair-rights-heading">
@@ -87,186 +100,284 @@ type Form = {
         >
       </h3>
 
+      <!-- AECI-2191: each list is a console table (DESIGN.md "Claims, requests and row
+           threads follow the same recipe"). A row with a decision opens a detail row that
+           holds the record and its forms. -->
       <div class="space-y-3" data-admin-pair-reports>
         <h4 class="text-base font-semibold text-(--text-primary)" i18n="@@admin.pairRights.reports">
           Reports
         </h4>
         @if (reports().length === 0) {
-          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.reports.empty">
-            No open reports.
-          </p>
-        }
-        <ul class="m-0 list-none space-y-3 p-0">
-          @for (r of reports(); track r.id) {
-            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
-              <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.from">
-                {{ r.submitter_name }} on {{ r.created_at | date: 'mediumDate' }}: {{ r.reason }}
-              </p>
-              @if (r.routed_to === 'owner') {
-                <p class="text-(--text-secondary)" i18n="@@admin.pairRights.reports.owner">
-                  With the owner, {{ r.owner_name }}. The owner decides.
-                </p>
-                <!-- AECI-2139: the report stays the owner's. AECi may still correct the
-                     flow on a public source, from the owner's vendor page. -->
-                @if (flowCorrectionLink(r); as link) {
-                  <a
-                    class="mt-1 inline-block rounded-mark text-sm font-semibold text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    [routerLink]="link.path"
-                    [queryParams]="link.queryParams"
-                    data-testid="pair-report-correct-flow"
-                    i18n="@@admin.pairRights.reports.correctFlow"
-                    >Correct this data flow on a public source</a
-                  >
-                }
-              } @else {
-                <div class="mt-2 flex flex-wrap items-start gap-2">
-                  <button
-                    type="button"
-                    aecButton
-                    variant="secondary"
-                    compact
-                    [attr.aria-expanded]="isOpen(r.id, 'accept')"
-                    (click)="openForm(r.id, 'accept')"
-                    i18n="@@admin.pairRights.accept"
-                  >
-                    Accept
-                  </button>
-                  <aec-admin-danger-action
-                    class="min-w-0 flex-1"
-                    [openerLabel]="declineCopy.opener"
-                    [confirmLabel]="declineCopy.confirm"
-                    [busyLabel]="declineCopy.busy"
-                    [reasonLabel]="declineCopy.label"
-                    [reasonRequired]="null"
-                    [maxLength]="noteMax"
-                    [busy]="busy() && isOpen(r.id, 'decline')"
-                    [error]="isOpen(r.id, 'decline') ? error() : null"
-                    [open]="isOpen(r.id, 'decline')"
-                    (openChange)="setOpen(r.id, 'decline', $event)"
-                    (confirmed)="decline(r, $event)"
-                  />
-                </div>
-                @if (isOpen(r.id, 'accept')) {
-                  <form
-                    method="dialog"
-                    [class]="formClass"
-                    class="mt-3"
-                    (submit)="$event.preventDefault(); accept(r)"
-                    (keydown.escape)="closeForm()"
-                  >
-                    @if (r.kind === 'existence') {
-                      @if (r.key_rows; as rows) {
-                        @let retire = toRetire(rows);
-                        @let retireCount = retire.length;
-                        @let retractCount = toRetract(rows).length;
-                        <div class="space-y-1 text-sm" data-admin-accept-preview>
-                          <p
-                            class="font-medium text-(--text-primary)"
-                            i18n="@@admin.pairRights.accept.retires"
-                          >
-                            {retireCount, plural,
-                              =0 {This retires no listings.}
-                              =1 {This retires 1 listing:}
-                              other {This retires {{ retireCount }} listings:}
-                            }
-                          </p>
-                          @if (retireCount > 0) {
-                            <ul class="m-0 list-disc space-y-0.5 ps-5 text-(--text-secondary)">
-                              @for (k of retire; track k.id) {
-                                <li data-admin-accept-retire>{{ keyRowLabel(r, k) }}</li>
-                              }
-                            </ul>
-                          }
-                          @if (retractCount > 0) {
+          <p [class]="t.empty" i18n="@@admin.pairRights.reports.empty">No open reports.</p>
+        } @else {
+          <div
+            [class]="t.region"
+            role="region"
+            tabindex="0"
+            aria-labelledby="admin-pair-reports-caption"
+          >
+            <table [class]="t.table" class="min-w-[44rem]">
+              <caption
+                id="admin-pair-reports-caption"
+                [class]="t.caption"
+                i18n="@@admin.pairRights.reports"
+              >
+                Reports
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" [class]="t.head">
+                    <span class="sr-only" i18n="@@admin.contests.col.details">Details</span>
+                  </th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.report">Report</th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.meta.submitter">Filed by</span>
+                  </th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.meta.submitted">Submitted</span>
+                  </th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.filter.status.label">Status</span>
+                  </th>
+                </tr>
+              </thead>
+              @for (r of reports(); track r.id) {
+                @let key = 'rpt-' + r.id;
+                <tbody data-admin-pair-report>
+                  <tr [class]="isRowOpen(key) ? t.rowOpen : t.row">
+                    <td [class]="t.disclosure">
+                      <aec-admin-disclosure-button
+                        [expanded]="isRowOpen(key)"
+                        [controls]="key + '-detail'"
+                        [label]="reportRowLabel(r)"
+                        (toggled)="toggleRow(key)"
+                      />
+                    </td>
+                    <th scope="row" [id]="key + '-head'" [class]="t.rowHead">{{ title(r) }}</th>
+                    <td [class]="t.cell">
+                      @if (r.submitter_name) {
+                        {{ r.submitter_name }}
+                      } @else {
+                        <span
+                          class="text-(--text-secondary)"
+                          i18n-aria-label="@@admin.pairRights.submitter.none"
+                          aria-label="Not on file"
+                          >&ndash;</span
+                        >
+                      }
+                    </td>
+                    <td [class]="t.nowrap">{{ r.created_at | date: 'mediumDate' }}</td>
+                    <td [class]="t.cell">
+                      @if (r.routed_to === 'owner') {
+                        <aec-chip density="dense" [tone]="withOwnerTone"
+                          ><span i18n="@@admin.contests.route.withOwner"
+                            >With the owner</span
+                          ></aec-chip
+                        >
+                      } @else {
+                        <aec-chip density="dense" [tone]="openTone"
+                          ><span i18n="@@admin.pairRights.status.open">Open</span></aec-chip
+                        >
+                      }
+                    </td>
+                  </tr>
+                  <tr [id]="key + '-detail'" [class]="t.detailRow" [hidden]="!isRowOpen(key)">
+                    <td [attr.colspan]="reportColumns" [class]="t.detailCell">
+                      <div [class]="t.detailInner">
+                        <div [class]="detailGridClass" class="text-t-14">
+                          <div class="grid min-w-0 content-start gap-2">
                             <p
                               class="text-(--text-secondary)"
-                              data-admin-accept-upstream
-                              i18n="@@admin.pairRights.accept.upstream"
+                              i18n="@@admin.pairRights.reports.from"
                             >
-                              {retractCount, plural,
-                                =1 {
-                                  1 listing AEC Integrations holds. Retract it in the review app
-                                  within five business days.
-                                }
-                                other {
-                                  {{ retractCount }} listings AEC Integrations holds. Retract them
-                                  in the review app within five business days.
-                                }
-                              }
+                              {{ r.submitter_name }} on {{ r.created_at | date: 'mediumDate' }}:
+                              {{ r.reason }}
                             </p>
+                            @if (r.routed_to === 'owner') {
+                              <p
+                                class="text-(--text-secondary)"
+                                i18n="@@admin.pairRights.reports.owner"
+                              >
+                                With the owner, {{ r.owner_name }}. The owner decides.
+                              </p>
+                              <!-- AECI-2139: the report stays the owner's. AECi may still correct the
+                                   flow on a public source, from the owner's vendor page. -->
+                              @if (flowCorrectionLink(r); as link) {
+                                <a
+                                  class="mt-1 inline-block justify-self-start rounded-mark text-sm font-semibold text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 hover:decoration-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                                  [routerLink]="link.path"
+                                  [queryParams]="link.queryParams"
+                                  data-testid="pair-report-correct-flow"
+                                  i18n="@@admin.pairRights.reports.correctFlow"
+                                  >Correct this data flow on a public source</a
+                                >
+                              }
+                            }
+                          </div>
+                          @if (r.routed_to !== 'owner') {
+                            <div class="grid min-w-0 content-start gap-3">
+                              <div class="flex flex-wrap items-start gap-2">
+                                <button
+                                  type="button"
+                                  aecButton
+                                  variant="secondary"
+                                  compact
+                                  [attr.aria-expanded]="isOpen(r.id, 'accept')"
+                                  [attr.aria-describedby]="key + '-head'"
+                                  (click)="openForm(r.id, 'accept')"
+                                  i18n="@@admin.pairRights.accept"
+                                >
+                                  Accept
+                                </button>
+                                <aec-admin-danger-action
+                                  class="min-w-0 flex-1"
+                                  [openerLabel]="declineCopy.opener"
+                                  [confirmLabel]="declineCopy.confirm"
+                                  [busyLabel]="declineCopy.busy"
+                                  [reasonLabel]="declineCopy.label"
+                                  [reasonRequired]="null"
+                                  [maxLength]="noteMax"
+                                  [busy]="busy() && isOpen(r.id, 'decline')"
+                                  [error]="isOpen(r.id, 'decline') ? error() : null"
+                                  [open]="isOpen(r.id, 'decline')"
+                                  (openChange)="setOpen(r.id, 'decline', $event)"
+                                  (confirmed)="decline(r, $event)"
+                                />
+                              </div>
+                              @if (isOpen(r.id, 'accept')) {
+                                <form
+                                  method="dialog"
+                                  [class]="formClass"
+                                  (submit)="$event.preventDefault(); accept(r)"
+                                  (keydown.escape)="closeForm()"
+                                >
+                                  @if (r.kind === 'existence') {
+                                    @if (r.key_rows; as rows) {
+                                      @let retire = toRetire(rows);
+                                      @let retireCount = retire.length;
+                                      @let retractCount = toRetract(rows).length;
+                                      <div class="space-y-1 text-sm" data-admin-accept-preview>
+                                        <p
+                                          class="font-medium text-(--text-primary)"
+                                          i18n="@@admin.pairRights.accept.retires"
+                                        >
+                                          {retireCount, plural,
+                                            =0 {This retires no listings.}
+                                            =1 {This retires 1 listing:}
+                                            other {This retires {{ retireCount }} listings:}
+                                          }
+                                        </p>
+                                        @if (retireCount > 0) {
+                                          <ul
+                                            class="m-0 list-disc space-y-0.5 ps-5 text-(--text-secondary)"
+                                          >
+                                            @for (k of retire; track k.id) {
+                                              <li data-admin-accept-retire>
+                                                {{ keyRowLabel(r, k) }}
+                                              </li>
+                                            }
+                                          </ul>
+                                        }
+                                        @if (retractCount > 0) {
+                                          <p
+                                            class="text-(--text-secondary)"
+                                            data-admin-accept-upstream
+                                            i18n="@@admin.pairRights.accept.upstream"
+                                          >
+                                            {retractCount, plural,
+                                              =1 {
+                                                1 listing AEC Integrations holds. Retract it in the
+                                                review app within five business days.
+                                              }
+                                              other {
+                                                {{ retractCount }} listings AEC Integrations holds.
+                                                Retract them in the review app within five business
+                                                days.
+                                              }
+                                            }
+                                          </p>
+                                        }
+                                      </div>
+                                    } @else {
+                                      <p
+                                        [class]="hintClass"
+                                        i18n="@@admin.pairRights.accept.existenceHelp.v2"
+                                      >
+                                        This retires every listing of this pair that a vendor holds.
+                                        Retract the ones AEC Integrations holds in the review app.
+                                      </p>
+                                    }
+                                  }
+                                  <label
+                                    [class]="labelClass"
+                                    for="rpt-note-{{ r.id }}"
+                                    i18n="@@admin.pairRights.note"
+                                    >Note shown to the vendor</label
+                                  >
+                                  <textarea
+                                    id="rpt-note-{{ r.id }}"
+                                    rows="3"
+                                    [attr.maxlength]="noteMax"
+                                    [class]="inputClass"
+                                    class="min-h-24 resize-y py-3"
+                                    (input)="note.set(valueOf($event))"
+                                  ></textarea>
+                                  @if (r.kind === 'existence') {
+                                    <label
+                                      [class]="labelClass"
+                                      class="pt-2"
+                                      for="rpt-src-{{ r.id }}"
+                                      i18n="@@admin.pairRights.source"
+                                      >Proof link (required)</label
+                                    >
+                                    <input
+                                      id="rpt-src-{{ r.id }}"
+                                      type="url"
+                                      inputmode="url"
+                                      autocomplete="off"
+                                      placeholder="https://"
+                                      [class]="inputClass"
+                                      (input)="source.set(valueOf($event))"
+                                    />
+                                  }
+                                  @if (error()) {
+                                    <p role="alert" [class]="errorClass">{{ error() }}</p>
+                                  }
+                                  <div class="mt-2 flex flex-wrap gap-3">
+                                    <button
+                                      type="submit"
+                                      aecButton
+                                      compact
+                                      [disabled]="busy()"
+                                      i18n="@@admin.pairRights.confirm"
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aecButton
+                                      variant="ghost"
+                                      compact
+                                      [disabled]="busy()"
+                                      (click)="closeForm()"
+                                      i18n="@@admin.pairRights.cancel"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              }
+                            </div>
                           }
                         </div>
-                      } @else {
-                        <p [class]="hintClass" i18n="@@admin.pairRights.accept.existenceHelp.v2">
-                          This retires every listing of this pair that a vendor holds. Retract the
-                          ones AEC Integrations holds in the review app.
-                        </p>
-                      }
-                    }
-                    <label
-                      [class]="labelClass"
-                      for="rpt-note-{{ r.id }}"
-                      i18n="@@admin.pairRights.note"
-                      >Note shown to the vendor</label
-                    >
-                    <textarea
-                      id="rpt-note-{{ r.id }}"
-                      rows="3"
-                      [attr.maxlength]="noteMax"
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3"
-                      (input)="note.set(valueOf($event))"
-                    ></textarea>
-                    @if (r.kind === 'existence') {
-                      <label
-                        [class]="labelClass"
-                        class="pt-2"
-                        for="rpt-src-{{ r.id }}"
-                        i18n="@@admin.pairRights.source"
-                        >Proof link (required)</label
-                      >
-                      <input
-                        id="rpt-src-{{ r.id }}"
-                        type="url"
-                        inputmode="url"
-                        autocomplete="off"
-                        placeholder="https://"
-                        [class]="inputClass"
-                        (input)="source.set(valueOf($event))"
-                      />
-                    }
-                    @if (error()) {
-                      <p role="alert" [class]="errorClass">{{ error() }}</p>
-                    }
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        type="submit"
-                        aecButton
-                        compact
-                        [disabled]="busy()"
-                        i18n="@@admin.pairRights.confirm"
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        aecButton
-                        variant="ghost"
-                        compact
-                        [disabled]="busy()"
-                        (click)="closeForm()"
-                        i18n="@@admin.pairRights.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                }
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
               }
-            </li>
-          }
-        </ul>
+            </table>
+          </div>
+        }
       </div>
 
       <div class="space-y-3" data-admin-retractions>
@@ -276,54 +387,82 @@ type Form = {
         >
           To retract in the review app
         </h4>
-        <p
-          class="max-w-prose text-sm text-(--text-secondary)"
-          i18n="@@admin.pairRights.retractions.explain"
-        >
+        <p [class]="captionClass" class="max-w-prose" i18n="@@admin.pairRights.retractions.explain">
           A confirmed not offered report retired the listings vendors hold. These listings AEC
           Integrations holds are still on the site. Retract each in the review app by the date
           shown.
         </p>
         @if (retractions().length === 0) {
-          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.retractions.empty">
-            Nothing to retract.
-          </p>
+          <p [class]="t.empty" i18n="@@admin.pairRights.retractions.empty">Nothing to retract.</p>
+        } @else {
+          <!-- Nothing to decide here, so a plain table: no disclosure, no detail row. -->
+          <div
+            [class]="t.region"
+            role="region"
+            tabindex="0"
+            aria-labelledby="admin-pair-retractions-caption"
+          >
+            <table [class]="t.table" class="min-w-[44rem]">
+              <caption
+                id="admin-pair-retractions-caption"
+                [class]="t.caption"
+                i18n="@@admin.pairRights.retractions"
+              >
+                To retract in the review app
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.col.integration">Integration</span>
+                  </th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.dates">Dates</th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.listings">
+                    Listings to retract
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (r of retractions(); track r.id) {
+                  <tr [class]="t.row" data-admin-retraction>
+                    <th scope="row" [class]="t.rowHead">{{ pairName(r.pair) }}</th>
+                    <td [class]="t.cell">
+                      @if (r.decided_at; as decided) {
+                        <span class="block" i18n="@@admin.pairRights.retractions.accepted"
+                          >Accepted {{ decided | date: 'mediumDate' }}</span
+                        >
+                      }
+                      @if (r.retract_by; as due) {
+                        <span class="block" i18n="@@admin.pairRights.retractions.due"
+                          >Retract by {{ dueDay(due) }}</span
+                        >
+                      }
+                      @if (retractOverdue(r)) {
+                        <aec-chip
+                          density="dense"
+                          [tone]="overdueTone"
+                          data-testid="retraction-overdue"
+                          ><span i18n="@@admin.pairRights.retractions.overdue"
+                            >Overdue</span
+                          ></aec-chip
+                        >
+                      }
+                    </td>
+                    <td [class]="t.cell">
+                      <ul class="m-0 list-none space-y-0.5 p-0">
+                        @for (k of toRetract(r.key_rows ?? []); track k.id) {
+                          <li data-admin-retraction-row>
+                            {{ k.name ?? pairName(r.pair) }}:
+                            <code class="text-t-13">{{ tableOf(k) }} {{ k.id }}</code>
+                          </li>
+                        }
+                      </ul>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
         }
-        <ul class="m-0 list-none space-y-3 p-0">
-          @for (r of retractions(); track r.id) {
-            <li
-              class="rounded-panel border border-(--border-default) p-4 text-sm"
-              data-admin-retraction
-            >
-              <p class="font-medium text-(--text-primary)">{{ pairName(r.pair) }}</p>
-              <p class="text-t-13 text-(--text-secondary)">
-                @if (r.decided_at; as decided) {
-                  <span class="block" i18n="@@admin.pairRights.retractions.accepted"
-                    >Accepted {{ decided | date: 'mediumDate' }}</span
-                  >
-                }
-                @if (r.retract_by; as due) {
-                  <span class="block" i18n="@@admin.pairRights.retractions.due"
-                    >Retract by {{ dueDay(due) }}</span
-                  >
-                }
-              </p>
-              @if (retractOverdue(r)) {
-                <aec-chip density="dense" [tone]="overdueTone" data-testid="retraction-overdue"
-                  ><span i18n="@@admin.pairRights.retractions.overdue">Overdue</span></aec-chip
-                >
-              }
-              <ul class="m-0 mt-2 list-disc space-y-0.5 ps-5 text-(--text-secondary)">
-                @for (k of toRetract(r.key_rows ?? []); track k.id) {
-                  <li data-admin-retraction-row>
-                    {{ k.name ?? pairName(r.pair) }}:
-                    <code class="text-t-13">{{ tableOf(k) }} {{ k.id }}</code>
-                  </li>
-                }
-              </ul>
-            </li>
-          }
-        </ul>
       </div>
 
       <div class="space-y-3" data-admin-pair-protests>
@@ -334,305 +473,459 @@ type Form = {
           Reviews of an owner's answer
         </h4>
         @if (protests().length === 0) {
-          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.protests.empty">
-            No open reviews.
-          </p>
-        }
-        <ul class="m-0 list-none space-y-3 p-0">
-          @for (r of protests(); track r.id) {
-            <li class="rounded-panel border border-(--border-default) p-4 text-sm">
-              <p class="font-medium text-(--text-primary)">{{ title(r) }}</p>
-              <p class="text-(--text-secondary)">{{ r.protest?.reason }}</p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.protests.advice">
-                Your answer is advice. It does not change the listing.
-              </p>
-              <div class="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  aecButton
-                  variant="secondary"
-                  compact
-                  [attr.aria-expanded]="isOpen(r.id, 'upheld')"
-                  (click)="openForm(r.id, 'upheld')"
-                  i18n="@@admin.pairRights.upheld"
-                >
-                  Agree with the report
-                </button>
-                <button
-                  type="button"
-                  aecButton
-                  variant="secondary"
-                  compact
-                  [attr.aria-expanded]="isOpen(r.id, 'rejected')"
-                  (click)="openForm(r.id, 'rejected')"
-                  i18n="@@admin.pairRights.rejected"
-                >
-                  Agree with the owner
-                </button>
-              </div>
-              @if (form()?.id === r.id) {
-                <form
-                  method="dialog"
-                  [class]="formClass"
-                  class="mt-3"
-                  (submit)="$event.preventDefault(); decideProtest(r)"
-                  (keydown.escape)="closeForm()"
-                >
-                  <label
-                    [class]="labelClass"
-                    for="pp-note-{{ r.id }}"
-                    i18n="@@admin.pairRights.noteRequired"
-                    >Note shown to both vendors (required)</label
-                  >
-                  <textarea
-                    id="pp-note-{{ r.id }}"
-                    rows="3"
-                    [attr.maxlength]="noteMax"
-                    required
-                    [class]="inputClass"
-                    class="min-h-24 resize-y py-3"
-                    (input)="note.set(valueOf($event))"
-                  ></textarea>
-                  @if (error()) {
-                    <p role="alert" [class]="errorClass">{{ error() }}</p>
-                  }
-                  <div class="mt-2 flex flex-wrap gap-3">
-                    <button
-                      type="submit"
-                      aecButton
-                      compact
-                      [disabled]="busy()"
-                      i18n="@@admin.pairRights.confirm"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      type="button"
-                      aecButton
-                      variant="ghost"
-                      compact
-                      [disabled]="busy()"
-                      (click)="closeForm()"
-                      i18n="@@admin.pairRights.cancel"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
+          <p [class]="t.empty" i18n="@@admin.pairRights.protests.empty">No open reviews.</p>
+        } @else {
+          <div
+            [class]="t.region"
+            role="region"
+            tabindex="0"
+            aria-labelledby="admin-pair-protests-caption"
+          >
+            <table [class]="t.table" class="min-w-[36rem]">
+              <caption
+                id="admin-pair-protests-caption"
+                [class]="t.caption"
+                i18n="@@admin.pairRights.protests"
+              >
+                Reviews of an owner's answer
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" [class]="t.head">
+                    <span class="sr-only" i18n="@@admin.contests.col.details">Details</span>
+                  </th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.report">Report</th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.meta.submitted">Submitted</span>
+                  </th>
+                </tr>
+              </thead>
+              @for (r of protests(); track r.id) {
+                @let key = 'pp-' + r.id;
+                <tbody data-admin-pair-protest>
+                  <tr [class]="isRowOpen(key) ? t.rowOpen : t.row">
+                    <td [class]="t.disclosure">
+                      <aec-admin-disclosure-button
+                        [expanded]="isRowOpen(key)"
+                        [controls]="key + '-detail'"
+                        [label]="protestRowLabel(r)"
+                        (toggled)="toggleRow(key)"
+                      />
+                    </td>
+                    <th scope="row" [id]="key + '-head'" [class]="t.rowHead">{{ title(r) }}</th>
+                    <td [class]="t.nowrap">
+                      @if (r.protest?.protested_at; as asked) {
+                        {{ asked | date: 'mediumDate' }}
+                      }
+                    </td>
+                  </tr>
+                  <tr [id]="key + '-detail'" [class]="t.detailRow" [hidden]="!isRowOpen(key)">
+                    <td [attr.colspan]="protestColumns" [class]="t.detailCell">
+                      <div [class]="t.detailInner">
+                        <div [class]="detailGridClass" class="text-t-14">
+                          <div class="grid min-w-0 content-start gap-2">
+                            <p class="text-(--text-secondary)">{{ r.protest?.reason }}</p>
+                            <p
+                              class="text-(--text-secondary)"
+                              i18n="@@admin.pairRights.protests.advice"
+                            >
+                              Your answer is advice. It does not change the listing.
+                            </p>
+                          </div>
+                          <div class="grid min-w-0 content-start gap-3">
+                            <div class="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                aecButton
+                                variant="secondary"
+                                compact
+                                [attr.aria-expanded]="isOpen(r.id, 'upheld')"
+                                [attr.aria-describedby]="key + '-head'"
+                                (click)="openForm(r.id, 'upheld')"
+                                i18n="@@admin.pairRights.upheld"
+                              >
+                                Agree with the report
+                              </button>
+                              <button
+                                type="button"
+                                aecButton
+                                variant="secondary"
+                                compact
+                                [attr.aria-expanded]="isOpen(r.id, 'rejected')"
+                                [attr.aria-describedby]="key + '-head'"
+                                (click)="openForm(r.id, 'rejected')"
+                                i18n="@@admin.pairRights.rejected"
+                              >
+                                Agree with the owner
+                              </button>
+                            </div>
+                            @if (form()?.id === r.id) {
+                              <form
+                                method="dialog"
+                                [class]="formClass"
+                                (submit)="$event.preventDefault(); decideProtest(r)"
+                                (keydown.escape)="closeForm()"
+                              >
+                                <label
+                                  [class]="labelClass"
+                                  for="pp-note-{{ r.id }}"
+                                  i18n="@@admin.pairRights.noteRequired"
+                                  >Note shown to both vendors (required)</label
+                                >
+                                <textarea
+                                  id="pp-note-{{ r.id }}"
+                                  rows="3"
+                                  [attr.maxlength]="noteMax"
+                                  required
+                                  [class]="inputClass"
+                                  class="min-h-24 resize-y py-3"
+                                  (input)="note.set(valueOf($event))"
+                                ></textarea>
+                                @if (error()) {
+                                  <p role="alert" [class]="errorClass">{{ error() }}</p>
+                                }
+                                <div class="mt-2 flex flex-wrap gap-3">
+                                  <button
+                                    type="submit"
+                                    aecButton
+                                    compact
+                                    [disabled]="busy()"
+                                    i18n="@@admin.pairRights.confirm"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aecButton
+                                    variant="ghost"
+                                    compact
+                                    [disabled]="busy()"
+                                    (click)="closeForm()"
+                                    i18n="@@admin.pairRights.cancel"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
               }
-            </li>
-          }
-        </ul>
+            </table>
+          </div>
+        }
       </div>
 
       <div class="space-y-3" data-admin-vetoes>
         <h4 class="text-base font-semibold text-(--text-primary)" i18n="@@admin.pairRights.vetoes">
           Removals in force
         </h4>
-        <p
-          class="max-w-prose text-sm text-(--text-secondary)"
-          i18n="@@admin.pairRights.vetoes.explain.v2"
-        >
+        <p [class]="captionClass" class="max-w-prose" i18n="@@admin.pairRights.vetoes.explain.v2">
           A vendor of an endpoint product removed these from its product. A removal takes effect
           when it is sent and is not checked first. End one only on one of the five grounds below.
           Decide nothing else, and not whether the vendor should support the integration.
         </p>
         @if (vetoes().length === 0) {
-          <p class="text-sm text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.empty">
-            No removals in force.
-          </p>
-        }
-        <ul class="m-0 list-none space-y-3 p-0">
-          @for (v of vetoes(); track v.id) {
-            <li class="rounded-panel border border-(--border-default) p-4 text-sm" data-admin-veto>
-              <p class="font-medium text-(--text-primary)">{{ pairName(v.pair) }}</p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.by.v3">
-                Removed by {{ v.vendor_name }} on {{ v.filed_at | date: 'mediumDate' }} at
-                {{ v.filed_at | date: 'shortTime' }}.
-              </p>
-              <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.reasonGiven">
-                Reason the vendor gave: {{ reasonText(v) }}
-              </p>
-              @if (v.owner_name) {
-                <p class="text-(--text-secondary)" i18n="@@admin.pairRights.vetoes.owner">
-                  Owner: {{ v.owner_name }}
-                </p>
-              }
-              @if (v.objection?.status === 'open' && v.objection; as o) {
-                <div
-                  class="mt-3 space-y-1 border-t border-(--border-default) pt-3"
-                  data-admin-objection
-                >
-                  <p
-                    class="font-semibold text-(--text-primary)"
-                    i18n="@@admin.pairRights.objection.title"
-                  >
-                    Objection from {{ o.vendor_name }} on {{ o.created_at | date: 'mediumDate' }}
-                  </p>
-                  <p class="text-t-13 text-(--text-secondary)">
-                    <span class="block" i18n="@@admin.pairRights.objection.received"
-                      >Received {{ o.created_at | date: 'mediumDate' }}</span
-                    >
-                    @if (v.objection_answer_due; as due) {
-                      <span class="block" i18n="@@admin.pairRights.objection.answerDue"
-                        >Answer by {{ dueDay(due) }}</span
-                      >
-                    }
-                  </p>
-                  @if (answerOverdue(v)) {
-                    <aec-chip density="dense" [tone]="overdueTone" data-testid="objection-overdue"
-                      ><span i18n="@@admin.pairRights.objection.overdue"
-                        >Answer overdue</span
-                      ></aec-chip
-                    >
-                  }
-                  <p class="text-(--text-primary)" i18n="@@admin.pairRights.objection.ground">
-                    Ground: {{ groundLabel(o.ground) }}
-                  </p>
-                  <p class="text-(--text-secondary)">{{ o.explanation }}</p>
-                  @if (o.source_url) {
-                    <p class="text-(--text-secondary)">
-                      <span i18n="@@admin.pairRights.objection.link">Link given:</span>
-                      {{ ' ' }}
-                      <a
-                        class="underline"
-                        [href]="o.source_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        >{{ o.source_url }}</a
-                      >
-                    </p>
-                  }
-                  <p [class]="hintClass" i18n="@@admin.pairRights.objection.help">
-                    Accept only when the ground holds. An account: check the seat and its grant in
-                    the vendor's record. Wrong product: compare the removal's product with the
-                    integration's two products. Plainly false: the vendor's own public page must
-                    show it supports the integration.
-                  </p>
-                  <div class="mt-2 flex flex-wrap items-start gap-2">
-                    <aec-admin-danger-action
-                      class="min-w-0"
-                      [openerLabel]="objAcceptCopy.opener"
-                      [confirmLabel]="objAcceptCopy.confirm"
-                      [busyLabel]="objAcceptCopy.busy"
-                      [reasonLabel]="objAcceptCopy.label"
-                      [reasonRequired]="objAcceptCopy.required"
-                      [warning]="objAcceptCopy.warning"
-                      [maxLength]="noteMax"
-                      [busy]="busy() && isOpen(o.id, 'objAccept')"
-                      [error]="isOpen(o.id, 'objAccept') ? error() : null"
-                      [open]="isOpen(o.id, 'objAccept')"
-                      (openChange)="setOpen(o.id, 'objAccept', $event)"
-                      (confirmed)="decideObjection(o.id, 'accept', $event)"
-                    />
-                    <aec-admin-danger-action
-                      class="min-w-0"
-                      [openerLabel]="objDeclineCopy.opener"
-                      [confirmLabel]="objDeclineCopy.confirm"
-                      [busyLabel]="objDeclineCopy.busy"
-                      [reasonLabel]="objDeclineCopy.label"
-                      [reasonRequired]="objDeclineCopy.required"
-                      [maxLength]="noteMax"
-                      [busy]="busy() && isOpen(o.id, 'objDecline')"
-                      [error]="isOpen(o.id, 'objDecline') ? error() : null"
-                      [open]="isOpen(o.id, 'objDecline')"
-                      (openChange)="setOpen(o.id, 'objDecline', $event)"
-                      (confirmed)="decideObjection(o.id, 'decline', $event)"
-                    />
-                  </div>
-                </div>
-              } @else if (v.objection; as o) {
-                <p class="mt-2 text-(--text-secondary)">{{ objectionOutcome(o) }}</p>
-              }
-              <div class="mt-3">
-                <button
-                  type="button"
-                  aecButton
-                  variant="secondary"
-                  compact
-                  [attr.aria-expanded]="isOpen(v.id, 'lift')"
-                  [attr.aria-controls]="'lift-form-' + v.id"
-                  (click)="isOpen(v.id, 'lift') ? closeForm() : openForm(v.id, 'lift')"
-                  i18n="@@admin.pairRights.lift"
-                >
-                  End this removal
-                </button>
-                @if (isOpen(v.id, 'lift')) {
-                  <form
-                    [id]="'lift-form-' + v.id"
-                    method="dialog"
-                    novalidate
-                    [class]="formClass"
-                    class="mt-3"
-                    (submit)="$event.preventDefault(); lift(v)"
-                    (keydown.escape)="closeForm()"
-                  >
-                    <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
-                      <legend [class]="labelClass" i18n="@@admin.pairRights.lift.endReason">
-                        Why it ends (required)
-                      </legend>
-                      @for (r of endReasons; track r) {
-                        <label [class]="choiceCardClass">
-                          <input
-                            type="radio"
-                            [class]="choiceInputClass"
-                            [attr.name]="'end-reason-' + v.id"
-                            [value]="r"
-                            [checked]="endReason() === r"
-                            (change)="endReason.set(r)"
-                          />
-                          {{ endReasonLabel(r) }}
-                        </label>
+          <p [class]="t.empty" i18n="@@admin.pairRights.vetoes.empty">No removals in force.</p>
+        } @else {
+          <div
+            [class]="t.region"
+            role="region"
+            tabindex="0"
+            aria-labelledby="admin-pair-vetoes-caption"
+          >
+            <table [class]="t.table" class="min-w-[44rem]">
+              <caption
+                id="admin-pair-vetoes-caption"
+                [class]="t.caption"
+                i18n="@@admin.pairRights.vetoes"
+              >
+                Removals in force
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" [class]="t.head">
+                    <span class="sr-only" i18n="@@admin.contests.col.details">Details</span>
+                  </th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.col.integration">Integration</span>
+                  </th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.removedBy">
+                    Removed by
+                  </th>
+                  <th scope="col" [class]="t.head">
+                    <span i18n="@@admin.contests.meta.submitted">Submitted</span>
+                  </th>
+                  <th scope="col" [class]="t.head" i18n="@@admin.pairRights.col.objection">
+                    Objection
+                  </th>
+                </tr>
+              </thead>
+              @for (v of vetoes(); track v.id) {
+                @let key = 'veto-' + v.id;
+                <tbody data-admin-veto>
+                  <tr [class]="isRowOpen(key) ? t.rowOpen : t.row">
+                    <td [class]="t.disclosure">
+                      <aec-admin-disclosure-button
+                        [expanded]="isRowOpen(key)"
+                        [controls]="key + '-detail'"
+                        [label]="vetoRowLabel(v)"
+                        (toggled)="toggleRow(key)"
+                      />
+                    </td>
+                    <th scope="row" [id]="key + '-head'" [class]="t.rowHead">
+                      {{ pairName(v.pair) }}
+                    </th>
+                    <td [class]="t.cell">{{ v.vendor_name }}</td>
+                    <td [class]="t.nowrap">
+                      {{ v.filed_at | date: 'mediumDate' }}
+                      <span [class]="t.sub">{{ v.filed_at | date: 'shortTime' }}</span>
+                    </td>
+                    <td [class]="t.cell">
+                      @if (answerOverdue(v)) {
+                        <aec-chip
+                          density="dense"
+                          [tone]="overdueTone"
+                          data-testid="objection-overdue"
+                          ><span i18n="@@admin.pairRights.objection.overdue"
+                            >Answer overdue</span
+                          ></aec-chip
+                        >
+                      } @else if (v.objection?.status === 'open') {
+                        <aec-chip density="dense" [tone]="openTone"
+                          ><span i18n="@@admin.pairRights.status.open">Open</span></aec-chip
+                        >
+                      } @else {
+                        <span
+                          class="text-(--text-secondary)"
+                          i18n-aria-label="@@admin.pairRights.objection.none"
+                          aria-label="No open objection"
+                          >&ndash;</span
+                        >
                       }
-                    </fieldset>
-                    <label
-                      [class]="labelClass"
-                      class="pt-2"
-                      [for]="'lift-note-' + v.id"
-                      i18n="@@admin.pairRights.noteLift"
-                      >Why it ends, shown to the vendors (required)</label
-                    >
-                    <textarea
-                      [id]="'lift-note-' + v.id"
-                      rows="3"
-                      [attr.maxlength]="noteMax"
-                      required
-                      [class]="inputClass"
-                      class="min-h-24 resize-y py-3"
-                      (input)="note.set(valueOf($event))"
-                    ></textarea>
-                    @if (error()) {
-                      <p role="alert" [class]="errorClass">{{ error() }}</p>
-                    }
-                    <div class="mt-2 flex flex-wrap gap-3">
-                      <button
-                        type="submit"
-                        aecButton
-                        variant="danger"
-                        compact
-                        [disabled]="busy()"
-                        i18n="@@admin.pairRights.lift.confirm"
-                      >
-                        End the removal
-                      </button>
-                      <button
-                        type="button"
-                        aecButton
-                        variant="ghost"
-                        compact
-                        [disabled]="busy()"
-                        (click)="closeForm()"
-                        i18n="@@admin.pairRights.cancel"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                }
-              </div>
-            </li>
-          }
-        </ul>
+                    </td>
+                  </tr>
+                  <tr [id]="key + '-detail'" [class]="t.detailRow" [hidden]="!isRowOpen(key)">
+                    <td [attr.colspan]="vetoColumns" [class]="t.detailCell">
+                      <div [class]="t.detailInner">
+                        <div [class]="detailGridClass" class="text-t-14">
+                          <div class="grid min-w-0 content-start gap-2">
+                            <p
+                              class="text-(--text-secondary)"
+                              i18n="@@admin.pairRights.vetoes.by.v3"
+                            >
+                              Removed by {{ v.vendor_name }} on
+                              {{ v.filed_at | date: 'mediumDate' }} at
+                              {{ v.filed_at | date: 'shortTime' }}.
+                            </p>
+                            <p
+                              class="text-(--text-secondary)"
+                              i18n="@@admin.pairRights.vetoes.reasonGiven"
+                            >
+                              Reason the vendor gave: {{ reasonText(v) }}
+                            </p>
+                            @if (v.owner_name) {
+                              <p
+                                class="text-(--text-secondary)"
+                                i18n="@@admin.pairRights.vetoes.owner"
+                              >
+                                Owner: {{ v.owner_name }}
+                              </p>
+                            }
+                            @if (v.objection?.status !== 'open' && v.objection; as o) {
+                              <p class="text-(--text-secondary)">{{ objectionOutcome(o) }}</p>
+                            }
+                          </div>
+                          <div class="grid min-w-0 content-start gap-4">
+                            @if (v.objection?.status === 'open' && v.objection; as o) {
+                              <div [class]="panelClass" class="space-y-1" data-admin-objection>
+                                <p
+                                  class="font-semibold text-(--text-primary)"
+                                  i18n="@@admin.pairRights.objection.title"
+                                >
+                                  Objection from {{ o.vendor_name }} on
+                                  {{ o.created_at | date: 'mediumDate' }}
+                                </p>
+                                <p class="text-t-13 text-(--text-secondary)">
+                                  <span class="block" i18n="@@admin.pairRights.objection.received"
+                                    >Received {{ o.created_at | date: 'mediumDate' }}</span
+                                  >
+                                  @if (v.objection_answer_due; as due) {
+                                    <span
+                                      class="block"
+                                      i18n="@@admin.pairRights.objection.answerDue"
+                                      >Answer by {{ dueDay(due) }}</span
+                                    >
+                                  }
+                                </p>
+                                <p
+                                  class="text-(--text-primary)"
+                                  i18n="@@admin.pairRights.objection.ground"
+                                >
+                                  Ground: {{ groundLabel(o.ground) }}
+                                </p>
+                                <p class="text-(--text-secondary)">{{ o.explanation }}</p>
+                                @if (o.source_url) {
+                                  <p class="text-(--text-secondary)">
+                                    <span i18n="@@admin.pairRights.objection.link"
+                                      >Link given:</span
+                                    >
+                                    {{ ' ' }}
+                                    <a
+                                      class="underline"
+                                      [href]="o.source_url"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      >{{ o.source_url }}</a
+                                    >
+                                  </p>
+                                }
+                                <p [class]="hintClass" i18n="@@admin.pairRights.objection.help">
+                                  Accept only when the ground holds. An account: check the seat and
+                                  its grant in the vendor's record. Wrong product: compare the
+                                  removal's product with the integration's two products. Plainly
+                                  false: the vendor's own public page must show it supports the
+                                  integration.
+                                </p>
+                                <div class="mt-2 flex flex-wrap items-start gap-2">
+                                  <aec-admin-danger-action
+                                    class="min-w-0"
+                                    [openerLabel]="objAcceptCopy.opener"
+                                    [confirmLabel]="objAcceptCopy.confirm"
+                                    [busyLabel]="objAcceptCopy.busy"
+                                    [reasonLabel]="objAcceptCopy.label"
+                                    [reasonRequired]="objAcceptCopy.required"
+                                    [warning]="objAcceptCopy.warning"
+                                    [maxLength]="noteMax"
+                                    [busy]="busy() && isOpen(o.id, 'objAccept')"
+                                    [error]="isOpen(o.id, 'objAccept') ? error() : null"
+                                    [open]="isOpen(o.id, 'objAccept')"
+                                    (openChange)="setOpen(o.id, 'objAccept', $event)"
+                                    (confirmed)="decideObjection(o.id, 'accept', $event)"
+                                  />
+                                  <aec-admin-danger-action
+                                    class="min-w-0"
+                                    [openerLabel]="objDeclineCopy.opener"
+                                    [confirmLabel]="objDeclineCopy.confirm"
+                                    [busyLabel]="objDeclineCopy.busy"
+                                    [reasonLabel]="objDeclineCopy.label"
+                                    [reasonRequired]="objDeclineCopy.required"
+                                    [maxLength]="noteMax"
+                                    [busy]="busy() && isOpen(o.id, 'objDecline')"
+                                    [error]="isOpen(o.id, 'objDecline') ? error() : null"
+                                    [open]="isOpen(o.id, 'objDecline')"
+                                    (openChange)="setOpen(o.id, 'objDecline', $event)"
+                                    (confirmed)="decideObjection(o.id, 'decline', $event)"
+                                  />
+                                </div>
+                              </div>
+                            }
+                            <div>
+                              <button
+                                type="button"
+                                aecButton
+                                variant="secondary"
+                                compact
+                                [attr.aria-expanded]="isOpen(v.id, 'lift')"
+                                [attr.aria-controls]="'lift-form-' + v.id"
+                                [attr.aria-describedby]="key + '-head'"
+                                (click)="
+                                  isOpen(v.id, 'lift') ? closeForm() : openForm(v.id, 'lift')
+                                "
+                                i18n="@@admin.pairRights.lift"
+                              >
+                                End this removal
+                              </button>
+                              @if (isOpen(v.id, 'lift')) {
+                                <form
+                                  [id]="'lift-form-' + v.id"
+                                  method="dialog"
+                                  novalidate
+                                  [class]="formClass"
+                                  class="mt-3"
+                                  (submit)="$event.preventDefault(); lift(v)"
+                                  (keydown.escape)="closeForm()"
+                                >
+                                  <fieldset class="m-0 max-w-2xl space-y-2 border-0 p-0">
+                                    <legend
+                                      [class]="labelClass"
+                                      i18n="@@admin.pairRights.lift.endReason"
+                                    >
+                                      Why it ends (required)
+                                    </legend>
+                                    @for (r of endReasons; track r) {
+                                      <label [class]="choiceCardClass">
+                                        <input
+                                          type="radio"
+                                          [class]="choiceInputClass"
+                                          [attr.name]="'end-reason-' + v.id"
+                                          [value]="r"
+                                          [checked]="endReason() === r"
+                                          (change)="endReason.set(r)"
+                                        />
+                                        {{ endReasonLabel(r) }}
+                                      </label>
+                                    }
+                                  </fieldset>
+                                  <label
+                                    [class]="labelClass"
+                                    class="pt-2"
+                                    [for]="'lift-note-' + v.id"
+                                    i18n="@@admin.pairRights.noteLift"
+                                    >Why it ends, shown to the vendors (required)</label
+                                  >
+                                  <textarea
+                                    [id]="'lift-note-' + v.id"
+                                    rows="3"
+                                    [attr.maxlength]="noteMax"
+                                    required
+                                    [class]="inputClass"
+                                    class="min-h-24 resize-y py-3"
+                                    (input)="note.set(valueOf($event))"
+                                  ></textarea>
+                                  @if (error()) {
+                                    <p role="alert" [class]="errorClass">{{ error() }}</p>
+                                  }
+                                  <div class="mt-2 flex flex-wrap gap-3">
+                                    <button
+                                      type="submit"
+                                      aecButton
+                                      variant="danger"
+                                      compact
+                                      [disabled]="busy()"
+                                      i18n="@@admin.pairRights.lift.confirm"
+                                    >
+                                      End the removal
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aecButton
+                                      variant="ghost"
+                                      compact
+                                      [disabled]="busy()"
+                                      (click)="closeForm()"
+                                      i18n="@@admin.pairRights.cancel"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              }
+            </table>
+          </div>
+        }
       </div>
 
       @if (error() && !form()) {
@@ -648,6 +941,22 @@ export class AdminPairRights {
 
   /** An objection past its five business days is a missed policy clock: critical. */
   protected readonly overdueTone: ConsoleChipTone = adminStatusTone('overdue');
+  /** A report AEC Integrations decides, or an objection not yet answered: waits on us. */
+  protected readonly openTone: ConsoleChipTone = adminStatusTone('open');
+  /** A data flow report on a claimed pair: the owner decides. */
+  protected readonly withOwnerTone: ConsoleChipTone = adminStatusTone('withTheOwner');
+
+  /** The console table recipe (AECI-2191) and its flat panel. */
+  protected readonly t = CONSOLE_TABLE;
+  protected readonly panelClass = CONSOLE_PANEL_CLASS;
+  protected readonly captionClass = CONSOLE_CAPTION_CLASS;
+  protected readonly detailGridClass = QUEUE_DETAIL_GRID_CLASS;
+  /** Column counts, for each detail row's `colspan`. */
+  protected readonly reportColumns = 5;
+  protected readonly protestColumns = 3;
+  protected readonly vetoColumns = 5;
+  /** Keys (`rpt-`, `pp-` or `veto-` and the id) of the rows whose detail is open. */
+  private readonly openRows = signal<ReadonlySet<string>>(new Set());
   /** The instant the lists were read, for the overdue marker. Set on each load. */
   protected readonly readAt = signal(0);
 
@@ -805,6 +1114,38 @@ export class AdminPairRights {
     if (!r.retract_by) return false;
     const due = Date.parse(r.retract_by);
     return !Number.isNaN(due) && due < this.readAt();
+  }
+
+  protected isRowOpen(key: string): boolean {
+    return this.openRows().has(key);
+  }
+
+  protected toggleRow(key: string): void {
+    this.openRows.update((keys) => {
+      const next = new Set(keys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /** A row's disclosure name, true open or closed: `aria-expanded` carries the state. */
+  protected reportRowLabel(r: PairContest): string {
+    const report = this.title(r);
+    const vendor = r.submitter_name;
+    return vendor
+      ? $localize`:@@admin.pairRights.row.report:${report}:report:, filed by ${vendor}:vendor:`
+      : report;
+  }
+
+  protected protestRowLabel(r: PairContest): string {
+    const report = this.title(r);
+    return $localize`:@@admin.pairRights.row.protest:Review of the owner's answer to ${report}:report:`;
+  }
+
+  protected vetoRowLabel(v: AdminVeto): string {
+    const pair = this.pairName(v.pair);
+    return $localize`:@@admin.pairRights.row.veto:Removal of ${pair}:pair: by ${v.vendor_name}:vendor:`;
   }
 
   protected openForm(id: string, kind: NonNullable<Form>['kind']): void {

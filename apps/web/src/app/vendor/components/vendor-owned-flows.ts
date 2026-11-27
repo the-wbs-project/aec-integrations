@@ -163,7 +163,7 @@ type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
             aecKeepClearOfSaveBar
             aecCloseOnEscape
             [escapeBusy]="busy() !== null"
-            (escapeCancel)="adding.set(false)"
+            (escapeCancel)="closeAdd()"
             method="dialog"
             [class]="panel"
             class="mt-4 space-y-6 text-sm"
@@ -246,7 +246,7 @@ type FlowAction = 'confirm' | 'change' | 'history' | 'remove';
                 variant="secondary"
                 [class]="saveButton"
                 [disabled]="busy() !== null"
-                (click)="adding.set(false)"
+                (click)="closeAdd()"
                 i18n="@@vendor.im.add.cancel"
               >
                 Cancel
@@ -717,6 +717,13 @@ export class VendorOwnedFlows {
   protected toggleAdd(): void {
     this.adding.update((open) => !open);
     if (this.adding()) void this.loadVocabulary();
+  }
+
+  /** Cancel or Escape on the add form: close it and return focus to "Add a row", the
+   *  control that opened it (AECI-2191). */
+  protected closeAdd(): void {
+    this.adding.set(false);
+    this.addToggle()?.nativeElement.focus();
   }
 
   /** A menu item's click. The menu has focused its trigger and closed. */

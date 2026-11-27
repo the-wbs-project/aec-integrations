@@ -1,5 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 
 import {
   OBJECTION_GROUNDS,
@@ -160,6 +169,7 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                         class="mt-2"
                         [attr.aria-expanded]="objectingId() === v.id"
                         [attr.aria-controls]="'objection-form-' + v.id"
+                        [attr.data-objection-trigger]="v.id"
                         (click)="toggleObjection(v)"
                         i18n="@@vendor.pairRights.objection.trigger"
                       >
@@ -393,6 +403,7 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
 })
 export class VendorPairRightsList {
   private readonly api = inject(VendorApi);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly announcer = inject(VendorPortalAnnouncer);
 
   /** Narrow every list to this pair (AECI-2045, the owned row's page). */
@@ -509,10 +520,17 @@ export class VendorPairRightsList {
     this.objectingId.set(v.id);
   }
 
+  /** Cancel or Escape: close the form and return focus to the "Object to this removal"
+   *  button that opened it (AECI-2191). */
   protected closeObjection(): void {
     if (this.busy()) return;
+    const id = this.objectingId();
     this.objectingId.set(null);
     this.objectionError.set(null);
+    if (id === null) return;
+    this.host.nativeElement
+      .querySelector<HTMLButtonElement>(`[data-objection-trigger="${id}"]`)
+      ?.focus();
   }
 
   protected async submitObjection(v: SyncServicePairVeto): Promise<void> {

@@ -11,7 +11,9 @@
  */
 
 import { AUDIT_LOG_PRUNE_EXEMPT_ACTIONS } from '@aeci/shared';
+import { AUDIT_ENTITY_TYPES } from '@aeci/shared/audit-entity-types';
 import { eq, sql } from 'drizzle-orm';
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -19,22 +21,35 @@ import {
   attestations,
   auditLog,
   billingAccounts,
+  claimAeciCorrections,
+  claimThreadAcknowledgments,
+  claimThreadMessages,
+  claimThreads,
+  claimOwnerAnswers,
   claims,
   connectorCatalogs,
   connectorEvidencedPairs,
   connectorPairs,
   connectorStubMappings,
   connectorStubs,
+  dmcaNotices,
   integrationFieldChallenges,
   integrations,
   licenseGrants,
   licenses,
   listingRequests,
   litigationHolds,
+  productRequests,
   products,
   productVendors,
+  productVersions,
   profiles,
+  reviewResponses,
   reviews,
+  reviewUpdates,
+  syncServicePairContests,
+  syncServicePairVetoes,
+  syncServiceVetoObjections,
   taxonomyDataObjects,
   termsAcceptances,
   vendorRequests,
@@ -64,6 +79,9 @@ import {
   emitLegalRetentionPruneMetrics,
   isLegalRetentionRaceError,
   LEGAL_PRUNABLE,
+  AUDIT_ENTITY_HOLD_TIES,
+  auditPrunePredicate,
+  auditRowOfVendor,
   LEGAL_RETENTION_IDS_PER_TABLE,
   LEGAL_RETENTION_ROWS_METRIC,
   LEGAL_RETENTION_RUN_METRIC,
@@ -1980,6 +1998,321 @@ describe('a vendor hold keeps only its company’s audit rows (ruling 55, AECI-1
     await runLegalRetentionPrune(t.db, NOW);
     const left = await remaining();
     for (const id of [...kept, ...deleted]) expect(left.has(id), `deleted ${id}`).toBe(false);
+  });
+});
+
+describe('a vendor hold keeps Sync Service records for every party (AECI-2191, ruling 1)', () => {
+  const OLD = shift(CUT.audit, -1);
+
+  /**
+   * One Sync Service pair: the Sync Service S owns connector p-s, O built and owns the row,
+   * A and B hold the two endpoints, and X holds an unrelated product. A filed the removal,
+   * the objection came from S, and A filed both reports. Every audit row is past the cutoff
+   * and carries no vendor key, so the entity tie is the only way to reach it.
+   */
+  async function seedSyncPair() {
+    for (const v of ['v-o', 'v-s', 'v-a', 'v-b', 'v-x'])
+      await seedVendor(v, { claimEndedAt: null });
+    for (const [p, v] of [
+      ['p-s', 'v-s'],
+      ['p-a', 'v-a'],
+      ['p-b', 'v-b'],
+      ['p-x', 'v-x'],
+    ] as const) {
+      await t.db.insert(products).values({ id: p, slug: p, name: p });
+      await t.db.insert(productVendors).values({ productId: p, vendorId: v });
+    }
+    await t.db.insert(taxonomyDataObjects).values({ id: 'do-1', slug: 'do-1', name: 'Data' });
+    await t.db.insert(integrations).values({
+      id: 'i-ss',
+      sourceProductId: 'p-a',
+      targetProductId: 'p-b',
+      poweredByProductId: 'p-s',
+      builtByVendorId: 'v-o',
+    });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: 'ep-ss',
+      connectorProductId: 'p-s',
+      productAId: 'p-a',
+      productBId: 'p-b',
+      builtByVendorId: 'v-o',
+    });
+    await t.db.insert(claims).values([
+      { id: 'c-ss', integrationId: 'i-ss', dataObjectId: 'do-1', direction: 'a_to_b' },
+      { id: 'c-ss-2', integrationId: 'i-ss', dataObjectId: 'do-1', direction: 'b_to_a' },
+    ]);
+    const key = { connectorProductId: 'p-s', productAId: 'p-a', productBId: 'p-b' };
+    await t.db.insert(syncServicePairVetoes).values([
+      { id: 'veto-i', integrationId: 'i-ss', ...key, vendorId: 'v-a', reason: 'r', filedAt: OLD },
+      // Withdrawn, so it does not clash with the open one on the same key.
+      {
+        id: 'veto-ep',
+        evidencedPairId: 'ep-ss',
+        ...key,
+        vendorId: 'v-a',
+        reason: 'r',
+        filedAt: OLD,
+        endedAt: OLD,
+        endedHow: 'withdrawn',
+      },
+    ]);
+    await t.db.insert(syncServiceVetoObjections).values({
+      id: 'obj-1',
+      vetoId: 'veto-i',
+      vendorId: 'v-s',
+      ground: 'wrong_product',
+      explanation: 'e',
+    });
+    await t.db.insert(syncServicePairContests).values([
+      {
+        id: 'pc-exist',
+        kind: 'existence',
+        evidencedPairId: 'ep-ss',
+        reason: 'r',
+        submitterVendorId: 'v-a',
+        routedTo: 'aeci',
+      },
+      {
+        id: 'pc-flow',
+        kind: 'data_flow',
+        integrationId: 'i-ss',
+        claimId: 'c-ss',
+        reason: 'r',
+        submitterVendorId: 'v-a',
+        routedTo: 'owner',
+        ownerVendorId: 'v-o',
+      },
+    ]);
+    await t.db.insert(claimOwnerAnswers).values({
+      id: 'oa-1',
+      claimId: 'c-ss',
+      vendorId: 'v-o',
+      asserted: true,
+    });
+    await t.db.insert(claimAeciCorrections).values({
+      id: 'cor-1',
+      claimId: 'c-ss',
+      replacementClaimId: 'c-ss-2',
+      reason: 'r',
+      sourceUrl: 'https://example.com/doc',
+    });
+
+    const rows: [string, string, string][] = [
+      ['al-veto-i', 'sync_service_pair_veto', 'veto-i'],
+      ['al-veto-ep', 'sync_service_pair_veto', 'veto-ep'],
+      ['al-objection', 'sync_service_veto_objection', 'obj-1'],
+      ['al-contest-exist', 'sync_service_pair_contest', 'pc-exist'],
+      ['al-contest-flow', 'sync_service_pair_contest', 'pc-flow'],
+      ['al-owner-answer', 'claim_owner_answer', 'oa-1'],
+      ['al-correction', 'claim_aeci_correction', 'cor-1'],
+    ];
+    for (const [id, entityType, entityId] of rows) {
+      await t.db.insert(auditLog).values({
+        id,
+        actorType: 'admin',
+        action: 'test.action',
+        entityType,
+        entityId,
+        createdAt: OLD,
+      });
+    }
+    return rows.map(([id]) => id);
+  }
+
+  const remaining = async () =>
+    new Set((await t.db.select({ id: auditLog.id }).from(auditLog)).map((r) => r.id));
+
+  it.each([
+    ['the row owner', 'v-o'],
+    ['the Sync Service', 'v-s'],
+    ['the endpoint that filed', 'v-a'],
+    ['the other endpoint', 'v-b'],
+  ])('a hold on %s keeps every row', async (_who, vendorId) => {
+    const ids = await seedSyncPair();
+    await seedHold('vendor', vendorId);
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of ids) expect(left.has(id), `kept ${id}`).toBe(true);
+  });
+
+  it('a hold on an unrelated company keeps none of them', async () => {
+    const ids = await seedSyncPair();
+    await seedHold('vendor', 'v-x');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of ids) expect(left.has(id), `deleted ${id}`).toBe(false);
+  });
+
+  /**
+   * One row per other type with an entity tie, each written with no vendor key and
+   * reaching B only through its own table: a thread A opened with B, its message and
+   * acknowledgment, a field contest on the pair, a reply and an update on a review of B's
+   * product, a version and a product request about B's product, and B's billing account
+   * and DMCA notice.
+   */
+  async function seedOtherTypes(): Promise<string[]> {
+    await t.db
+      .insert(profiles)
+      .values([{ id: 'reader-1' }, { id: 'seat-b', vendorId: 'v-b', role: 'vendor_admin' }]);
+    await t.db.insert(claimThreads).values({ id: 'th-1', vendorAId: 'v-a', vendorBId: 'v-b' });
+    await t.db
+      .insert(claimThreadMessages)
+      .values({ id: 'tm-1', threadId: 'th-1', authorVendorId: 'v-a', body: 'Hello' });
+    await t.db.insert(claimThreadAcknowledgments).values({
+      id: 'tk-1',
+      vendorId: 'v-a',
+      integrationId: 'i-ss',
+      otherVendorId: 'v-b',
+      textVersion: '1',
+      acknowledgedAt: OLD,
+    });
+    await t.db.insert(integrationFieldChallenges).values({
+      id: 'fc-1',
+      integrationId: 'i-ss',
+      field: 'name',
+      currentValue: 'Old',
+      proposedValue: 'New',
+      reason: 'r',
+      submitterVendorId: 'v-a',
+      routedTo: 'aeci',
+      status: 'open',
+    });
+    await t.db.insert(reviews).values({
+      id: 'r-b',
+      productId: 'p-b',
+      reviewerId: 'reader-1',
+      ratingOverall: 4,
+      ratingOnboarding: 4,
+      title: 'Review',
+      body: 'Body',
+    });
+    await t.db
+      .insert(reviewResponses)
+      .values({ id: 'rr-1', reviewId: 'r-b', vendorId: 'v-o', body: 'Thanks' });
+    await t.db.insert(reviewUpdates).values({ id: 'ru-1', reviewId: 'r-b', body: 'Later' });
+    await t.db
+      .insert(productVersions)
+      .values({ id: 'ver-1', productId: 'p-b', label: '1.0', sortKey: 1 });
+    await t.db.insert(productRequests).values({
+      id: 'pr-1',
+      vendorId: 'v-a',
+      requestedBy: 'reader-1',
+      contextProductId: 'p-b',
+      name: 'Thing',
+      maker: 'Maker',
+    });
+    await t.db.insert(dmcaNotices).values({
+      id: 'dm-1',
+      kind: 'notice',
+      vendorId: 'v-b',
+      receivedAt: OLD,
+      createdBy: 'admin-1',
+      updatedBy: 'admin-1',
+    });
+    const rows: [string, string, string][] = [
+      ['al-thread', 'claim_thread', 'th-1'],
+      ['al-message', 'claim_thread_message', 'tm-1'],
+      ['al-ack', 'claim_thread_acknowledgment', 'tk-1'],
+      ['al-field-contest', 'integration_field_challenge', 'fc-1'],
+      ['al-reply', 'review_response', 'rr-1'],
+      ['al-review-update', 'review_update', 'ru-1'],
+      ['al-version', 'product_version', 'ver-1'],
+      ['al-product-request', 'product_request', 'pr-1'],
+      ['al-billing', 'billing_account', 'ba-v-b'],
+      ['al-dmca', 'dmca_notice', 'dm-1'],
+    ];
+    for (const [id, entityType, entityId] of rows) {
+      await t.db.insert(auditLog).values({
+        id,
+        actorType: 'admin',
+        action: 'test.action',
+        entityType,
+        entityId,
+        createdAt: OLD,
+      });
+    }
+    return rows.map(([id]) => id);
+  }
+
+  it('the other entity types reach a company through their own table', async () => {
+    await seedSyncPair();
+    const ids = await seedOtherTypes();
+    await seedHold('vendor', 'v-b');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of ids) expect(left.has(id), `kept ${id}`).toBe(true);
+  });
+
+  it('an admin row about one of B’s seats is not B’s (ruling of 2026-11-27)', async () => {
+    await seedSyncPair();
+    await seedOtherTypes();
+    await t.db.insert(auditLog).values({
+      id: 'al-about-seat',
+      actorType: 'admin',
+      action: 'profile.banned',
+      entityType: 'profile',
+      entityId: 'seat-b',
+      createdAt: OLD,
+    });
+    await seedHold('vendor', 'v-b');
+    await runLegalRetentionPrune(t.db, NOW);
+    expect((await remaining()).has('al-about-seat')).toBe(false);
+  });
+
+  it('and a hold on an unrelated company keeps none of those', async () => {
+    await seedSyncPair();
+    const ids = await seedOtherTypes();
+    await seedHold('vendor', 'v-x');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    for (const id of ids) expect(left.has(id), `deleted ${id}`).toBe(false);
+  });
+
+  it('a removal is still kept for the other endpoint once the row it was filed on is gone', async () => {
+    await seedSyncPair();
+    // The anchor FK is SET NULL: the veto keeps its pair key, and the key names B's product.
+    await t.db
+      .delete(syncServicePairContests)
+      .where(eq(syncServicePairContests.integrationId, 'i-ss'));
+    await t.db.delete(claims).where(eq(claims.integrationId, 'i-ss'));
+    await t.db.delete(integrations).where(eq(integrations.id, 'i-ss'));
+    const [veto] = await t.db
+      .select({ integrationId: syncServicePairVetoes.integrationId })
+      .from(syncServicePairVetoes)
+      .where(eq(syncServicePairVetoes.id, 'veto-i'));
+    expect(veto?.integrationId).toBeNull();
+    await seedHold('vendor', 'v-b');
+    await runLegalRetentionPrune(t.db, NOW);
+    const left = await remaining();
+    expect(left.has('al-veto-i')).toBe(true);
+    expect(left.has('al-objection')).toBe(true);
+  });
+});
+
+describe('every audited entity type is classified for a hold (AECI-2191)', () => {
+  const branchTypes = () => {
+    const text = new SQLiteSyncDialect().sqlToQuery(auditRowOfVendor(sql`'v'`)).sql;
+    return new Set([...text.matchAll(/WHEN '([a-z_]+)' THEN/g)].map((m) => m[1]!));
+  };
+
+  it('classifies every value in AUDIT_ENTITY_TYPES', () => {
+    const missing = AUDIT_ENTITY_TYPES.filter((type) => !(type in AUDIT_ENTITY_HOLD_TIES));
+    expect(missing, 'add each to AUDIT_ENTITY_HOLD_TIES in legal-retention-prune.ts').toEqual([]);
+  });
+
+  it('keeps the audit predicate well under D1’s 100 KB statement limit', () => {
+    // Each guarded DELETE and each sentinel carries the predicate once. It was 36 KB after
+    // AECI-2191. A tie that pushes it past 64 KB needs a cheaper shape first.
+    const text = new SQLiteSyncDialect().sqlToQuery(auditPrunePredicate(CUT.audit)).sql;
+    expect(text.length).toBeLessThan(64_000);
+  });
+
+  it('marks a type `entity` exactly when auditRowOfVendor has a branch for it', () => {
+    const entity = Object.entries(AUDIT_ENTITY_HOLD_TIES)
+      .filter(([, how]) => how === 'entity')
+      .map(([type]) => type)
+      .sort();
+    expect([...branchTypes()].sort()).toEqual(entity);
   });
 });
 

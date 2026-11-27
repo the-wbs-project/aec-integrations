@@ -1587,6 +1587,10 @@ the badge, and `409 PROTEST_NOT_OPEN` announces and reloads. The contract is
 **Sync Service integrations (AECI-2042, 2026-11-24).** Below the field contests,
 `admin-pair-rights.ts` lists four things (three until AECI-2170), each over its own read, one decision at a time and
 pessimistic like the contest queue. The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.
+Since AECI-2191 each list is a console table (DESIGN.md "Claims, requests and row threads
+follow the same recipe"). Reports, reviews and removals open a detail row holding the record
+and its forms. The retractions are a plain table. The objection's chip sits in its removal's
+row, in the Objection column. An empty list is one line and no table.
 
 - **Reports**, over `GET /api/admin/pair-contests`: existence reports ("not offered"), which
   always route to AECi, and data flow reports on unclaimed pairs. Accept and Decline open an
