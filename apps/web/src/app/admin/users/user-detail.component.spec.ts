@@ -214,6 +214,9 @@ describe('UserDetail', () => {
     expect(text).toContain('2 takedowns. Open the copyright notice log.');
     expect(text).toContain('(1 counter-notice)');
     const link = block.querySelector('a')!;
+    // AECI-2130: a space separates the count from "(1 counter-notice)". The check reads
+    // the raw node, since whitespace normalisation above would hide a missing space.
+    expect(link.nextSibling?.textContent).toBe(' ');
     expect(link.getAttribute('href')).toBe(`/admin/dmca?account=${USER_ID}`);
   });
 

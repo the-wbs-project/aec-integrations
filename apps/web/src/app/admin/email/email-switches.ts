@@ -1,7 +1,8 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
+  Injector,
   afterNextRender,
   computed,
   inject,
@@ -50,6 +51,10 @@ interface PendingChange {
  * `effect()`: `BrnDialog.open()` creates an effect of its own, which Angular forbids inside
  * another (`review-queue.ts` documents the same rule).
  *
+ * While the save runs the dialog cannot be closed (`disableClose`: Escape, the backdrop
+ * and Cancel are all refused), so the operator always sees whether it took. A refused
+ * save keeps the dialog open and moves focus to its alert (AECI-2130).
+ *
  * ─── What it shows ───────────────────────────────────────────────────────────
  * Only pausable templates get a control. The always-on ones sit under a closed disclosure
  * so an operator looking for one learns it cannot be paused, rather than wondering where
@@ -76,6 +81,8 @@ interface PendingChange {
 })
 export class EmailSwitches {
   private readonly api = inject(AdminEmailApi);
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
 
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
@@ -103,6 +110,9 @@ export class EmailSwitches {
   protected readonly failedMessage = signal('');
 
   private readonly dialog = viewChild(BrnDialog);
+  /** Set by a successful save. The dialog's `(closed)` hands it to the host's region, so
+   *  the announcement is not cut off by the focus return (AECI-2126's rule). */
+  private announceAfterClose: string | null = null;
 
   protected readonly environment = computed(() => this.data()?.environment ?? '');
   protected readonly supportCopy = computed(
@@ -146,12 +156,20 @@ export class EmailSwitches {
     this.dialog()?.open();
   }
 
-  /** Cancel, Escape, or a backdrop click. */
-  protected closeChange(): void {
+  /** Cancel. Refused while the save is in flight. */
+  protected cancelChange(): void {
+    if (this.submitting()) return;
+    this.dialog()?.close();
+  }
+
+  /** The dialog closed: Cancel, Escape, the backdrop, or after a save. */
+  protected onDialogClosed(): void {
     this.pending.set(null);
     this.reason.set('');
     this.failedMessage.set('');
-    this.dialog()?.close();
+    const message = this.announceAfterClose;
+    this.announceAfterClose = null;
+    if (message) this.announce.emit(message);
   }
 
   protected onReasonInput(event: Event): void {
@@ -171,13 +189,20 @@ export class EmailSwitches {
       });
       this.replace(res.switch);
       this.submitting.set(false);
-      this.closeChange();
-      this.announce.emit(announcement(res.switch));
+      this.announceAfterClose = announcement(res.switch);
+      // `disableClose` reaches the open dialog through an effect, so a close issued now
+      // would still be refused. Close after the render that lifts it.
+      afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
     } catch (err) {
+      this.submitting.set(false);
       this.failedMessage.set(messageForError(err));
       if (err instanceof HttpErrorResponse && err.status === 409) void this.load();
-    } finally {
-      this.submitting.set(false);
+      // A refused save moves focus to its message (the console's danger-pattern rule).
+      // The dialog renders in the CDK overlay, outside this host, so look it up by id.
+      afterNextRender(
+        { write: () => this.document.getElementById('admin-email-switch-failed')?.focus() },
+        { injector: this.injector },
+      );
     }
   }
 

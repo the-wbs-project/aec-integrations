@@ -73,6 +73,7 @@ async function setup(
     }),
     setSwitch: vi.fn(async (key: string, body: { enabled: boolean }) => {
       if (opts.set instanceof HttpErrorResponse) throw opts.set;
+      if (opts.set instanceof Promise) await opts.set;
       return {
         switch: sw(key, {
           enabled: body.enabled,
@@ -112,6 +113,11 @@ const button = (el: HTMLElement, text: string) =>
   [...el.querySelectorAll('button')].find((b) =>
     b.textContent?.replace(/\s+/g, ' ').includes(text),
   );
+
+/** Spartan closes after its 100 ms `closeDelay`. */
+const closeDelay = () => new Promise((r) => setTimeout(r, 150));
+const dialogEl = () => document.querySelector<HTMLElement>('[role="alertdialog"]');
+const dialogButton = (text: string) => (dialogEl() ? button(dialogEl()!, text) : undefined);
 
 beforeEach(() => TestBed.resetTestingModule());
 afterEach(() => {
@@ -205,6 +211,8 @@ describe('EmailSwitches', () => {
     instance.reason.set('  Spam wave  ');
     await instance.confirmChange();
     await rerender();
+    await closeDelay();
+    await rerender();
 
     expect(api.setSwitch).toHaveBeenCalledWith('landing-feedback', {
       enabled: false,
@@ -245,6 +253,47 @@ describe('EmailSwitches', () => {
     expect(instance.failedMessage()).toContain('Someone changed this switch');
     expect(instance.pending()).not.toBeNull();
     expect(api.switches).toHaveBeenCalledTimes(2);
+  });
+
+  it('cannot be closed while the save is in flight (AECI-2130)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { el, rerender, announced } = await setup({ set: gate });
+    button(el, 'Pause landing-feedback')!.click();
+    await rerender();
+    dialogButton('Pause sending')!.click();
+    await rerender();
+    expect(dialogEl()!.textContent).toContain('Saving…');
+
+    expect(dialogButton('Cancel')!.disabled).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    dialogEl()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.querySelector<HTMLElement>('.cdk-overlay-backdrop')?.click();
+    await closeDelay();
+    await rerender();
+    expect(dialogEl()).not.toBeNull();
+    expect(announced).toEqual([]);
+
+    release();
+    await rerender();
+    await closeDelay();
+    await rerender();
+    expect(dialogEl()).toBeNull();
+    expect(announced).toEqual(['landing-feedback is paused.']);
+  });
+
+  it('a refused save keeps the dialog open and moves focus to its alert (AECI-2130)', async () => {
+    const { el, rerender } = await setup({ set: new HttpErrorResponse({ status: 429 }) });
+    button(el, 'Pause landing-feedback')!.click();
+    await rerender();
+    dialogButton('Pause sending')!.click();
+    await rerender();
+    await rerender();
+    const alert = document.getElementById('admin-email-switch-failed');
+    expect(alert?.textContent).toContain('Too many changes in a minute');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(document.activeElement).toBe(alert);
+    expect(dialogEl()).not.toBeNull();
   });
 
   it('a failed load shows its own alert with Try again', async () => {

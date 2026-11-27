@@ -175,7 +175,12 @@
   </details>
   }
 
-  <brn-dialog [role]="'alertdialog'" [autoFocus]="'first-heading'" (closed)="closeChange()">
+  <brn-dialog
+    [role]="'alertdialog'"
+    [autoFocus]="'first-heading'"
+    [disableClose]="submitting()"
+    (closed)="onDialogClosed()"
+  >
     <ng-template brnDialogContent>
       @if (pending(); as p) {
       <div
@@ -268,7 +273,15 @@
             [class]="inputClass"
           ></textarea>
           @if (failedMessage()) {
-          <p [class]="failedTextClass" role="alert">{{ failedMessage() }}</p>
+          <p
+            id="admin-email-switch-failed"
+            tabindex="-1"
+            [class]="failedTextClass"
+            class="focus-visible:outline-3 focus-visible:outline-offset-3"
+            role="alert"
+          >
+            {{ failedMessage() }}
+          </p>
           }
           <div class="flex flex-wrap gap-3 pt-2">
             <button aecButton type="submit" [disabled]="submitting()">
@@ -284,7 +297,7 @@
               aecButton
               variant="ghost"
               type="button"
-              (click)="closeChange()"
+              (click)="cancelChange()"
               [disabled]="submitting()"
               i18n="@@admin.email.switches.dialog.cancel"
             >
