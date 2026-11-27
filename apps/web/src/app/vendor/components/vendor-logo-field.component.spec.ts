@@ -20,12 +20,19 @@ import { VendorLogoField } from './vendor-logo-field';
     [logoUrl]="logoUrl()"
     [canEdit]="canEdit()"
     [save]="save"
+    (announce)="heard($event)"
   />`,
 })
 class Host {
   logoUrl = signal<string | null>('https://example.com/old.png');
   canEdit = signal(true);
   save = vi.fn(async (value: string | null) => value);
+  /** Each announcement, and whether the page was hidden from screen readers when
+   *  it was made: the CDK sets `aria-hidden` on the app root while a dialog is open. */
+  said: { text: string; hidden: boolean }[] = [];
+  heard(text: string) {
+    this.said.push({ text, hidden: !!document.querySelector('body > [aria-hidden="true"]') });
+  }
 }
 
 const PATH = `/api/logos/${'a'.repeat(64)}`;
@@ -135,6 +142,12 @@ describe('VendorLogoField', () => {
 
     expect(fixture.componentInstance.save).toHaveBeenCalledWith('https://example.com/new.png');
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Logo saved.');
+    // AECI-2126: nothing is announced while the dialog still hides the page.
+    expect(fixture.componentInstance.said).toEqual([]);
+    await afterClose(fixture);
+    expect(fixture.componentInstance.said).toEqual([
+      { text: 'Logo saved. Your listing shows it now.', hidden: false },
+    ]);
     // AECI-1810: the confirmation is plain text. The host announces it through the
     // portal's one live region via (announce); the row adds no second region.
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="status"]')).toBeNull();
@@ -225,6 +238,27 @@ describe('VendorLogoField', () => {
     expect(fixture.componentInstance.save).toHaveBeenCalledWith(PATH);
   });
 
+  it("says the upload's progress in the dialog's own status region (AECI-2126)", async () => {
+    const fixture = await mount();
+    await openDialog(fixture);
+    const status = q<HTMLElement>('[data-testid="logo-upload-status"]')!;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent?.trim()).toBe('');
+
+    chooseFile();
+    await settle(fixture);
+    expect(status.textContent?.trim()).toBe('Uploading logo…');
+    http.expectOne('/api/vendor/logo').flush({ logo_url: PATH });
+    await settle(fixture);
+    expect(status.textContent?.trim()).toBe('Image uploaded. Save to use it.');
+    // The portal's region is hidden behind the dialog, so nothing goes there.
+    expect(fixture.componentInstance.said).toEqual([]);
+
+    typeUrl('https://example.com/new.png');
+    await settle(fixture);
+    expect(status.textContent?.trim()).toBe('');
+  });
+
   it('removes the logo straight away', async () => {
     const fixture = await mount();
     await openDialog(fixture);
@@ -233,6 +267,9 @@ describe('VendorLogoField', () => {
     expect(q('[data-testid="logo-save"]')).toBeNull();
     expect(fixture.componentInstance.save).toHaveBeenCalledWith(null);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Logo removed.');
+    expect(fixture.componentInstance.said).toEqual([
+      { text: 'Logo removed. Your listing shows the change now.', hidden: false },
+    ]);
     expect(
       (fixture.nativeElement as HTMLElement).querySelector('[data-testid="logo-edit"]')
         ?.textContent,
@@ -272,5 +309,14 @@ describe('VendorLogoField', () => {
     await settle(fixture);
     expect(q('[role="alert"]')?.textContent).toContain("We couldn't save the logo.");
     expect(q('[data-testid="logo-save"]')).not.toBeNull();
+
+    // AECI-2126: a failed save leaves nothing to announce when the dialog closes.
+    const cancel = [
+      ...document.querySelectorAll<HTMLButtonElement>('.cdk-overlay-pane button'),
+    ].find((button) => button.textContent?.trim() === 'Cancel')!;
+    cancel.click();
+    await afterClose(fixture);
+    expect(q('[data-testid="logo-save"]')).toBeNull();
+    expect(fixture.componentInstance.said).toEqual([]);
   });
 });

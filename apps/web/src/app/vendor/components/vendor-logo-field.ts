@@ -329,11 +329,17 @@ export type SaveLogo = (logoUrl: string | null) => Promise<string | null>;
               class="mt-2 block w-full text-sm text-(--text-secondary) file:me-3 file:min-h-11 file:cursor-pointer file:rounded-control file:border file:border-(--border-strong) file:bg-(--surface-base) file:px-4 file:py-2 file:font-semibold file:text-(--text-primary) focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-(--accent-primary)"
             />
             @if (uploading()) {
-              <p class="mt-2 text-xs text-(--text-secondary)" role="status" i18n="@@logo.uploading">
-                Uploading logo…
+              <!-- Visible only. The dialog's status region below says it aloud. -->
+              <p class="mt-2 text-xs text-(--text-secondary)" aria-hidden="true">
+                {{ uploadingText }}
               </p>
             }
           </section>
+
+          <!-- AECI-2126: the upload's progress and result. The portal's live region sits
+               behind the modal, which the CDK hides from screen readers while the dialog
+               is open. This region is always rendered so a change to its text is read. -->
+          <p class="sr-only" role="status" data-testid="logo-upload-status">{{ uploadStatus() }}</p>
 
           @if (error()) {
             <p role="alert" class="mt-4 text-sm font-semibold text-(--text-primary)">
@@ -441,6 +447,11 @@ export class VendorLogoField {
   protected readonly error = signal('');
   protected readonly dragging = signal(false);
   protected readonly confirmation = signal('');
+  /** What the dialog's status region says about the upload. */
+  protected readonly uploadStatus = signal('');
+  protected readonly uploadingText = $localize`:@@logo.uploading:Uploading logo…`;
+  /** The save or remove confirmation, held until the dialog has closed (AECI-2126). */
+  private pendingAnnouncement = '';
 
   /** The one value Save would write: the URL or the upload, never both. */
   protected readonly draft = computed(() =>
@@ -489,13 +500,22 @@ export class VendorLogoField {
   protected open(): void {
     this.reset();
     this.confirmation.set('');
+    this.pendingAnnouncement = '';
     this.dialog()?.open();
   }
 
   /** Escape, the backdrop, Cancel and the close button all discard the draft.
-   *  None of them can close the dialog while a save is in flight. */
+   *  None of them can close the dialog while a save is in flight.
+   *
+   *  AECI-2126: a save's confirmation is announced here, not in `commit()`. While
+   *  the dialog is open the CDK sets `aria-hidden` on the app root, and the portal's
+   *  live region is inside it, so a change made then is never read. `closed` fires
+   *  after the CDK has removed that `aria-hidden`. */
   protected onClosed(): void {
     this.reset();
+    const pending = this.pendingAnnouncement;
+    this.pendingAnnouncement = '';
+    if (pending) this.announce.emit(pending);
   }
 
   protected selectAll(event: Event): void {
@@ -564,15 +584,18 @@ export class VendorLogoField {
     this.fileName.set(picked.file.name);
     this.source.set('file');
     this.uploading.set(true);
-    this.announce.emit($localize`:@@logo.uploading:Uploading logo…`);
+    // AECI-2126: said in the dialog's own region. The portal's is hidden behind it.
+    this.uploadStatus.set(this.uploadingText);
     this.upload = uploadLogo(this.http, '/api/vendor/logo', picked.file).subscribe({
       next: (path) => {
         this.uploading.set(false);
         this.uploadedPath.set(path);
-        this.announce.emit($localize`:@@vendor.logo.uploaded:Image uploaded. Save to use it.`);
+        this.uploadStatus.set($localize`:@@vendor.logo.uploaded:Image uploaded. Save to use it.`);
       },
       error: (error: Error) => {
         this.uploading.set(false);
+        // The role="alert" error speaks for the failure.
+        this.uploadStatus.set('');
         this.fileName.set('');
         this.source.set(null);
         this.error.set(error.message);
@@ -612,7 +635,8 @@ export class VendorLogoField {
       this.current.set(saved?.trim() ?? '');
       this.saving.set(null);
       this.confirmation.set(confirmation);
-      this.announce.emit(confirmation);
+      // AECI-2126: announced by onClosed(), once the portal's region is readable.
+      this.pendingAnnouncement = confirmation;
       // `disableClose` reaches the open dialog through an effect, so a close
       // issued now would still be refused. Close after the render that lifts it.
       afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
@@ -641,6 +665,7 @@ export class VendorLogoField {
     this.upload?.unsubscribe();
     this.upload = undefined;
     this.uploading.set(false);
+    this.uploadStatus.set('');
   }
 }
 
