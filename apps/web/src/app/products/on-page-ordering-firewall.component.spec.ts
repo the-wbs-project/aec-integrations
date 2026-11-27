@@ -24,7 +24,7 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   CategoriesListResponse,
@@ -299,26 +299,47 @@ function renderedRows(
 }
 
 describe('on-page ordering firewall: the product page Integrations section, rendered', () => {
-  for (const size of [12, 26] as const) {
-    it(`[surface:product-integrations-above-fold] ${size} direct rows: the rendered rows and their order ignore every paid input`, () => {
-      const rows = sectionFixture(size);
-      const base = renderedRows(rows);
-      // No filter selected: every row renders. The card view has no @defer cut since
-      // AECI-1891. The table keeps it, and its eager rows are the same head, in order.
-      expect(base).toHaveLength(rows.length);
-      expect(base).not.toContain('?');
-      const table = renderedRows(rows, { view: 'table' });
-      expect(table).toEqual(base.slice(0, Math.min(rows.length, INTEGRATIONS_ABOVE_FOLD)));
+  // The table past 20 rows builds the `@defer (on viewport)` block, whose trigger news up
+  // an `IntersectionObserver`. jsdom has none. A no-op observer never fires, so the
+  // deferred rows stay unrendered, as before.
+  beforeEach(() => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
-      for (const dir of DIRECTIONS) {
-        const flipped = rows.map((r, i) => paid(r, levelOf(i, rows.length, dir)));
-        expect(renderedRows(flipped), dir).toEqual(base);
-      }
-      for (let i = 0; i < rows.length; i += 3) {
-        const loaded = rows.map((r, j) => paid(r, j === i ? 9 : 0));
-        expect(renderedRows(loaded), `row ${i} loaded`).toEqual(base);
-      }
-    });
+  for (const size of [12, 26] as const) {
+    // Up to 13 mounts per case: about 1.8 s alone at 26 rows, past the 5 s default under the
+    // full component suite (AECI-2067).
+    it(
+      `[surface:product-integrations-above-fold] ${size} direct rows: the rendered rows and their order ignore every paid input`,
+      { timeout: 20_000 },
+      () => {
+        const rows = sectionFixture(size);
+        const base = renderedRows(rows);
+        // No filter selected: every row renders. The card view has no @defer cut since
+        // AECI-1891. The table keeps it, and its eager rows are the same head, in order.
+        expect(base).toHaveLength(rows.length);
+        expect(base).not.toContain('?');
+        const table = renderedRows(rows, { view: 'table' });
+        expect(table).toEqual(base.slice(0, Math.min(rows.length, INTEGRATIONS_ABOVE_FOLD)));
+
+        for (const dir of DIRECTIONS) {
+          const flipped = rows.map((r, i) => paid(r, levelOf(i, rows.length, dir)));
+          expect(renderedRows(flipped), dir).toEqual(base);
+        }
+        for (let i = 0; i < rows.length; i += 3) {
+          const loaded = rows.map((r, j) => paid(r, j === i ? 9 : 0));
+          expect(renderedRows(loaded), `row ${i} loaded`).toEqual(base);
+        }
+      },
+    );
   }
 
   it('[surface:product-integrations-direct-lane] a filter the reader types keeps the same rows whatever the paid inputs', () => {

@@ -109,6 +109,8 @@ Bare `TestBed` from `@angular/core/testing` is the default; reach for `@testing-
 
 For pure structural shells with named slots (e.g. the layout components in `apps/web/src/app/layouts/`), define a tiny inline host component that projects test markers and assert on what reaches the DOM. Example: `apps/web/src/app/layouts/detail-layout.component.spec.ts`.
 
+A spec that renders an `@defer (on viewport)` block must stub `IntersectionObserver` with `vi.stubGlobal` and undo it with `vi.unstubAllGlobals()` in `afterEach`. jsdom has no `IntersectionObserver`, and Angular's viewport trigger builds one without checking. The error is caught and logged, so the test still passes, but the log fills with a `ReferenceError`. A no-op observer never fires, so the deferred content stays unrendered. Example: `on-page-ordering-firewall.component.spec.ts` (AECI-2067). A case that mounts a heavy component many times declares its own `{ timeout }` rather than relying on the 5 s default, because the full suite runs it slower than it runs alone.
+
 Cover:
 
 - Conditional rendering: render with each set of inputs, assert the right thing is on screen
