@@ -111,6 +111,7 @@ describe('ProductReviews', () => {
     const { el } = setup({ reviewCount: 0, firstPage: [] });
 
     expect(el.textContent?.toLowerCase()).toContain('be the first to review');
+    expect(el.textContent).not.toContain('—');
     expect(el.querySelectorAll('ul > li')).toHaveLength(0);
     // No summary, no threshold note.
     expect(el.textContent).not.toContain('Based on');
