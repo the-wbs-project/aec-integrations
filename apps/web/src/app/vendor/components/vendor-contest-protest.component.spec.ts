@@ -19,6 +19,7 @@ import { VENDOR_CONTESTS_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorContestsList } from './vendor-contests-list';
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
@@ -88,8 +89,23 @@ const type = (field: HTMLTextAreaElement | HTMLInputElement, value: string) => {
 const submit = (scope: HTMLElement) =>
   scope.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
 
+/** BrnDialog closes after its default 100 ms `closeDelay`. */
+const afterClose = async (fixture: ComponentFixture<unknown>) => {
+  await settle(fixture);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await settle(fixture);
+};
+/** The open protest dialog, which the CDK renders in its overlay outside the row. */
+const dialog = () => document.querySelector<HTMLElement>('.cdk-overlay-container .aec-dialog');
+const escape = () =>
+  document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true, cancelable: true }),
+  );
+
+afterEach(() => document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove()));
+
 describe('VendorContestProtest — the submitter', () => {
-  it('opens the request form, refuses an empty reason, then sends reason and links', async () => {
+  it('opens the request in a dialog, refuses an empty reason, then sends reason and links', async () => {
     const fixture = await create();
     const r = row(fixture, PROTESTABLE.id);
     const start = button(r, 'Ask AEC Integrations to review');
@@ -97,86 +113,83 @@ describe('VendorContestProtest — the submitter', () => {
     start.click();
     await settle(fixture);
 
-    expect(r.textContent).toContain('Its view is advice');
-    expect(r.textContent).toContain('Nothing about a review is public');
-    expect(r.textContent).toContain('The owner declined this request.');
+    const d = dialog()!;
+    expect(d).toBeTruthy();
+    expect(r.querySelector('form')).toBeNull();
+    expectTitleFirstDialog('Ask AEC Integrations to review this request');
+    expect(d.textContent).toContain('Its view is advice');
+    expect(d.textContent).toContain('Nothing about a review is public');
+    expect(d.textContent).toContain('The owner declined this request.');
 
-    submit(r);
+    submit(d);
     await settle(fixture);
     expect(api.fileContestProtest).not.toHaveBeenCalled();
-    expect(r.querySelector('[role="alert"]')?.textContent).toContain('Say why');
+    expect(d.querySelector('[role="alert"]')?.textContent).toContain('Say why');
 
-    type(r.querySelector('textarea')!, '  The guide moved in August.  ');
-    button(r, 'Add a link').click();
+    type(d.querySelector('textarea')!, '  The guide moved in August.  ');
+    button(d, 'Add a link').click();
     await settle(fixture);
-    type(r.querySelector<HTMLInputElement>('input[type="url"]')!, 'https://example.test/notes');
-    submit(r);
+    type(d.querySelector<HTMLInputElement>('input[type="url"]')!, 'https://example.test/notes');
+    submit(d);
     await settle(fixture);
 
     expect(api.fileContestProtest).toHaveBeenCalledWith(PROTESTABLE.id, {
       reason: 'The guide moved in August.',
       evidence_urls: ['https://example.test/notes'],
     });
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain(
       'Sent to AEC Integrations for review',
     );
     expect(api.getContests).toHaveBeenCalledTimes(2);
   });
 
-  it('closes on Escape as Cancel does: the draft goes and focus returns to the opener (AECI-2133)', async () => {
+  it('Escape discards the draft; the next open starts empty', async () => {
     const fixture = await create();
     const r = row(fixture, PROTESTABLE.id);
     button(r, 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    const reason = r.querySelector('textarea')!;
-    type(reason, 'A long draft.');
-    reason.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-    );
-    await settle(fixture);
-    expect(r.querySelector('form')).toBeNull();
+    type(dialog()!.querySelector('textarea')!, 'A long draft.');
+    escape();
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
     expect(api.fileContestProtest).not.toHaveBeenCalled();
-    const start = button(r, 'Ask AEC Integrations to review');
-    expect(document.activeElement).toBe(start);
-    start.click();
+    button(r, 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    expect(r.querySelector('textarea')!.value).toBe('');
+    expect(dialog()!.querySelector('textarea')!.value).toBe('');
   });
 
-  it('ignores Escape while the request sends (AECI-2133)', async () => {
+  it('cannot be dismissed while the request sends', async () => {
     api.fileContestProtest.mockReturnValue(new Promise(() => undefined));
     const fixture = await create();
-    const r = row(fixture, PROTESTABLE.id);
-    button(r, 'Ask AEC Integrations to review').click();
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    const reason = r.querySelector('textarea')!;
-    type(reason, 'The guide moved.');
-    submit(r);
+    type(dialog()!.querySelector('textarea')!, 'The guide moved.');
+    submit(dialog()!);
     await settle(fixture);
     expect(api.fileContestProtest).toHaveBeenCalled();
-    reason.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-    );
+    escape();
     await settle(fixture);
-    expect(r.querySelector('form')).not.toBeNull();
+    expect(dialog()).not.toBeNull();
   });
 
   it('refuses a link that is not a web address before sending', async () => {
     const fixture = await create();
-    const r = row(fixture, PROTESTABLE.id);
-    button(r, 'Ask AEC Integrations to review').click();
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    type(r.querySelector('textarea')!, 'Reason');
-    button(r, 'Add a link').click();
+    const d = dialog()!;
+    type(d.querySelector('textarea')!, 'Reason');
+    button(d, 'Add a link').click();
     await settle(fixture);
-    type(r.querySelector<HTMLInputElement>('input[type="url"]')!, 'not a link');
-    submit(r);
+    type(d.querySelector<HTMLInputElement>('input[type="url"]')!, 'not a link');
+    submit(d);
     await settle(fixture);
     expect(api.fileContestProtest).not.toHaveBeenCalled();
-    expect(r.querySelector('[role="alert"]')?.textContent).toContain('full web address');
+    expect(d.querySelector('[role="alert"]')?.textContent).toContain('full web address');
   });
 
-  it('says plainly when the window has closed, and reloads', async () => {
+  it('says plainly on the row when the window has closed, and reloads', async () => {
     api.fileContestProtest.mockRejectedValue(
       new HttpErrorResponse({
         status: 409,
@@ -190,12 +203,13 @@ describe('VendorContestProtest — the submitter', () => {
       }),
     );
     const fixture = await create();
-    const r = row(fixture, PROTESTABLE.id);
-    button(r, 'Ask AEC Integrations to review').click();
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    type(r.querySelector('textarea')!, 'Reason');
-    submit(r);
+    type(dialog()!.querySelector('textarea')!, 'Reason');
+    submit(dialog()!);
     await settle(fixture);
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
     expect(row(fixture, PROTESTABLE.id).textContent).toContain('30 days to ask for a review');
     expect(api.getContests).toHaveBeenCalledTimes(2);
   });
@@ -214,12 +228,11 @@ describe('VendorContestProtest — the submitter', () => {
       }),
     );
     const fixture = await create();
-    const r = row(fixture, PROTESTABLE.id);
-    button(r, 'Ask AEC Integrations to review').click();
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
     await settle(fixture);
-    type(r.querySelector('textarea')!, 'Reason');
-    submit(r);
-    await settle(fixture);
+    type(dialog()!.querySelector('textarea')!, 'Reason');
+    submit(dialog()!);
+    await afterClose(fixture);
     expect(row(fixture, PROTESTABLE.id).textContent).toContain(
       'You have an open change request on this field',
     );
@@ -227,11 +240,10 @@ describe('VendorContestProtest — the submitter', () => {
 
   it('shows the deadline with its time, not just the day', async () => {
     const fixture = await create();
-    const r = row(fixture, PROTESTABLE.id);
-    button(r, 'Ask AEC Integrations to review').click();
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
     await settle(fixture);
     // Angular's `medium` format carries the time of day ("…, 4:14:30 PM").
-    expect(r.textContent).toMatch(/You can ask until .+\d{1,2}:\d{2}:\d{2}/);
+    expect(dialog()!.textContent).toMatch(/You can ask until .+\d{1,2}:\d{2}:\d{2}/);
   });
 
   it('says when an unanswered contest can be protested', async () => {
@@ -295,23 +307,26 @@ describe('VendorContestProtest — the submitter', () => {
 });
 
 describe('VendorContestProtest — the owner', () => {
-  it('shows the whole request and takes one reply', async () => {
+  it('shows the whole request, and Reply opens one reply in a dialog', async () => {
     const fixture = await create();
     const r = row(fixture, RECEIVED_OPEN.id);
     expect(r.textContent).toContain(RECEIVED_OPEN.protest!.reason);
     expect(r.textContent).toContain(RECEIVED_OPEN.protest!.evidence_urls[0]!);
-    expect(r.textContent).toContain('You can reply once');
+    expect(r.textContent).toContain('Due ');
+    expect(r.querySelector('textarea')).toBeNull();
 
-    type(
-      r.querySelector<HTMLTextAreaElement>(`#vendor-protest-reply-${RECEIVED_OPEN.id}`)!,
-      'Our brand name.',
-    );
-    submit(r.querySelector<HTMLElement>(`[data-protest="${RECEIVED_OPEN.id}"]`)!);
+    button(r, 'Reply').click();
+    await settle(fixture);
+    const d = dialog()!;
+    expectTitleFirstDialog('Reply to the review request');
+    type(d.querySelector('textarea')!, 'Our brand name.');
+    submit(d);
     await settle(fixture);
     expect(api.replyContestProtest).toHaveBeenCalledWith(RECEIVED_OPEN.id, {
       reply: 'Our brand name.',
       evidence_urls: [],
     });
+    await afterClose(fixture);
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('Reply sent');
   });
 
@@ -323,7 +338,7 @@ describe('VendorContestProtest — the owner', () => {
     api.getContests.mockResolvedValue(withContests({ received: [late], submitted: [] }));
     const fixture = await create();
     const r = row(fixture, late.id);
-    expect(r.querySelector(`#vendor-protest-reply-${late.id}`)).toBeNull();
+    expect(button(r, 'Reply')).toBeUndefined();
     expect(r.textContent).toContain('No reply');
   });
 
