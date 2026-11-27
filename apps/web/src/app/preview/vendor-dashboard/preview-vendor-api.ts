@@ -787,6 +787,8 @@ export class PreviewVendorApi extends VendorApi {
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
   /** Invites revoked in this preview session (AECI-2129), so a revoke drops the row. */
   private revokedInvites = new Set<string>();
+  /** Claims declined in this preview session (AECI-2186), so a decline drops the row. */
+  private declinedClaims = new Set<string>();
   private integrations: ListVendorIntegrationsResponse = clone(PREVIEW_INTEGRATIONS);
   private nextClaimSeq = 0;
   private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
@@ -826,6 +828,7 @@ export class PreviewVendorApi extends VendorApi {
     this.checklistState = clone(checklist);
     this.seats = clone([...seats]);
     this.revokedInvites = new Set();
+    this.declinedClaims = new Set();
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
     this.contests = clone(PREVIEW_CONTESTS);
@@ -1262,7 +1265,9 @@ export class PreviewVendorApi extends VendorApi {
       ),
       can_manage_seats: true,
       // AECI-1368: one claim routed to the owners, so "Wants to join" renders.
-      pending_claims: clone([...VENDOR_PENDING_SEAT_CLAIMS_FIXTURE]),
+      pending_claims: clone(
+        VENDOR_PENDING_SEAT_CLAIMS_FIXTURE.filter((claim) => !this.declinedClaims.has(claim.id)),
+      ),
     };
   }
 
@@ -1285,7 +1290,10 @@ export class PreviewVendorApi extends VendorApi {
     };
   }
 
-  override async declineSeatClaim(): Promise<void> {}
+  /** AECI-2186: the row leaves "Wants to join", as it does after the real 204. */
+  override async declineSeatClaim(claimId: string): Promise<void> {
+    this.declinedClaims.add(claimId);
+  }
 
   /** The §11a writes, fixture-side: no-ops that resolve, so the preview can click
    *  through the controls without a vendor session or a live D1. */
