@@ -11,6 +11,7 @@
  *   4. A valid objection sends one call with the ground, the explanation and the link.
  *   5. An open objection hides the action and shows its state. A decided one shows the note.
  *   6. Escape closes the form, as Cancel does (`aecCloseOnEscape`).
+ *   7. Cancel and Escape return focus to the opener (AECI-2191).
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -230,5 +231,25 @@ describe('VendorPairRightsList — a removal and its objection (AECI-2192)', () 
       );
     await settle(fixture);
     expect(el(fixture).querySelector('form')).toBeNull();
+  });
+
+  it('Cancel and Escape return focus to "Object to this removal" (AECI-2191)', async () => {
+    const fixture = await mount();
+    buttonByText(fixture, 'Object to this removal')!.click();
+    await settle(fixture);
+    buttonByText(fixture, 'Cancel')!.click();
+    await settle(fixture);
+    expect(el(fixture).querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(buttonByText(fixture, 'Object to this removal'));
+
+    buttonByText(fixture, 'Object to this removal')!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector('form textarea')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(document.activeElement).toBe(buttonByText(fixture, 'Object to this removal'));
   });
 });

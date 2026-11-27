@@ -10,6 +10,7 @@
  *   3. Submit sends the veto, announces it, and asks the section to reload.
  *   4. The existence report says the pair stays listed, and sends `kind: existence`.
  *   5. A data flow report sends the claim and the proposed direction.
+ *   6. Cancel and Escape return focus to the form's opener (AECI-2191).
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -160,6 +161,33 @@ describe('VendorSyncServiceRights', () => {
     }
     expect(api['fileVeto']).not.toHaveBeenCalled();
     expect(api['submitPairContest']).not.toHaveBeenCalled();
+  });
+
+  it('Cancel and Escape return focus to the button that opened the form (AECI-2191)', async () => {
+    const { fixture } = await mount();
+    for (const opener of [
+      'Remove this integration from our product',
+      'Report that it is not offered',
+      'Report a wrong data flow',
+    ]) {
+      buttonByText(fixture, opener).click();
+      await settle(fixture);
+      el(fixture).querySelector<HTMLElement>('form textarea, form input')!.focus();
+      buttonByText(fixture, 'Cancel').click();
+      await settle(fixture);
+      expect(el(fixture).querySelector('form'), opener).toBeNull();
+      expect(document.activeElement, opener).toBe(buttonByText(fixture, opener));
+
+      buttonByText(fixture, opener).click();
+      await settle(fixture);
+      el(fixture)
+        .querySelector('form textarea, form input')!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+      await settle(fixture);
+      expect(document.activeElement, `${opener} (Escape)`).toBe(buttonByText(fixture, opener));
+    }
   });
 
   it('ignores Escape while the removal sends (AECI-2133)', async () => {

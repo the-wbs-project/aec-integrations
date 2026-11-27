@@ -1,4 +1,13 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import {
   REMOVAL_REASON_CODES,
@@ -56,6 +65,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
             aecButton
             variant="secondary"
             compact
+            #vetoTrigger
             [attr.aria-expanded]="panel() === 'veto'"
             (click)="open('veto')"
             i18n="@@vendor.syncRights.veto.trigger"
@@ -68,6 +78,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
             variant="secondary"
             compact
             [disabled]="rights.open_reports.includes('existence')"
+            #existenceTrigger
             [attr.aria-expanded]="panel() === 'existence'"
             (click)="open('existence')"
             i18n="@@vendor.syncRights.existence.trigger"
@@ -80,6 +91,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
               aecButton
               variant="secondary"
               compact
+              #flowTrigger
               [attr.aria-expanded]="panel() === 'flow'"
               (click)="open('flow')"
               i18n="@@vendor.syncRights.flow.trigger"
@@ -343,6 +355,9 @@ export class VendorSyncServiceRights {
   private readonly announcer = inject(VendorPortalAnnouncer);
 
   protected readonly panel = signal<Panel>('none');
+  private readonly vetoTrigger = viewChild<ElementRef<HTMLButtonElement>>('vetoTrigger');
+  private readonly existenceTrigger = viewChild<ElementRef<HTMLButtonElement>>('existenceTrigger');
+  private readonly flowTrigger = viewChild<ElementRef<HTMLButtonElement>>('flowTrigger');
   protected readonly reason = signal('');
   /** The removal's fixed reason (AECI-2192, ruling 66). No free text. */
   protected readonly reasonCode = signal<RemovalReasonCode | null>(null);
@@ -393,9 +408,20 @@ export class VendorSyncServiceRights {
     this.panel.set(this.panel() === panel ? 'none' : panel);
   }
 
+  /** Cancel or Escape: close, and return focus to the button that opened the form, so a
+   *  keyboard user is not dropped at the top of the page (AECI-2191). */
   protected close(): void {
+    const opener = this.triggerOf(this.panel());
     this.panel.set('none');
     this.error.set(null);
+    opener?.nativeElement.focus();
+  }
+
+  private triggerOf(panel: Panel): ElementRef<HTMLButtonElement> | undefined {
+    if (panel === 'veto') return this.vetoTrigger();
+    if (panel === 'existence') return this.existenceTrigger();
+    if (panel === 'flow') return this.flowTrigger();
+    return undefined;
   }
 
   protected async submitVeto(): Promise<void> {

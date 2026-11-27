@@ -509,6 +509,150 @@ const claimOfVendor = (vendorId: SQL, claimId: SQL) => sql`EXISTS (
           OR ${connectorPairOfVendor(vendorId, sql`"ov_c"."connector_pair_id"`)})
     )`;
 
+/** A removal (veto) on a Sync Service pair (AECI-2191, ruling 1): the company filed it, or
+ *  the row it was filed on is the company's, or the pair key (connector, A, B) names one of
+ *  its products. The key outlives the row: the anchor FKs are SET NULL, the key's are not. */
+const vetoOfVendor = (vendorId: SQL, vetoId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "sync_service_pair_vetoes" "ov_sv"
+      WHERE "ov_sv"."id" = ${vetoId}
+        AND ("ov_sv"."vendor_id" = ${vendorId}
+          OR ${integrationOfVendor(vendorId, sql`"ov_sv"."integration_id"`)}
+          OR ${evidencedPairOfVendor(vendorId, sql`"ov_sv"."evidenced_pair_id"`)}
+          OR "ov_sv"."connector_product_id" IN (${productsOf(vendorId)})
+          OR "ov_sv"."product_a_id" IN (${productsOf(vendorId)})
+          OR "ov_sv"."product_b_id" IN (${productsOf(vendorId)}))
+    )`;
+
+/** An objection to a removal: the company filed it, or the removal is the company's. */
+const vetoObjectionOfVendor = (vendorId: SQL, objectionId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "sync_service_veto_objections" "ov_so"
+      WHERE "ov_so"."id" = ${objectionId}
+        AND ("ov_so"."vendor_id" = ${vendorId}
+          OR ${vetoOfVendor(vendorId, sql`"ov_so"."veto_id"`)})
+    )`;
+
+/** A report on a Sync Service pair (existence or data flow): the company filed it, owns the
+ *  row it is about, or the row or the flow is otherwise the company's. */
+const pairContestOfVendor = (vendorId: SQL, contestId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "sync_service_pair_contests" "ov_sc"
+      WHERE "ov_sc"."id" = ${contestId}
+        AND ("ov_sc"."submitter_vendor_id" = ${vendorId}
+          OR "ov_sc"."owner_vendor_id" = ${vendorId}
+          OR ${integrationOfVendor(vendorId, sql`"ov_sc"."integration_id"`)}
+          OR ${evidencedPairOfVendor(vendorId, sql`"ov_sc"."evidenced_pair_id"`)}
+          OR ${claimOfVendor(vendorId, sql`"ov_sc"."claim_id"`)})
+    )`;
+
+/** The owner's answer on one flow: the company answered, or the flow is the company's. */
+const ownerAnswerOfVendor = (vendorId: SQL, answerId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claim_owner_answers" "ov_oa"
+      WHERE "ov_oa"."id" = ${answerId}
+        AND ("ov_oa"."vendor_id" = ${vendorId}
+          OR ${claimOfVendor(vendorId, sql`"ov_oa"."claim_id"`)})
+    )`;
+
+/** AECi's correction of one flow: the corrected flow, or its replacement, is the company's. */
+const aeciCorrectionOfVendor = (vendorId: SQL, correctionId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claim_aeci_corrections" "ov_ac"
+      WHERE "ov_ac"."id" = ${correctionId}
+        AND (${claimOfVendor(vendorId, sql`"ov_ac"."claim_id"`)}
+          OR ${claimOfVendor(vendorId, sql`"ov_ac"."replacement_claim_id"`)})
+    )`;
+
+/**
+ * A row of `table` (id `entityId`) one of whose `columns` names the company. For the tables
+ * that carry their company as a column, so a row about them reaches the company even when
+ * the audit row's own `vendor_id` names someone else (a notice's recipient) or no one (a
+ * promote write). `table`, `alias` and `columns` are fixed literals, never input.
+ */
+const rowNamesVendor = (
+  table: string,
+  alias: string,
+  columns: readonly string[],
+  vendorId: SQL,
+  entityId: SQL,
+) => {
+  const ties = sql.join(
+    columns.map((col) => sql`${sql.raw(`"${alias}"."${col}"`)} = ${vendorId}`),
+    sql` OR `,
+  );
+  return sql`EXISTS (
+      SELECT 1 FROM ${sql.raw(`"${table}" "${alias}"`)}
+      WHERE ${sql.raw(`"${alias}"."id"`)} = ${entityId} AND (${ties})
+    )`;
+};
+
+/** A claim thread between two companies, or on a claim that is the company's. */
+const threadOfVendor = (vendorId: SQL, threadId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claim_threads" "ov_th"
+      WHERE "ov_th"."id" = ${threadId}
+        AND ("ov_th"."vendor_a_id" = ${vendorId}
+          OR "ov_th"."vendor_b_id" = ${vendorId}
+          OR ${claimOfVendor(vendorId, sql`"ov_th"."claim_id"`)})
+    )`;
+
+/** A thread message: the company wrote it, or the thread is the company's. A JOIN, not a
+ *  nested {@link threadOfVendor}: each nested EXISTS costs depth (see auditRowOfVendor). */
+const threadMessageOfVendor = (vendorId: SQL, messageId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claim_thread_messages" "ov_tm"
+      JOIN "claim_threads" "ov_tmt" ON "ov_tmt"."id" = "ov_tm"."thread_id"
+      WHERE "ov_tm"."id" = ${messageId}
+        AND ("ov_tm"."author_vendor_id" = ${vendorId}
+          OR "ov_tmt"."vendor_a_id" = ${vendorId}
+          OR "ov_tmt"."vendor_b_id" = ${vendorId}
+          OR ${claimOfVendor(vendorId, sql`"ov_tmt"."claim_id"`)})
+    )`;
+
+/** A thread acknowledgment: either company on it, or the integration is the company's. */
+const threadAckOfVendor = (vendorId: SQL, ackId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "claim_thread_acknowledgments" "ov_tk"
+      WHERE "ov_tk"."id" = ${ackId}
+        AND ("ov_tk"."vendor_id" = ${vendorId}
+          OR "ov_tk"."other_vendor_id" = ${vendorId}
+          OR ${integrationOfVendor(vendorId, sql`"ov_tk"."integration_id"`)})
+    )`;
+
+/** A field contest: the company filed it or owns the row, or the row is the company's. */
+const fieldContestOfVendor = (vendorId: SQL, contestId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "integration_field_challenges" "ov_fc"
+      WHERE "ov_fc"."id" = ${contestId}
+        AND ("ov_fc"."submitter_vendor_id" = ${vendorId}
+          OR "ov_fc"."owner_vendor_id" = ${vendorId}
+          OR ${integrationOfVendor(vendorId, sql`"ov_fc"."integration_id"`)}
+          OR ${evidencedPairOfVendor(vendorId, sql`"ov_fc"."evidenced_pair_id"`)})
+    )`;
+
+/** A reply to a review: the company wrote it, or the review is of its product. */
+const reviewResponseOfVendor = (vendorId: SQL, responseId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "review_responses" "ov_rr"
+      WHERE "ov_rr"."id" = ${responseId}
+        AND ("ov_rr"."vendor_id" = ${vendorId}
+          OR ${reviewOfVendor(vendorId, sql`"ov_rr"."review_id"`)})
+    )`;
+
+/** A reviewer's update to a review of the company's product. */
+const reviewUpdateOfVendor = (vendorId: SQL, updateId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "review_updates" "ov_ru"
+      WHERE "ov_ru"."id" = ${updateId}
+        AND ${reviewOfVendor(vendorId, sql`"ov_ru"."review_id"`)}
+    )`;
+
+/** A version of one of the company's products. */
+const productVersionOfVendor = (vendorId: SQL, versionId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "product_versions" "ov_ver"
+      WHERE "ov_ver"."id" = ${versionId}
+        AND "ov_ver"."product_id" IN (${productsOf(vendorId)})
+    )`;
+
+/** A product request the company sent, or about one of its products. */
+const productRequestOfVendor = (vendorId: SQL, requestId: SQL) => sql`EXISTS (
+      SELECT 1 FROM "product_requests" "ov_pr"
+      WHERE "ov_pr"."id" = ${requestId}
+        AND ("ov_pr"."vendor_id" = ${vendorId}
+          OR "ov_pr"."context_product_id" IN (${productsOf(vendorId)})
+          OR "ov_pr"."resolved_product_id" IN (${productsOf(vendorId)}))
+    )`;
+
 /** A `vendor_requests` row whose request targets the company, or one of its products (the
  *  legacy product-target shape). */
 const vendorRequestOfVendor = (vendorId: SQL, requestId: SQL) => sql`EXISTS (
@@ -550,6 +694,15 @@ const seatsOf = (vendorId: SQL) =>
  *      so this is how they are reached.
  *   5. **It is about a claim on the company**: a `vendor_request` row whose request targets
  *      the company, or one of its products (the legacy product-target shape).
+ *   5b. **Its entity's own table names the company** (AECI-2191, Chris's ruling of
+ *      2026-11-27): the Sync Service records (a removal, its objection, a report, the
+ *      owner's answer, AECi's flow correction) for the filer, the row owner, the Sync
+ *      Service and both endpoints; a claim thread, its messages and acknowledgments; a
+ *      field contest; a review reply or update; a product version or product request; and
+ *      the company's billing account, grants, acceptances, suspensions, seat invites,
+ *      product proposals and DMCA notices. An admin row about one of its seats is not
+ *      the company's: only what a seat did is (tie 6). {@link AUDIT_ENTITY_HOLD_TIES}
+ *      classifies every entity type.
  *   6. **One of the company's current seats wrote it** (`profiles.vendor_id`), whatever it
  *      is about.
  *
@@ -563,29 +716,122 @@ const seatsOf = (vendorId: SQL) =>
  * except the fixed action literals, so the bind count does not grow with the hold count.
  */
 export function auditRowOfVendor(vendorId: SQL): SQL {
+  const id = sql`"audit_log"."entity_id"`;
+  // One CASE on `entity_type`, never a chain of `entity_type = … AND …` ORs. SQLite builds
+  // `a OR b OR c` as a left-deep tree, one level per OR, and D1 caps an expression tree at a
+  // depth of 100. A CASE adds one level whatever its branch count (AECI-2191).
   return sql`(
     "audit_log"."vendor_id" = ${vendorId}
-    OR ("audit_log"."entity_type" IN ('vendor', 'vendor_entitlement') AND "audit_log"."entity_id" = ${vendorId})
     OR (CASE WHEN json_valid("audit_log"."metadata") THEN
           json_extract("audit_log"."metadata", '$.vendor_id') = ${vendorId}
           OR json_extract("audit_log"."metadata", '$.vendorId') = ${vendorId}
         ELSE 0 END)
     OR "audit_log"."product_id" IN (${productsOf(vendorId)})
-    OR ("audit_log"."entity_type" = 'product' AND "audit_log"."entity_id" IN (${productsOf(vendorId)}))
-    OR ("audit_log"."entity_type" = 'integration' AND ${integrationOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_evidenced_pair' AND ${evidencedPairOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_pair' AND ${connectorPairOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'connector_catalog' AND ${catalogOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'claim' AND ${claimOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'attestation' AND EXISTS (
+    OR "audit_log"."actor_id" IN (${seatsOf(vendorId)})
+    OR (CASE "audit_log"."entity_type"
+      WHEN 'vendor' THEN "audit_log"."entity_id" = ${vendorId}
+      WHEN 'vendor_entitlement' THEN "audit_log"."entity_id" = ${vendorId}
+      WHEN 'product' THEN "audit_log"."entity_id" IN (${productsOf(vendorId)})
+      WHEN 'integration' THEN ${integrationOfVendor(vendorId, id)}
+      WHEN 'connector_evidenced_pair' THEN ${evidencedPairOfVendor(vendorId, id)}
+      WHEN 'connector_pair' THEN ${connectorPairOfVendor(vendorId, id)}
+      WHEN 'connector_catalog' THEN ${catalogOfVendor(vendorId, id)}
+      WHEN 'claim' THEN ${claimOfVendor(vendorId, id)}
+      WHEN 'attestation' THEN EXISTS (
           SELECT 1 FROM "attestations" "ov_at"
           WHERE "ov_at"."id" = "audit_log"."entity_id"
-            AND ${claimOfVendor(vendorId, sql`"ov_at"."claim_id"`)}))
-    OR ("audit_log"."entity_type" = 'review' AND ${reviewOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR ("audit_log"."entity_type" = 'vendor_request' AND ${vendorRequestOfVendor(vendorId, sql`"audit_log"."entity_id"`)})
-    OR "audit_log"."actor_id" IN (${seatsOf(vendorId)})
+            AND ${claimOfVendor(vendorId, sql`"ov_at"."claim_id"`)})
+      WHEN 'review' THEN ${reviewOfVendor(vendorId, id)}
+      WHEN 'vendor_request' THEN ${vendorRequestOfVendor(vendorId, id)}
+      WHEN 'sync_service_pair_veto' THEN ${vetoOfVendor(vendorId, id)}
+      WHEN 'sync_service_veto_objection' THEN ${vetoObjectionOfVendor(vendorId, id)}
+      WHEN 'sync_service_pair_contest' THEN ${pairContestOfVendor(vendorId, id)}
+      WHEN 'claim_owner_answer' THEN ${ownerAnswerOfVendor(vendorId, id)}
+      WHEN 'claim_aeci_correction' THEN ${aeciCorrectionOfVendor(vendorId, id)}
+      WHEN 'claim_thread' THEN ${threadOfVendor(vendorId, id)}
+      WHEN 'claim_thread_message' THEN ${threadMessageOfVendor(vendorId, id)}
+      WHEN 'claim_thread_acknowledgment' THEN ${threadAckOfVendor(vendorId, id)}
+      WHEN 'integration_field_challenge' THEN ${fieldContestOfVendor(vendorId, id)}
+      WHEN 'review_response' THEN ${reviewResponseOfVendor(vendorId, id)}
+      WHEN 'review_update' THEN ${reviewUpdateOfVendor(vendorId, id)}
+      WHEN 'product_version' THEN ${productVersionOfVendor(vendorId, id)}
+      WHEN 'product_request' THEN ${productRequestOfVendor(vendorId, id)}
+      WHEN 'product_proposal' THEN ${rowNamesVendor('product_proposals', 'ov_pp', ['vendor_id'], vendorId, id)}
+      WHEN 'billing_account' THEN ${rowNamesVendor('billing_accounts', 'ov_ba', ['vendor_id'], vendorId, id)}
+      WHEN 'license_grant' THEN ${rowNamesVendor('license_grants', 'ov_lg', ['vendor_id'], vendorId, id)}
+      WHEN 'agreement_acceptance' THEN ${rowNamesVendor('agreement_acceptances', 'ov_aa', ['vendor_id'], vendorId, id)}
+      WHEN 'vendor_suspension' THEN ${rowNamesVendor('vendor_suspensions', 'ov_vs', ['vendor_id'], vendorId, id)}
+      WHEN 'vendor_seat_invite' THEN ${rowNamesVendor('vendor_seat_invites', 'ov_si', ['vendor_id'], vendorId, id)}
+      WHEN 'dmca_notice' THEN ${rowNamesVendor('dmca_notices', 'ov_dm', ['vendor_id'], vendorId, id)}
+      ELSE 0 END)
   )`;
 }
+
+/**
+ * How a vendor hold reaches each `audit_log.entity_type` (AECI-2191). Every value in
+ * `AUDIT_ENTITY_TYPES` must be listed, and the spec fails until a new one is:
+ *
+ *   - `entity`: {@link auditRowOfVendor} has a branch that reads the entity's own table, so
+ *     the row reaches every company that table names, not only the one on the audit row.
+ *   - `row-keys`: the audit row's own keys (`vendor_id`, `product_id`, the actor's seat)
+ *     are the only tie. Its table names no company the row does not already carry.
+ *   - `none`: no company owns the entity. Only a global hold keeps the row.
+ *
+ * Before adding a type as `entity`, check the Privacy Policy's hold sentence still
+ * describes the rows it keeps: a vendor hold that keeps more than it promises is as wrong
+ * as one that keeps less.
+ */
+export const AUDIT_ENTITY_HOLD_TIES: Readonly<Record<string, 'entity' | 'row-keys' | 'none'>> = {
+  // About the company itself.
+  vendor: 'entity',
+  vendor_entitlement: 'entity',
+  vendor_suspension: 'entity',
+  vendor_seat_invite: 'entity',
+  billing_account: 'entity',
+  license_grant: 'entity',
+  agreement_acceptance: 'entity',
+  dmca_notice: 'entity',
+  vendor_request: 'entity',
+  product_proposal: 'entity',
+  // Its products and their reviews.
+  product: 'entity',
+  product_version: 'entity',
+  product_request: 'entity',
+  review: 'entity',
+  review_response: 'entity',
+  review_update: 'entity',
+  // The integrations and connections it built or its products take part in.
+  integration: 'entity',
+  connector_evidenced_pair: 'entity',
+  connector_pair: 'entity',
+  connector_catalog: 'entity',
+  claim: 'entity',
+  attestation: 'entity',
+  claim_owner_answer: 'entity',
+  claim_aeci_correction: 'entity',
+  claim_thread: 'entity',
+  claim_thread_message: 'entity',
+  claim_thread_acknowledgment: 'entity',
+  integration_field_challenge: 'entity',
+  sync_service_pair_veto: 'entity',
+  sync_service_veto_objection: 'entity',
+  sync_service_pair_contest: 'entity',
+  // A seat's own account. Only what the seat did is the company's (tie 6, the actor). An
+  // admin row about the seat is not (Chris's ruling of 2026-11-27, AECI-2191).
+  profile: 'row-keys',
+  // The vendor is on the row when there is one: a vendor-target confirmation stamps it,
+  // and a hold row carries its own vendor (and has its own release rule, above).
+  request_confirmation: 'row-keys',
+  litigation_hold: 'row-keys',
+  // No company: a listing request names none until it becomes a claim.
+  listing_request: 'none',
+  legal_version: 'none',
+  terms_acceptance: 'none',
+  notification_setting: 'none',
+  retention: 'none',
+  gsc_recrawl_queue: 'none',
+  indexnow_queue: 'none',
+};
 
 /** True when an open vendor hold covers the `audit_log` row of the enclosing statement. */
 const AUDIT_ROW_UNDER_VENDOR_HOLD = sql`EXISTS (
@@ -952,7 +1198,7 @@ type SentinelTable = (typeof LEGAL_PRUNABLE)[number];
  * A sentinel that aborts the batch unless exactly `expected` rows of `table` match `where`
  * at commit time. The count sits in a FROM subquery, not inside a `CASE WHEN`, because D1
  * caps an expression tree at a depth of 100. The audit predicates carry the vendor-hold ties
- * ({@link auditRowOfVendor}) and come within about 15 levels of that cap, so wrapping them in
+ * ({@link auditRowOfVendor}) and come within about 6 levels of that cap (depth 94, AECI-2191), so wrapping them in
  * `CASE WHEN (SELECT count(*) …) <> ?` failed on D1 with "Expression tree is too large"
  * while the in-memory harness, whose cap is 1,000, passed (AECI-1971). A FROM subquery is a
  * separate statement tree, so the predicate keeps the depth it has in the planning read.

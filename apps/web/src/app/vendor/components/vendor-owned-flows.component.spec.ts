@@ -466,6 +466,29 @@ describe('VendorOwnedFlows', () => {
     expect(api['addOwnerFlow']).not.toHaveBeenCalled();
   });
 
+  it('Cancel and Escape on the add form return focus to Add a row (AECI-2191)', async () => {
+    const fixture = await render(SYNCED);
+    q('owned-flow-add-toggle')!.click();
+    await settle(fixture);
+    const cancel = [...q('owned-flow-add-form')!.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Cancel',
+    )!;
+    cancel.click();
+    await settle(fixture);
+    expect(q('owned-flow-add-form')).toBeNull();
+    expect(document.activeElement).toBe(q('owned-flow-add-toggle'));
+
+    q('owned-flow-add-toggle')!.click();
+    await settle(fixture);
+    q('owned-flow-add-form')!
+      .querySelector('select')!
+      .dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    await settle(fixture);
+    expect(document.activeElement).toBe(q('owned-flow-add-toggle'));
+  });
+
   // AECI-2139: AECi corrected one flow on a public source.
   const CORRECTED: OwnedFlow = {
     ...CONFIRMED,
