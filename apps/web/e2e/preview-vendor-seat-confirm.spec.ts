@@ -8,7 +8,8 @@ import { untilAppStable } from './hydration';
  * the ungated dev preview (`/preview/vendor-dashboard/seats`). Each confirm is
  * axe-scanned at 1440, 390 and 320, and neither may scroll the page sideways. The
  * seat confirm sits in a row of the roster table, which scrolls inside its own region
- * below 32rem, so the confirm is pinned to the region's visible width.
+ * below 32rem, so the confirm is pinned to the region's visible width. AECI-2186 gave
+ * the claim "Decline" in "Wants to join" the same confirm.
  *
  * NOTHING IS REMOVED OR REVOKED ON A SERVER. The preview's API is an in-page fake that
  * drops the row, so no write leaves the page. Even so, every non-GET to
@@ -23,6 +24,7 @@ const PRIYA = '00000000-0000-4000-8000-0000000052b2';
 const BANNED = '00000000-0000-4000-8000-0000000052b3';
 const JORDAN = '00000000-0000-4000-8000-0000000052c1';
 const AGENCY = '00000000-0000-4000-8000-0000000052c2';
+const RILEY = '00000000-0000-4000-8000-0000000052d1';
 
 test.beforeEach(async ({ context }) => {
   await context.route('**/*', (route) => {
@@ -88,6 +90,13 @@ const CONFIRMS = [
     confirm: `[data-invite-confirm="${JORDAN}"]`,
     question: `#vendor-invite-revoke-confirm-${JORDAN}`,
     yes: 'Revoke invite',
+  },
+  {
+    name: 'claim Decline confirm',
+    opener: `#vendor-claim-decline-start-${RILEY}`,
+    confirm: `[data-claim-confirm="${RILEY}"]`,
+    question: `#vendor-claim-decline-confirm-${RILEY}`,
+    yes: 'Decline request',
   },
 ] as const;
 
@@ -157,4 +166,19 @@ test('a confirmed revoke drops the invite, says so and focuses the next Revoke',
   );
   // The next invite's Resend is cooling down (disabled), so its Revoke takes focus.
   await expect(page.locator(`#vendor-invite-revoke-start-${AGENCY}`)).toBeFocused();
+});
+
+test('a confirmed decline drops the only claim, says so and focuses the Seats heading', async ({
+  page,
+}) => {
+  await load(page, 1440);
+  await open(page, `#vendor-claim-decline-start-${RILEY}`, `[data-claim-confirm="${RILEY}"]`);
+
+  await page.getByRole('button', { name: 'Decline request Riley Chen' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Wants to join' })).toHaveCount(0);
+  await expect(page.locator('[data-seats-status]')).toHaveText(
+    'Declined the request from Riley Chen.',
+  );
+  await expect(page.locator('#vendor-seats-heading')).toBeFocused();
 });

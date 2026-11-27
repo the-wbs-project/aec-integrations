@@ -890,6 +890,42 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  const q = (fixture: ComponentFixture<VendorSeatRoster>, selector: string) =>
+    fixture.nativeElement.querySelector(selector) as HTMLElement | null;
+
+  /** Let the write settle, the re-read render and `afterNextRender` run. */
+  async function settle(fixture: ComponentFixture<VendorSeatRoster>): Promise<void> {
+    await flush();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  async function openDecline(
+    fixture: ComponentFixture<VendorSeatRoster>,
+    claimId = CLAIM.id,
+  ): Promise<void> {
+    q(fixture, `#vendor-claim-decline-start-${claimId}`)!.click();
+    await settle(fixture);
+  }
+
+  /** A second routed claim, so a decline has a next row to focus. */
+  const SECOND_CLAIM = {
+    ...CLAIM,
+    id: '00000000-0000-4000-8000-0000000052d2',
+    submitter_name: 'Morgan Diaz',
+    submitter_email: 'morgan@summitbim.example.com',
+  };
+
+  function withClaims(claims: (typeof CLAIM)[]) {
+    return {
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: [],
+      can_manage_seats: true,
+      pending_claims: claims,
+    };
+  }
+
   it('lists the claimant to an owner with Accept and Decline', async () => {
     setup(true);
     const fixture = await render();
@@ -953,16 +989,19 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     expect(status?.textContent).not.toContain('A seat invite was sent');
   });
 
-  it('declines and announces it', async () => {
+  it('declines from the confirm and announces it once', async () => {
     setup(true);
     const fixture = await render();
-    button(fixture, 'Decline')!.click();
-    await flush();
-    fixture.detectChanges();
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    await settle(fixture);
 
     expect(declineSeatClaim).toHaveBeenCalledWith(CLAIM.id);
     const status = fixture.nativeElement.querySelector('[data-seats-status]') as HTMLElement | null;
     expect(status?.textContent).toContain('Declined the request from Riley Chen');
+    expect(TestBed.inject(VendorPortalAnnouncer).message().trim()).toBe(
+      'Declined the request from Riley Chen.',
+    );
   });
 
   it('says the invite cap was hit when an accept is rate limited', async () => {
@@ -985,9 +1024,9 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     declineSeatClaim.mockRejectedValueOnce(
       new HttpErrorResponse({ status: 409, error: { error: { code: 'CLAIM_ALREADY_DECIDED' } } }),
     );
-    button(fixture, 'Decline')!.click();
-    await flush();
-    fixture.detectChanges();
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    await settle(fixture);
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]') as HTMLElement | null;
     expect(alert?.textContent).toContain('already decided');
@@ -1034,5 +1073,149 @@ describe('VendorSeatRoster — wants to join (AECI-1368)', () => {
     await flush();
     fixture.detectChanges();
     expect(getSeats).toHaveBeenCalledTimes(1);
+  });
+  // ─── AECI-2186: Decline asks first ─────────────────────────────────────────
+
+  it('opens a danger confirm from the secondary Decline and focuses its question', async () => {
+    setup(true);
+    const fixture = await render();
+    const opener = q(fixture, `#vendor-claim-decline-start-${CLAIM.id}`)!;
+    expect(opener.getAttribute('data-variant')).toBe('secondary');
+
+    await openDecline(fixture);
+
+    expect(declineSeatClaim).not.toHaveBeenCalled();
+    const confirm = q(fixture, `[data-claim-confirm="${CLAIM.id}"]`)!;
+    const question = q(fixture, `#vendor-claim-decline-confirm-${CLAIM.id}`)!;
+    expect(question.textContent?.trim()).toBe(
+      'Decline the request from Riley Chen? They get an email saying the claim was not approved. Nothing reopens it.',
+    );
+    expect(document.activeElement).toBe(question);
+    const [yes, cancel] = [...confirm.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(yes!.textContent?.trim()).toBe('Decline request Riley Chen');
+    expect(yes!.getAttribute('data-variant')).toBe('danger');
+    expect(cancel!.textContent?.trim()).toBe('Cancel');
+    expect(cancel!.getAttribute('data-variant')).toBe('secondary');
+    // The row's Accept and Decline give way to the confirm.
+    expect(q(fixture, `#vendor-claim-decline-start-${CLAIM.id}`)).toBeNull();
+    expect(button(fixture, 'Accept')).toBeUndefined();
+  });
+
+  it('Cancel closes the Decline confirm, writes nothing and returns focus to Decline', async () => {
+    setup(true);
+    const fixture = await render();
+    await openDecline(fixture);
+
+    button(fixture, 'Cancel')!.click();
+    await settle(fixture);
+
+    expect(q(fixture, '[data-claim-confirm]')).toBeNull();
+    expect(declineSeatClaim).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q(fixture, `#vendor-claim-decline-start-${CLAIM.id}`));
+  });
+
+  it('after a decline, focuses the next claim’s first control', async () => {
+    setup(true);
+    getSeats.mockResolvedValueOnce(withClaims([CLAIM, SECOND_CLAIM]));
+    const fixture = await render();
+    getSeats.mockResolvedValueOnce(withClaims([SECOND_CLAIM]));
+
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    await settle(fixture);
+
+    const next = q(fixture, `[data-claim-row="${SECOND_CLAIM.id}"] button`);
+    expect(next?.textContent?.trim()).toBe('Accept Morgan Diaz');
+    expect(document.activeElement).toBe(next);
+  });
+
+  it('after declining the only claim, focuses the section heading', async () => {
+    const heading = document.createElement('h2');
+    heading.id = 'vendor-seats-heading';
+    heading.tabIndex = -1;
+    document.body.appendChild(heading);
+    try {
+      setup(true);
+      const fixture = await render();
+      getSeats.mockResolvedValueOnce(withClaims([]));
+
+      await openDecline(fixture);
+      button(fixture, 'Decline request')!.click();
+      await settle(fixture);
+
+      expect(fixture.nativeElement.textContent).not.toContain('Wants to join');
+      expect(document.activeElement).toBe(heading);
+    } finally {
+      heading.remove();
+    }
+  });
+
+  it('a refused decline closes the confirm, shows an alert and returns focus to Decline', async () => {
+    setup(true);
+    const fixture = await render();
+    declineSeatClaim.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
+
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    await settle(fixture);
+
+    expect(q(fixture, '[data-claim-confirm]')).toBeNull();
+    const alert = q(fixture, '[role="alert"]');
+    expect(alert?.textContent).toContain('Could not decline that request. Try again.');
+    expect(document.activeElement).toBe(q(fixture, `#vendor-claim-decline-start-${CLAIM.id}`));
+    expect(getSeats).toHaveBeenCalledTimes(1);
+  });
+
+  it('a decline that lost the race moves focus off the row that left', async () => {
+    setup(true);
+    getSeats.mockResolvedValueOnce(withClaims([CLAIM, SECOND_CLAIM]));
+    const fixture = await render();
+    getSeats.mockResolvedValueOnce(withClaims([SECOND_CLAIM]));
+    declineSeatClaim.mockRejectedValueOnce(
+      new HttpErrorResponse({ status: 409, error: { error: { code: 'CLAIM_ALREADY_DECIDED' } } }),
+    );
+
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    await settle(fixture);
+
+    expect(q(fixture, `[data-claim-row="${CLAIM.id}"]`)).toBeNull();
+    expect(document.activeElement).toBe(q(fixture, `[data-claim-row="${SECOND_CLAIM.id}"] button`));
+  });
+
+  it('marks the Decline confirm busy and blocks a second submit while it runs', async () => {
+    setup(true);
+    const fixture = await render();
+    let finish!: () => void;
+    declineSeatClaim.mockReturnValueOnce(new Promise<void>((resolve) => (finish = resolve)));
+
+    await openDecline(fixture);
+    button(fixture, 'Decline request')!.click();
+    fixture.detectChanges();
+
+    const confirm = q(fixture, `[data-claim-confirm="${CLAIM.id}"]`)!;
+    expect(confirm.getAttribute('aria-busy')).toBe('true');
+    const buttons = [...confirm.querySelectorAll('button')] as HTMLButtonElement[];
+    expect(buttons.every((b) => b.disabled)).toBe(true);
+    expect(buttons[0]!.textContent?.trim()).toBe('Declining… Riley Chen');
+    buttons[0]!.click();
+    expect(declineSeatClaim).toHaveBeenCalledTimes(1);
+
+    finish();
+    await settle(fixture);
+  });
+
+  it('one confirm at a time: opening a seat Remove closes the Decline confirm', async () => {
+    setup(true);
+    const fixture = await render();
+    await openDecline(fixture);
+    const priya = VENDOR_SEATS_FIXTURE[1]!;
+
+    q(fixture, `#vendor-seat-remove-start-${priya.user_id}`)!.click();
+    await settle(fixture);
+
+    expect(q(fixture, '[data-claim-confirm]')).toBeNull();
+    expect(q(fixture, `[data-seat-confirm="${priya.user_id}"]`)).not.toBeNull();
+    expect(q(fixture, `#vendor-claim-decline-start-${CLAIM.id}`)).not.toBeNull();
   });
 });

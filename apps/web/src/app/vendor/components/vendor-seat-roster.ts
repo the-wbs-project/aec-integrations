@@ -25,11 +25,12 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-/** Which row's confirm is open: a seat's Remove or an invite's Revoke. */
-type Confirming = { readonly kind: 'seat' | 'invite'; readonly id: string };
+/** Which row's confirm is open: a seat's Remove, an invite's Revoke or a
+ *  claim's Decline. */
+type Confirming = { readonly kind: 'seat' | 'invite' | 'claim'; readonly id: string };
 
 /** The Seats section heading (`sections/vendor-seats-page.ts`), focused when a
- *  remove or revoke leaves no row with a control to land on. */
+ *  remove, revoke or decline leaves no row with a control to land on. */
 const SEATS_HEADING_ID = 'vendor-seats-heading';
 
 /**
@@ -42,9 +43,10 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
  * This renders the roster, the pending-invite list, and the three actions an
  * owner has over them: remove a seat, revoke an invite, and re-send one
  * (AECI-927). Remove and revoke each ask first, in an inline confirm in the row
- * (AECI-2129). **Creating** an invite does not live here — it is
- * {@link VendorSeatInviteDialog}, triggered from the section heading, so the list
- * people come here to read isn't sitting under a permanent form. Both surfaces
+ * (AECI-2129), and so does a claim's Decline (AECI-2186). **Creating** an invite
+ * does not live here — it is {@link VendorSeatInviteDialog}, triggered from the
+ * section heading, so the list people come here to read isn't sitting under a
+ * permanent form. Both surfaces
  * gate on the same `canManageSeats` flag.
  *
  * Re-send belongs here and not in the dialog for the same reason: it acts on a
@@ -100,7 +102,10 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
         </p>
         <ul class="mt-4 divide-y divide-(--border-default) border-t border-(--border-default)">
           @for (claim of claims(); track claim.id) {
-            <li class="flex flex-wrap items-start justify-between gap-4 py-4 last:pb-0">
+            <li
+              class="flex flex-wrap items-start justify-between gap-4 py-4 last:pb-0"
+              [attr.data-claim-row]="claim.id"
+            >
               <div class="min-w-0 space-y-1">
                 <p class="text-sm font-semibold break-words text-(--text-primary)">
                   {{ claim.submitter_name || claim.submitter_email }}
@@ -142,42 +147,84 @@ const SEATS_HEADING_ID = 'vendor-seats-heading';
                   {{ decideBy(claim) | date: 'mediumDate' }}
                 </p>
               </div>
-              <div class="flex shrink-0 flex-wrap items-center gap-2">
-                <button
-                  aecButton
-                  variant="secondary"
-                  compact
-                  type="button"
-                  [disabled]="busyClaim() !== null"
-                  (click)="acceptClaim(claim)"
+              @if (isConfirming('claim', claim.id)) {
+                <!-- AECI-2186: the row's Accept and Decline give way to the confirm.
+                     A declined claim cannot be reopened and the claimant is emailed
+                     at once, so the confirm is danger (DESIGN.md §5 Buttons). -->
+                <div
+                  class="flex basis-full flex-wrap items-center gap-2"
+                  [attr.data-claim-confirm]="claim.id"
+                  [attr.aria-busy]="isClaimBusy(claim, 'decline') ? 'true' : null"
                 >
-                  @if (isClaimBusy(claim, 'accept')) {
-                    <span i18n="@@vendor.seats.claims.accepting">Accepting…</span>
-                  } @else {
-                    <span i18n="@@vendor.seats.claims.accept">Accept</span>
-                  }
-                  <span class="sr-only"
-                    >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
+                  <p
+                    class="basis-full text-sm text-(--text-primary) focus:outline-none"
+                    tabindex="-1"
+                    [id]="'vendor-claim-decline-confirm-' + claim.id"
                   >
-                </button>
-                <button
-                  aecButton
-                  variant="secondary"
-                  compact
-                  type="button"
-                  [disabled]="busyClaim() !== null"
-                  (click)="declineClaim(claim)"
-                >
-                  @if (isClaimBusy(claim, 'decline')) {
-                    <span i18n="@@vendor.seats.claims.declining">Declining…</span>
-                  } @else {
+                    {{ declineQuestion(claim) }}
+                  </p>
+                  <button
+                    aecButton
+                    variant="danger"
+                    compact
+                    type="button"
+                    [disabled]="busyClaim() !== null"
+                    (click)="declineClaim(claim)"
+                  >
+                    @if (isClaimBusy(claim, 'decline')) {
+                      <span i18n="@@vendor.seats.claims.declining">Declining…</span>
+                    } @else {
+                      <span i18n="@@vendor.seats.claims.decline.yes">Decline request</span>
+                    }
+                    <span class="sr-only">&ngsp;{{ claimName(claim) }}</span>
+                  </button>
+                  <button
+                    aecButton
+                    variant="secondary"
+                    compact
+                    type="button"
+                    [disabled]="busyClaim() !== null"
+                    (click)="cancelDecline(claim)"
+                    i18n="@@vendor.seats.claims.decline.cancel"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              } @else {
+                <div class="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    aecButton
+                    variant="secondary"
+                    compact
+                    type="button"
+                    [disabled]="busyClaim() !== null"
+                    (click)="acceptClaim(claim)"
+                  >
+                    @if (isClaimBusy(claim, 'accept')) {
+                      <span i18n="@@vendor.seats.claims.accepting">Accepting…</span>
+                    } @else {
+                      <span i18n="@@vendor.seats.claims.accept">Accept</span>
+                    }
+                    <span class="sr-only"
+                      >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
+                    >
+                  </button>
+                  <button
+                    aecButton
+                    variant="secondary"
+                    compact
+                    type="button"
+                    [id]="'vendor-claim-decline-start-' + claim.id"
+                    [disabled]="busyClaim() !== null"
+                    (click)="startDecline(claim)"
+                  >
                     <span i18n="@@vendor.seats.claims.decline">Decline</span>
-                  }
-                  <span class="sr-only"
-                    >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
-                  >
-                </button>
-              </div>
+                    <span class="sr-only"
+                      >&ngsp;{{ claim.submitter_name || claim.submitter_email }}</span
+                    >
+                  </button>
+                </div>
+              }
             </li>
           }
         </ul>
@@ -556,7 +603,8 @@ export class VendorSeatRoster {
   // email and one of the day's invites. So each opens an inline confirm in its
   // row, the contests-list pattern (never `confirm()`, which blocks the page),
   // and the confirm is danger (DESIGN.md §5 Buttons). One confirm at a time over
-  // the whole roster. Opening one moves focus to its question, so a screen reader
+  // the whole roster. A claim's Decline (AECI-2186) follows the same pattern: the
+  // claimant is emailed at once and nothing reopens the claim. Opening one moves focus to its question, so a screen reader
   // hears what will happen before it reaches the button.
 
   /** Open the Remove confirm on this seat's row. */
@@ -579,6 +627,17 @@ export class VendorSeatRoster {
   protected cancelRevoke(invite: ManageableSeatInvite): void {
     this.confirming.set(null);
     this.focusAfterRender(`vendor-invite-revoke-start-${invite.id}`);
+  }
+
+  /** Open the Decline confirm on this claim's row (AECI-2186). */
+  protected startDecline(claim: PendingSeatClaim): void {
+    this.openConfirm({ kind: 'claim', id: claim.id });
+    this.focusAfterRender(`vendor-claim-decline-confirm-${claim.id}`);
+  }
+
+  protected cancelDecline(claim: PendingSeatClaim): void {
+    this.confirming.set(null);
+    this.focusAfterRender(`vendor-claim-decline-start-${claim.id}`);
   }
 
   protected isConfirming(kind: Confirming['kind'], id: string): boolean {
@@ -653,6 +712,16 @@ export class VendorSeatRoster {
     return $localize`:@@vendor.seats.remove.confirm:Remove ${name}:name:'s seat? They lose access to the vendor portal straight away. Inviting them again gives them a new seat.`;
   }
 
+  protected declineQuestion(claim: PendingSeatClaim): string {
+    const who = this.claimName(claim);
+    return $localize`:@@vendor.seats.claims.decline.confirm:Decline the request from ${who}:name:? They get an email saying the claim was not approved. Nothing reopens it.`;
+  }
+
+  /** Who a claim row names: the same fallback as its buttons' hidden names. */
+  protected claimName(claim: PendingSeatClaim): string {
+    return claim.submitter_name || claim.submitter_email;
+  }
+
   protected revokeQuestion(invite: ManageableSeatInvite): string {
     return $localize`:@@vendor.seats.revoke.confirm:Revoke the invite to ${invite.email}:email:? The link stops working. A new invite sends a new email and counts toward your daily invite limit.`;
   }
@@ -702,7 +771,9 @@ export class VendorSeatRoster {
     this.focusAfterRender(
       which.kind === 'seat'
         ? `vendor-seat-remove-start-${which.id}`
-        : `vendor-invite-revoke-start-${which.id}`,
+        : which.kind === 'invite'
+          ? `vendor-invite-revoke-start-${which.id}`
+          : `vendor-claim-decline-start-${which.id}`,
     );
   }
 
@@ -715,7 +786,8 @@ export class VendorSeatRoster {
   private focusAfterRemoval(kind: Confirming['kind'], id: string, before: string[]): void {
     const at = before.indexOf(id);
     const order = [...before.slice(at + 1), ...before.slice(0, Math.max(at, 0)).reverse()];
-    const attr = kind === 'seat' ? 'data-seat-row' : 'data-invite-row';
+    const attr =
+      kind === 'seat' ? 'data-seat-row' : kind === 'invite' ? 'data-invite-row' : 'data-claim-row';
     afterNextRender(
       () => {
         const host = this.host.nativeElement;
@@ -801,25 +873,41 @@ export class VendorSeatRoster {
     }
   }
 
-  /** Decline a claim routed to this company (AECI-1368). The claimant gets the
-   *  neutral "not approved" email, which does not say who declined. */
+  /** Decline a claim routed to this company (AECI-1368), from the confirm
+   *  (AECI-2186). The claimant gets the neutral "not approved" email, which does
+   *  not say who declined. */
   protected async declineClaim(claim: PendingSeatClaim): Promise<void> {
     if (this.busyClaim()) return;
     this.busyClaim.set({ id: claim.id, action: 'decline' });
     this.actionError.set(null);
     this.actionStatus.set(null);
+    const which: Confirming = { kind: 'claim', id: claim.id };
+    const before = this.claims().map((c) => c.id);
     try {
-      await this.api.declineSeatClaim(claim.id);
-      const who = claim.submitter_name || claim.submitter_email;
+      try {
+        await this.api.declineSeatClaim(claim.id);
+      } catch (err) {
+        const message = claimErrorFor(err, 'decline');
+        if (!claimIsGone(err)) {
+          this.refuse(which, message);
+          return;
+        }
+        // A lost race (or the Accept guard's system reject, AECI-1420) is not a failure
+        // to retry: re-read so the row leaves "Wants to join", as the contests list does.
+        // The row's Decline goes with it, so focus moves on as after a decline.
+        this.closeConfirm(which);
+        this.actionError.set(message);
+        await this.store.reload('seats');
+        if (this.confirming() === null) this.focusAfterRemoval('claim', claim.id, before);
+        return;
+      }
+      this.closeConfirm(which);
+      const who = this.claimName(claim);
       this.settle(
         $localize`:@@vendor.seats.claims.declined:Declined the request from ${who}:name:.`,
       );
       await this.store.reload('seats');
-    } catch (err) {
-      this.actionError.set(claimErrorFor(err, 'decline'));
-      // A lost race (or the Accept guard's system reject, AECI-1420) is not a failure
-      // to retry: re-read so the row leaves "Wants to join", as the contests list does.
-      if (claimIsGone(err)) await this.store.reload('seats');
+      if (this.confirming() === null) this.focusAfterRemoval('claim', claim.id, before);
     } finally {
       this.busyClaim.set(null);
     }
