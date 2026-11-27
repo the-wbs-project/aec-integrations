@@ -349,7 +349,30 @@ describe('indexSettingsFor', () => {
       'trades',
       'trade_aliases',
       'unordered(description)',
+      'unordered(connected_product_names)',
     ]);
+  });
+
+  // AECI-2090 — the names of the products a connector delivers pairs for widen what a
+  // query finds. They never order results: not faceted, not in `customRanking`, and on
+  // no other index. Last in the searchable list, so a match in a product's own name or
+  // description counts more.
+  it('products: connected_product_names is searchable only, last (never faceted or ranked)', () => {
+    const s = indexSettingsFor('products');
+    expect(s.searchableAttributes.at(-1)).toBe('unordered(connected_product_names)');
+    for (const attr of [...s.customRanking, ...s.attributesForFaceting]) {
+      expect(attr).not.toMatch(/connected/);
+    }
+    for (const entity of ['vendors', 'integrations'] as const) {
+      const other = indexSettingsFor(entity);
+      for (const attr of [
+        ...other.customRanking,
+        ...other.searchableAttributes,
+        ...other.attributesForFaceting,
+      ]) {
+        expect(attr).not.toMatch(/connected/);
+      }
+    }
   });
 
   it('products: trade_aliases is searchable but NEVER faceted (AECI-545)', () => {

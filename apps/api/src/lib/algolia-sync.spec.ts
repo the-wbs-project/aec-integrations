@@ -29,6 +29,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { RECORDS_RETURNED_ACTION } from './vendor-handback';
 import {
   ALGOLIA_WATERMARK_KEY,
+  CONNECTOR_MOVED_AUDIT_ACTION,
   RECORDS_RETURNED_AUDIT_ACTION,
   indexEntity,
   readWatermark,
@@ -294,6 +295,104 @@ describe('indexEntity — value hides in the window (AECI-1238)', () => {
     const pushed = bodies(edges.calls[0]!);
     expect(pushed.map((b) => b.objectID).sort()).toEqual(['edge', 'pair']);
     expect(pushed.every((b) => b.mechanism_name === null)).toBe(true);
+  });
+});
+
+// ── indexEntity: a connector whose delivered set changed (AECI-2090) ─────────
+
+describe('indexEntity — connected products in the window (AECI-2090)', () => {
+  const W: AlgoliaSyncFilter = {
+    type: 'window',
+    gtIso: '2026-06-01T00:00:00.000Z',
+    lteIso: '2026-06-09T00:00:00.000Z',
+  };
+  const OUTSIDE = '2026-05-01T00:00:00.000Z';
+  const INSIDE = '2026-06-05T00:00:00.000Z';
+  type Body = { objectID: string; connected_product_names?: string[] };
+  const bodies = (call: BatchCall) => call.body.requests.map((r) => r.body as Body);
+
+  it('re-pushes a connector when an endpoint or a delivered row changed, though its updated_at is old', async () => {
+    // Endpoints: 'renamed' was edited in the window; the rest were not.
+    await seedProduct('a-old', { updatedAt: OUTSIDE, name: 'Old Endpoint' });
+    await seedProduct('b-renamed', { updatedAt: INSIDE, name: 'Renamed Endpoint' });
+    await seedProduct('c-old', { updatedAt: OUTSIDE, name: 'Other Endpoint' });
+    await seedProduct('d-old', { updatedAt: OUTSIDE, name: 'Fourth Endpoint' });
+    // Three connectors, none edited in the window.
+    await seedProduct('conn-pair', { updatedAt: OUTSIDE, productRole: 'connector' });
+    await seedProduct('conn-edge', { updatedAt: OUTSIDE, productRole: 'connector' });
+    await seedProduct('conn-quiet', { updatedAt: OUTSIDE, productRole: 'connector' });
+    // A pair whose endpoint was renamed in the window.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: 'pair',
+      productAId: 'a-old',
+      productBId: 'b-renamed',
+      connectorProductId: 'conn-pair',
+      updatedAt: OUTSIDE,
+    });
+    // An integrations row retired in the window, with a connector that is not an endpoint.
+    await seedIntegration('edge', 'a-old', 'c-old', {
+      poweredByProductId: 'conn-edge',
+      retiredAt: INSIDE,
+      updatedAt: INSIDE,
+    });
+    // Nothing about this one moved.
+    await seedIntegration('quiet', 'c-old', 'd-old', {
+      poweredByProductId: 'conn-quiet',
+      updatedAt: OUTSIDE,
+    });
+    const { fetchImpl, calls } = makeFetch();
+
+    await indexEntity(t.db, fetchImpl, CREDS, ENV, 'products', W);
+
+    const byId = new Map(bodies(calls[0]!).map((b) => [b.objectID, b]));
+    expect([...byId.keys()].sort()).toEqual(['b-renamed', 'conn-edge', 'conn-pair']);
+    expect(byId.get('conn-pair')!.connected_product_names).toEqual([
+      'Old Endpoint',
+      'Renamed Endpoint',
+    ]);
+    // The retired row is no longer live, so the re-push drops its names.
+    expect(byId.get('conn-edge')!.connected_product_names).toEqual([]);
+  });
+
+  it('re-pushes a connector an edge moved away from, though no row points at it any more', async () => {
+    await seedProduct('a-old', { updatedAt: OUTSIDE, name: 'Old Endpoint' });
+    await seedProduct('c-old', { updatedAt: OUTSIDE, name: 'Other Endpoint' });
+    await seedProduct('conn-left', { updatedAt: OUTSIDE, productRole: 'connector' });
+    await seedProduct('conn-left-long-ago', { updatedAt: OUTSIDE, productRole: 'connector' });
+    await seedProduct('conn-new', { updatedAt: OUTSIDE, productRole: 'connector' });
+    // The edge now belongs to `conn-new`, stamped before the window so only the
+    // audit arm can select `conn-left`.
+    await seedIntegration('moved', 'a-old', 'c-old', {
+      poweredByProductId: 'conn-new',
+      updatedAt: OUTSIDE,
+    });
+    const moved = (id: string, productId: string, createdAt: string) => ({
+      id,
+      actorType: 'system',
+      action: CONNECTOR_MOVED_AUDIT_ACTION,
+      entityType: 'integration',
+      entityId: 'moved',
+      productId,
+      createdAt,
+    });
+    await t.db
+      .insert(auditLog)
+      .values([
+        moved('al-in', 'conn-left', INSIDE),
+        moved('al-out', 'conn-left-long-ago', OUTSIDE),
+      ]);
+    // Another action naming a product in the window does not count.
+    await t.db.insert(auditLog).values({
+      ...moved('al-other', 'conn-new', INSIDE),
+      action: 'integration.updated',
+    });
+    const { fetchImpl, calls } = makeFetch();
+
+    await indexEntity(t.db, fetchImpl, CREDS, ENV, 'products', W);
+
+    const byId = new Map(bodies(calls[0]!).map((b) => [b.objectID, b]));
+    expect([...byId.keys()]).toEqual(['conn-left']);
+    expect(byId.get('conn-left')!.connected_product_names).toEqual([]);
   });
 });
 

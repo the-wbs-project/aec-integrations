@@ -117,6 +117,35 @@ function hideChangedInWindow(
   return sql`EXISTS (SELECT 1 FROM field_hides fh_w WHERE fh_w.entity_type = ${entityType} AND fh_w.entity_id = ${idCol} AND ((fh_w.set_at > ${gtIso} AND fh_w.set_at <= ${lteIso}) OR (fh_w.cleared_at > ${gtIso} AND fh_w.cleared_at <= ${lteIso})))`;
 }
 
+/**
+ * The audit action promote writes when an edge leaves a connector (AECI-2090): a
+ * re-point to another connector, or a de-route to none. `product_id` holds the
+ * connector left. Defined here, beside its only reader, and imported by promote.
+ */
+export const CONNECTOR_MOVED_AUDIT_ACTION = 'integration.connector_moved';
+
+/**
+ * A product whose delivered set may have changed inside the window (AECI-2090). The
+ * record's `connected_product_names` reads the names of the endpoints of the rows the
+ * product delivers, both arms. Two writes change it without touching the connector's
+ * own `updated_at`: an endpoint rename, and a retire, restore or veto of an
+ * `integrations` row whose connector is not one of its endpoints. So the window also
+ * selects a product when one of its delivered rows, or an endpoint of one, was stamped
+ * inside it. Liveness is not tested here on purpose: a row that just stopped being live
+ * is exactly the change to catch.
+ *
+ * A row that LEFT the product is the third case: promote re-points an edge to another
+ * connector, or de-routes a pair to no connector, and then no row points at the old
+ * one. Promote records each with a {@link CONNECTOR_MOVED_AUDIT_ACTION} audit row whose
+ * `product_id` is the connector left, served by `audit_log_product_idx`.
+ *
+ * Constant SQL with the window's bounds and the action as its only parameters, so it
+ * holds under D1's 100-parameter cap at any scale.
+ */
+function connectedSetChangedInWindow(idCol: SQLiteColumn, gtIso: string, lteIso: string): SQL {
+  return sql`(EXISTS (SELECT 1 FROM audit_log al_c WHERE al_c.product_id = ${idCol} AND al_c.action = ${CONNECTOR_MOVED_AUDIT_ACTION} AND al_c.created_at > ${gtIso} AND al_c.created_at <= ${lteIso}) OR EXISTS (SELECT 1 FROM integrations ci_w JOIN products ce_w ON ce_w.id IN (ci_w.source_product_id, ci_w.target_product_id) WHERE ci_w.powered_by_product_id = ${idCol} AND ((ci_w.updated_at > ${gtIso} AND ci_w.updated_at <= ${lteIso}) OR (ce_w.updated_at > ${gtIso} AND ce_w.updated_at <= ${lteIso}))) OR EXISTS (SELECT 1 FROM connector_evidenced_pairs cp_w JOIN products pe_w ON pe_w.id IN (cp_w.product_a_id, cp_w.product_b_id) WHERE cp_w.connector_product_id = ${idCol} AND ((cp_w.updated_at > ${gtIso} AND cp_w.updated_at <= ${lteIso}) OR (pe_w.updated_at > ${gtIso} AND pe_w.updated_at <= ${lteIso}))))`;
+}
+
 function whereFor(
   filter: AlgoliaSyncFilter,
   idCol: SQLiteColumn,
@@ -198,10 +227,16 @@ async function activeHidesFor(
 }
 
 async function buildProductRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
+  const base = whereFor(filter, products.id, products.updatedAt, 'product');
+  // AECI-2090 — the window also catches a product whose delivered set changed.
+  const where =
+    filter.type === 'ids'
+      ? base
+      : or(base, connectedSetChangedInWindow(products.id, filter.gtIso, filter.lteIso));
   const [rows, hides] = await Promise.all([
     db.query.products.findMany({
       ...algoliaProductConfig,
-      where: whereFor(filter, products.id, products.updatedAt, 'product'),
+      where,
     }) as Promise<RawAlgoliaProductRow[]>,
     activeHidesFor(db, 'product'),
   ]);

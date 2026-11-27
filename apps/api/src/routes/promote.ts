@@ -119,7 +119,7 @@ import {
 } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { syncPromoteTargets } from '../lib/algolia-sync';
+import { CONNECTOR_MOVED_AUDIT_ACTION, syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
@@ -3075,6 +3075,14 @@ export async function runPromoteIngest(
      * its vendor's reach count moved.
      */
     movedFromConnectorId: string | null;
+    /**
+     * The connector this row belonged to before the write, when the write leaves it
+     * with a different connector or none (AECI-2090), else `null`. Unlike
+     * `movedFromConnectorId` it covers a de-route too. It becomes the
+     * `integration.connector_moved` audit row below, which is how the nightly Algolia
+     * window finds the old connector: no row points at it any more.
+     */
+    connectorLeftId: string | null;
   }> = [];
   const affectedProducts = new Set<string>();
   if (productId) affectedProducts.add(productId);
@@ -3708,6 +3716,8 @@ export async function runPromoteIngest(
         movedFromIds: evidencedMove,
         movedFromConnectorId:
           priorConnectorId && priorConnectorId !== connectorId ? priorConnectorId : null,
+        connectorLeftId:
+          priorConnectorId && priorConnectorId !== connectorId ? priorConnectorId : null,
       });
       affectedProducts.add(sourceId);
       affectedProducts.add(targetId);
@@ -4025,6 +4035,14 @@ export async function runPromoteIngest(
     // A re-point from one connector to another. A de-route already names the old
     // connector in `poweredById`, so it needs nothing here.
     const priorPoweredById = existing?.poweredByProductId ?? null;
+    // AECI-2090 — the connector before and after this write, as stored. A de-route's
+    // prior connector is the pair's. The written value is the inherited connector on
+    // an unstated de-route, else the stated value, else the stored one.
+    const connectorBefore =
+      movedFromEvidenced?.connectorProductId ?? storedIntegration?.poweredByProductId ?? null;
+    const connectorAfter =
+      inheritedConnectorId ??
+      (connectorStated ? poweredBy.value : (storedIntegration?.poweredByProductId ?? null));
     integrationEndpoints.push({
       result,
       sourceId,
@@ -4033,6 +4051,8 @@ export async function runPromoteIngest(
       movedFromIds: endpointMove,
       movedFromConnectorId:
         priorPoweredById && priorPoweredById !== poweredById ? priorPoweredById : null,
+      connectorLeftId:
+        connectorBefore && connectorBefore !== connectorAfter ? connectorBefore : null,
     });
 
     // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
@@ -4182,6 +4202,22 @@ export async function runPromoteIngest(
         }
       }
     }
+  }
+
+  // AECI-2090 — one row per edge that left a connector. Nothing else ties the old
+  // connector to the edge after the write, so without this its Algolia record would
+  // keep naming the edge's endpoints. `product_id` is the connector the edge left:
+  // the nightly window reads it through `audit_log_product_idx`.
+  for (const { result, connectorLeftId } of integrationEndpoints) {
+    if (!connectorLeftId) continue;
+    audit({
+      actorType: 'system',
+      action: CONNECTOR_MOVED_AUDIT_ACTION,
+      entityType: 'integration',
+      entityId: result.id,
+      productId: connectorLeftId,
+      beforeState: { connectorProductId: connectorLeftId },
+    });
   }
 
   // Snapshot BEFORE the audit rows are appended: this is "did catalog state

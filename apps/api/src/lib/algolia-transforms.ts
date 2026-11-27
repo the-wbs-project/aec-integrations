@@ -26,6 +26,7 @@ import {
   type AlgoliaProductRecord,
   type AlgoliaVendorRecord,
   algoliaSortKey,
+  connectedProductNamesField,
   flattenTradeAliases,
   productSortFields,
 } from '@aeci/shared/algolia-records';
@@ -44,7 +45,11 @@ import {
   pickPrimaryVendor,
   toMechanismKind,
 } from './drizzle-helpers';
-import { vendorReachCountSql } from './live-integration';
+import {
+  liveEvidencedPairWhere,
+  liveIntegrationWhere,
+  vendorReachCountSql,
+} from './live-integration';
 
 // ---------------------------------------------------------------------------
 // Leaf column sets
@@ -92,6 +97,9 @@ const tradeRecordColumns = { name: true, aliases: true } as const;
  * bumping `products.updated_at` would be invisible to the incremental sync and
  * needs a forced full reindex (`apps/datatool/src/algolia-reindex.ts`).
  */
+/** AECI-2090 — the endpoint columns `connected_product_names` reads. */
+const connectedEndpointColumns = { id: true, name: true, promotionStatus: true } as const;
+
 export const algoliaProductConfig = {
   columns: {
     id: true,
@@ -125,6 +133,27 @@ export const algoliaProductConfig = {
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyNameColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyNameColumns } } },
     productTrades: { columns: {}, with: { trade: { columns: tradeRecordColumns } } },
+    // AECI-2090 — the live rows this product delivers, both arms, for
+    // `connected_product_names`. Only the endpoint names and promotion status: an
+    // unpromoted endpoint is not on the public site, so search must not name it. The
+    // live predicate already drops a row with a hidden endpoint. Constant `where`, so
+    // the by-id read binds no extra parameter per row.
+    poweredIntegrations: {
+      columns: {},
+      where: liveIntegrationWhere,
+      with: {
+        sourceProduct: { columns: connectedEndpointColumns },
+        targetProduct: { columns: connectedEndpointColumns },
+      },
+    },
+    evidencedPairsAsConnector: {
+      columns: {},
+      where: liveEvidencedPairWhere,
+      with: {
+        productA: { columns: connectedEndpointColumns },
+        productB: { columns: connectedEndpointColumns },
+      },
+    },
   },
 } as const;
 
@@ -227,6 +256,37 @@ export interface RawAlgoliaProductRow {
   productAudiences: Array<{ audience: { name: string } }>;
   productPhases: Array<{ phase: { name: string } }>;
   productTrades: Array<{ trade: { name: string; aliases: string[] | null } }>;
+  /** AECI-2090 — live rows this product delivers. Optional so older callers'
+   *  fixtures still type; a row without them connects nothing. */
+  poweredIntegrations?: Array<{
+    sourceProduct: ConnectedEndpoint;
+    targetProduct: ConnectedEndpoint;
+  }>;
+  evidencedPairsAsConnector?: Array<{ productA: ConnectedEndpoint; productB: ConnectedEndpoint }>;
+}
+
+/** AECI-2090 — one endpoint of a delivered row. */
+export interface ConnectedEndpoint {
+  id: string;
+  name: string;
+  promotionStatus: string;
+}
+
+/**
+ * AECI-2090 — the names for `connected_product_names`: every promoted endpoint of
+ * the product's live delivered rows, both arms, minus the product itself (the hero
+ * line's `connectedProducts` rule). Order and the byte budget are the shared
+ * helper's, so the datatool builder matches byte for byte.
+ */
+function connectedProductNames(row: RawAlgoliaProductRow): string[] {
+  const endpoints = [
+    ...(row.poweredIntegrations ?? []).flatMap((r) => [r.sourceProduct, r.targetProduct]),
+    ...(row.evidencedPairsAsConnector ?? []).flatMap((r) => [r.productA, r.productB]),
+  ];
+  return connectedProductNamesField(
+    endpoints.filter((e) => e.id !== row.id && e.promotionStatus === 'promoted').map((e) => e.name),
+    row.id,
+  );
 }
 
 export interface RawAlgoliaVendorRow {
@@ -331,6 +391,9 @@ export function toAlgoliaProduct(
     // an `application` and on a value outside the vocabulary, so an application never
     // carries a kind. Must stay identical to `buildProductRecords` in `apps/datatool`.
     connector_kind: connectorKindFor(row.productRole, row.connectorKind),
+    // AECI-2090 — searchable only, never faceted or ranked. Must stay identical to
+    // `buildProductRecords` in `apps/datatool`.
+    connected_product_names: connectedProductNames(row),
   };
 }
 

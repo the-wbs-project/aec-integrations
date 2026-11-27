@@ -497,6 +497,8 @@ Version 1.1 (November 18, 2026, legal branch 6) says what a paid plan does chang
 
 Version 1.2 is still unpublished, so on November 26, 2026 item 14.8 (AECI-2230) was folded into it in place, live page and archive copy together, with no 1.3. It replaces the 1.1 sentence "It changes what a page says, never where it appears" with ruling 65's wording.
 
+On November 27, 2026 AECI-2090 added one sentence to 1.2's search section, in place, live page and archive copy together, with no 1.3: a search also matches the names of the products a connecting product, such as a Sync Service, connects. The field orders nothing, so the payment promise is unchanged.
+
 ## Change workflow (spec §27.2)
 
 Most changes to these files start as a code change somewhere else. `docs/LEGAL_IMPACT_REVIEW.md`

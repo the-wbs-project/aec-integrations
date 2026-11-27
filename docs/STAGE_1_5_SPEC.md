@@ -2389,7 +2389,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
   later evolution, and §12.6's discovery follow-up is half closed. **AECI-1086 (2026-11-09) put
   `product_role` on the Algolia product record**, display only, and the search card now carries
   the `RoleBadge`. **AECI-1662 (2026-11-24) built the facet** as the "Connector type" filter,
-  by kind rather than by role (§13.13).
+  by kind rather than by role (§13.13). **AECI-2090 (2026-11-27) made a connector findable by the
+  products it connects** (§13.13).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
 
@@ -2852,9 +2853,12 @@ product is and orders nothing.
   `GET /api/products?connector_kind=` and the `connector_kinds` group of `/api/products/facets`
   (`API_CONTRACTS.md` §6.1). `connector_kind` is in the listing cache key (`CACHE_STRATEGY.md`
   §4a).
-- **Out of scope.** "Sync Services for Procore and Acumatica", that is, finding a Sync Service by
-  the products it connects. A record does not link a service to its endpoints. It needs its own
-  issue.
+- **Finding a Sync Service by the products it connects (AECI-2090, 2026-11-27).** Out of scope
+  for AECI-1662 and built since. The Algolia product record carries `connected_product_names`:
+  the names of the endpoints of its live delivered rows, both arms, minus itself. It is the
+  §13.6 hero line's product set. Searching "Procore Acumatica" finds the Sync Services that
+  deliver that pair. The field is searchable only, never faceted or ranked
+  (`SEARCH_RANKING.md` §3.1).
 
 **Local data.** `apps/api/seed/connector-fixtures.sql` sets the MindCloud fixture to
 `integration_platform` and the Agave fixture to `sync_service`. Since AECI-2043 a second Sync

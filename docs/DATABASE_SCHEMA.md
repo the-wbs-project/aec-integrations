@@ -2110,7 +2110,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   - on a `notification.sent` row, the **recipient**. This is the old `metadata.vendorId` meaning.
 - **`product_id`** is set when the row is about one product: a product edit or version, a review
   reply, a connector mapping, the tombstones of a product retraction. An integration row is about
-  two products and leaves it NULL.
+  two products and leaves it NULL. One exception: `integration.connector_moved` (AECI-2090) names
+  the connector the edge left. Promote writes it on a re-point or de-route, and the nightly Algolia
+  window reads it through `audit_log_product_idx` (`SEARCH_RANKING.md` §3.1).
 - **`vendor_tier`** and **`vendor_entitlement_status`** are the plan at write time, from
   `licensePlanSnapshot` (`@aeci/shared/entitlements`) over the vendor's subscriptions. The column names
   stay, to avoid an `audit_log` recreate. The tier is the raw rung `verified`, so a write after a

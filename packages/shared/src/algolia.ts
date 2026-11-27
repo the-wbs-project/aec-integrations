@@ -670,6 +670,12 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'trades',
       'trade_aliases',
       'unordered(description)',
+      // AECI-2090 — the names of the products this product connects, so "Procore
+      // Acumatica" finds the Sync Services that deliver that pair. Last, so a match
+      // in a product's own name or description counts more. `unordered` because the
+      // A to Z order is a build artifact. Searchable only: never faceted, never
+      // ranked (`SEARCH_RANKING.md` §3.1).
+      'unordered(connected_product_names)',
     ],
     attributesForFaceting: [
       'searchable(categories)',

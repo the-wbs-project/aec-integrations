@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AlgoliaIntegrationRecordSchema,
   AlgoliaProductRecordSchema,
   AlgoliaVendorRecordSchema,
   algoliaSortKey,
+  CONNECTED_PRODUCT_NAMES_MAX_BYTES,
+  connectedProductNamesField,
   flattenTradeAliases,
   productSortFields,
 } from './algolia-records';
@@ -30,6 +32,7 @@ const PRODUCT = {
   logo_url: 'https://cdn.brandfetch.io/procore.png',
   product_role: 'connector',
   connector_kind: 'integration_platform',
+  connected_product_names: ['AutoCAD'],
 };
 
 const VENDOR = {
@@ -170,6 +173,62 @@ describe('productSortFields', () => {
 // ---------------------------------------------------------------------------
 // AECI-545 — trade_aliases flattening (shared by BOTH record builders)
 // ---------------------------------------------------------------------------
+
+// AECI-2090 — the names of the products a product connects. Required, so a builder
+// that forgets it fails the parse instead of making every Sync Service unfindable.
+describe('connected_product_names', () => {
+  it('REJECTS a record missing connected_product_names', () => {
+    const { connected_product_names: _c, ...missing } = PRODUCT;
+    expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
+    expect(() =>
+      AlgoliaProductRecordSchema.parse({ ...PRODUCT, connected_product_names: [''] }),
+    ).toThrow();
+  });
+
+  it('drops blanks and duplicates, then sorts A to Z ignoring case', () => {
+    expect(
+      connectedProductNamesField([
+        'Procore',
+        'acumatica',
+        '',
+        '  ',
+        null,
+        undefined,
+        'Procore',
+        'AutoCAD',
+      ]),
+    ).toEqual(['acumatica', 'AutoCAD', 'Procore']);
+  });
+
+  it('gives the same output whatever the input order (group_concat order is unspecified)', () => {
+    expect(connectedProductNamesField(['B', 'a', 'C'])).toEqual(
+      connectedProductNamesField(['C', 'B', 'a']),
+    );
+  });
+
+  it('cuts at the byte budget, keeps the A to Z prefix, and warns', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const names = Array.from(
+      { length: 400 },
+      (_, i) => `Partner ${String(i).padStart(3, '0')} Ltd`,
+    );
+    const out = connectedProductNamesField(names, 'p1');
+    expect(out.length).toBeLessThan(names.length);
+    expect(out).toEqual(names.slice(0, out.length));
+    expect(new TextEncoder().encode(JSON.stringify(out)).length).toBeLessThanOrEqual(
+      CONNECTED_PRODUCT_NAMES_MAX_BYTES,
+    );
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+
+  it('does not warn under the budget', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    connectedProductNamesField(['Procore', 'Acumatica']);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
 
 describe('flattenTradeAliases', () => {
   it('flattens every linked trade’s aliases in order', () => {

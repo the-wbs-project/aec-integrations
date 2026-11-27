@@ -27,6 +27,7 @@ import { ConnectorKindSchema } from './api/connector-kind-schema';
 import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './api/integrations';
 import { ProductRoleSchema } from './api/products';
 import { RATING_VISIBILITY_MIN_REVIEWS } from './api/reviews';
+import { compareText } from './text-sort';
 
 /**
  * `listing_tier` (AECI-636) on the product and vendor records: `1 | 2`, or ABSENT.
@@ -127,6 +128,18 @@ export const AlgoliaProductRecordSchema = z.object({
   // kind to NULL. Records written before AECI-1662 lack it until they are next
   // rewritten, and the web reader treats a missing kind as NULL.
   connector_kind: ConnectorKindSchema.nullable(),
+  // AECI-2090 — the names of the products this product connects: every endpoint of
+  // its live delivered rows, both arms (`integrations.powered_by_product_id` and
+  // `connector_evidenced_pairs.connector_product_id`), minus itself. So a buyer
+  // finds a Sync Service by searching for the two products it joins. Built only by
+  // `connectedProductNamesField` below. **Searchable only: never faceted, never
+  // rendered, never ranked** (`SEARCH_RANKING.md` §3.1). An application with no
+  // delivered rows carries `[]`.
+  //
+  // REQUIRED (no default) for the reason `name_sort` is: a `.default([])` would let
+  // the datatool's raw-SQL builder forget the field and still parse, and a full
+  // reindex would then make every Sync Service unfindable by its endpoints.
+  connected_product_names: z.array(z.string().min(1)),
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;
@@ -159,6 +172,57 @@ export function flattenTradeAliases(
       seen.add(alias);
       out.push(alias);
     }
+  }
+  return out;
+}
+
+/**
+ * The byte budget for `connected_product_names` (AECI-2090), in UTF-8 bytes.
+ *
+ * Algolia caps a whole record at 10 KB on the Build plan and 100 KB on paid
+ * plans. The largest delivered set today is about 43 names, about 1 KB. The
+ * budget keeps a platform that delivers hundreds of pairs from pushing the record
+ * past the smaller cap, with room left for the description.
+ */
+export const CONNECTED_PRODUCT_NAMES_MAX_BYTES = 4000;
+
+/**
+ * Builds the `connected_product_names` value for a product record (AECI-2090).
+ *
+ * Lives here, beside {@link flattenTradeAliases}, because both record builders
+ * must produce byte-identical output: `toAlgoliaProduct` (Drizzle rows) and the
+ * datatool's `buildProductRecords` (raw SQL, whose `group_concat` order is
+ * unspecified). So the order is decided here and nowhere else: blanks dropped,
+ * exact duplicates dropped, then A to Z through `compareText`, which ignores case.
+ *
+ * The names are cut at {@link CONNECTED_PRODUCT_NAMES_MAX_BYTES}, keeping the A to
+ * Z prefix, and a cut warns so it is visible in the logs. A cut name is no longer
+ * searchable on this record. The order never ranks anything: the attribute is not
+ * in `customRanking`.
+ */
+export function connectedProductNamesField(
+  names: readonly (string | null | undefined)[],
+  productId = '',
+): string[] {
+  const unique = [
+    ...new Set(names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0)),
+  ];
+  unique.sort(compareText);
+  const out: string[] = [];
+  // The JSON array's brackets, then each entry's bytes plus its quotes and comma.
+  // Escapes are not counted: the budget is a soft cap well under Algolia's limit.
+  let bytes = 2;
+  const encoder = new TextEncoder();
+  for (const name of unique) {
+    const cost = encoder.encode(name).length + 3;
+    if (bytes + cost > CONNECTED_PRODUCT_NAMES_MAX_BYTES) {
+      console.warn(
+        `[algolia] connected_product_names cut for product ${productId}: kept ${out.length} of ${unique.length} names`,
+      );
+      break;
+    }
+    bytes += cost;
+    out.push(name);
   }
   return out;
 }

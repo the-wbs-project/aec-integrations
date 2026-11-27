@@ -538,4 +538,76 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
       expect(record).toStrictEqual(transformed);
     }
   });
+  // AECI-2090 — asserted directly as well as through parity, for the same reason.
+  // Agave delivers on both arms. Each excluded row tests one rule: itself as an
+  // endpoint, an unpromoted endpoint, a retired row and a hidden endpoint.
+  it('carries connected_product_names on both paths, live promoted endpoints only', async () => {
+    await seed();
+    await t.db.insert(products).values([
+      { id: u(14), slug: 'acumatica', name: 'acumatica', promotionStatus: 'promoted' },
+      { id: u(15), slug: 'draft', name: 'Draft Partner', promotionStatus: 'pending' },
+      { id: u(16), slug: 'retired', name: 'Retired Partner', promotionStatus: 'promoted' },
+      {
+        id: u(17),
+        slug: 'hidden',
+        name: 'Hidden Partner',
+        promotionStatus: 'promoted',
+        hiddenAt: '2026-11-01T00:00:00.000Z',
+      },
+    ]);
+    const powered = {
+      mechanismKind: 'iPaaS',
+      direction: 'a_to_b',
+      poweredByProductId: u(13),
+    } as const;
+    await t.db.insert(integrations).values([
+      // A third-party connector left on `integrations`, and a Convention-A self row.
+      {
+        id: u(64),
+        name: 'Procore to Acumatica',
+        sourceProductId: u(11),
+        targetProductId: u(14),
+        ...powered,
+      },
+      {
+        id: u(65),
+        name: 'Agave to Acumatica',
+        sourceProductId: u(13),
+        targetProductId: u(14),
+        ...powered,
+      },
+      {
+        id: u(66),
+        name: 'Procore to Draft',
+        sourceProductId: u(11),
+        targetProductId: u(15),
+        ...powered,
+      },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values([
+      {
+        id: u(67),
+        productAId: u(11),
+        productBId: u(16),
+        connectorProductId: u(13),
+        direction: 'both',
+        retiredAt: '2026-11-01T00:00:00.000Z',
+      },
+      {
+        id: u(68),
+        productAId: u(12),
+        productBId: u(17),
+        connectorProductId: u(13),
+        direction: 'both',
+      },
+    ]);
+    const reindexed = await buildProductRecords(asD1(t.raw));
+    const byId = new Map(reindexed.map((r) => [r.objectID as string, r]));
+    // Case-folded A to Z: "acumatica" sorts first despite its lowercase initial.
+    expect(byId.get(u(13))?.connected_product_names).toEqual(['acumatica', 'AutoCAD', 'Procore']);
+    expect(byId.get(u(11))?.connected_product_names).toEqual([]);
+    for (const record of reindexed) {
+      expect(record).toStrictEqual(await transformProduct(record.objectID as string));
+    }
+  });
 });
