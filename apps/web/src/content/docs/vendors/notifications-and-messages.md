@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: November 26, 2026
+last_updated: November 27, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -58,23 +58,24 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 | A reminder to decide on someone who wants to join | Every owner who got the first email | Two days or less before the decide-by date, if no owner has decided |
 | A new review of your product | Every seat | When we publish the review |
 | A change request on an integration you own | Every seat at the owner | When another company sends it, with the date after which it may ask us to review it |
+| A data flow report on an integration you deliver | Every seat at the owner | When an endpoint vendor reports a wrong data flow, with the date after which it may ask us to review it |
 | A change request you sent was declined | Every seat at your company | When the owner declines it, with the date your time to ask for a review ends |
 | A review request on your decision | Every seat at the owner | When the other company asks us to review it, with your reply date |
 | A reminder to reply to a review request | Every seat at the owner | Two to three days before the reply date, if you have not replied |
-| Daily reminder | Each seat that has not turned it off | Once a day, when data flows need an answer, conversations have new messages, or change requests wait for your answer |
+| Daily reminder | Each seat that has not turned it off | Once a day, when data flows need an answer, conversations have new messages, or change requests or data flow reports wait for your answer |
 
 Everything else appears only in **Messages** or on the page it concerns. No message in a conversation is emailed on its own. When a Managed plan reaches its end date, the "Managed ended" email above goes out, and the portal shows a banner. See [Your dashboard](/docs/vendors/your-dashboard).
 
 ## Turning off the daily reminder
 
-The daily reminder lists the integration records that need an answer from your company. It also counts your conversations with new messages, in one line such as "2 conversations have new messages". It never quotes a message. A conversation counts when it is open and has a message from the other company that arrived after you last opened the conversation. It also counts the change requests on integrations your company owns that are still waiting for your answer, in one line such as "2 change requests are waiting for your answer". The email goes out on a day with any of this news.
+The daily reminder lists the integration records that need an answer from your company. It also counts your conversations with new messages, in one line such as "2 conversations have new messages". It never quotes a message. A conversation counts when it is open and has a message from the other company that arrived after you last opened the conversation. It also counts the change requests on integrations your company owns that are still waiting for your answer, in one line such as "2 change requests are waiting for your answer". If you deliver integrations as a Sync Service, it counts the data flow reports still waiting for your answer in a line of their own, such as "2 data flow reports are waiting for your answer". The email goes out on a day with any of this news.
 
 It is the only email you can turn off.
 
 - Use the **Daily reminder email** switch on **Messages**, or the link at the foot of the email itself.
 - It turns the email off for your seat only. Your colleagues still get theirs.
 - The reminders still appear under **Recent notifications**.
-- Seat invites, claim decisions, join requests, plan notices, subscription reminders, new reviews, new change requests and change-request deadlines still arrive.
+- Seat invites, claim decisions, join requests, plan notices, subscription reminders, new reviews, new change requests, new data flow reports and change-request deadlines still arrive.
 
 The switch shows when you turned it off. Turn it back on the same way.
 

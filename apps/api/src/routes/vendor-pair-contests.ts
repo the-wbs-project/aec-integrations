@@ -14,7 +14,9 @@
  * whole gate. A report on another vendor's row, or a decision on a report not routed to
  * the caller, is the same `404` as an unknown id. Every transition is one batch: the
  * guarded row write and its sentinel, the audit row, the `notification.sent` row for
- * the other side. The AECi alert email goes out after commit on an AECi-routed submit.
+ * the other side. The AECi alert email goes out after commit on an AECi-routed submit,
+ * and the owner's seats get `pair-report-submitted-owner` on an owner-routed one
+ * (AECI-2229).
  */
 
 import {
@@ -37,6 +39,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { emailPairReportSubmittedToOwner } from '../lib/contest-protest-emails';
 import { sendPairContestSubmittedNotification } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { integrationRetiredError, integrationVetoedError } from '../lib/live-integration';
@@ -112,9 +115,17 @@ async function ownerDecidesFlows(db: Db, target: PairRightTarget): Promise<boole
   return ownerMaintainsFlows(ownerFlowContextOf(target, connector));
 }
 
+/** The owner email seam (AECI-2229), injectable so a spec can capture the call. */
+export type NotifyPairReportOwner = (
+  c: VendorContext,
+  db: Db,
+  row: PairContestRow,
+) => Promise<void>;
+
 /** `POST /api/vendor/integrations/:id/pair-contests`. */
 export function createSubmitPairContestHandler(
   dbFor: DbFactory = getDb,
+  notifyOwner: NotifyPairReportOwner = emailPairReportSubmittedToOwner,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -295,6 +306,12 @@ export function createSubmitPairContestHandler(
           () => undefined,
         ),
       );
+    }
+    // AECI-2229 (§11e.7): an owner-routed report starts the owner's 30-day answer
+    // window, so its seats get an email beside the portal row. After the commit, so a
+    // lost race sends nothing.
+    if (routedTo === 'owner' && row.ownerVendorId) {
+      c.executionCtx.waitUntil(notifyOwner(c, db, row));
     }
     const body = await contestBody(db, row.id);
     validateResponseInDev(c.env, () => PairContestResponseSchema.parse(body));

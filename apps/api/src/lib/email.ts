@@ -1513,6 +1513,16 @@ export function openContestsLine(n: number): string | null {
     : `${n} change requests are waiting for your answer`;
 }
 
+/** The AECI-2229 digest line, "{N} data flow reports are waiting for your answer": open
+ *  owner-routed Sync Service data flow reports on the seat's company (§11e.7). `null`
+ *  at zero. */
+export function openPairReportsLine(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1
+    ? '1 data flow report is waiting for your answer'
+    : `${n} data flow reports are waiting for your answer`;
+}
+
 /**
  * The vendor nudge digest (`attestation-digest`, AECI-1204): every due finding for
  * one vendor, to one seat, once a day.
@@ -1534,6 +1544,10 @@ export function openContestsLine(n: number): string | null {
  *   counting the field contests other vendors filed on integrations the seat's
  *   company owns, still open and waiting for its answer. With no findings it leads,
  *   ahead of the thread line, because the 30-day answer window runs against it.
+ * - **Open data flow reports (AECI-2229, §11e.7).** `openPairReports` adds one line
+ *   counting the Sync Service data flow reports routed to the seat's company, still
+ *   open. They sit under their own Messages section, so they get their own line. With
+ *   no findings it leads after the contest line and ahead of the thread line.
  */
 export function sendAttestationDigestEmail(
   c: EmailContext,
@@ -1546,6 +1560,8 @@ export function sendAttestationDigestEmail(
     unreadThreads?: number;
     /** Open owner-routed field contests waiting for this company (AECI-1942). */
     openContests?: number;
+    /** Open owner-routed Sync Service data flow reports for this company (AECI-2229). */
+    openPairReports?: number;
     muteToken: string | null;
     dedupeKey: string;
   },
@@ -1555,6 +1571,7 @@ export function sendAttestationDigestEmail(
   const threads = opts.unreadThreads ?? 0;
   const threadLine = unreadThreadsLine(threads);
   const contestLine = openContestsLine(opts.openContests ?? 0);
+  const pairReportLine = openPairReportsLine(opts.openPairReports ?? 0);
   const listed = opts.findings.slice(0, DIGEST_LIST_LIMIT);
   const rest = total - listed.length;
   const portal = portalUrl(c.env);
@@ -1568,10 +1585,10 @@ export function sendAttestationDigestEmail(
       : null;
 
   const first = listed[0] ? digestItem(listed[0]) : null;
-  // A digest can carry the contest line (AECI-1942) or the thread line (§15.8) with
-  // no finding. It then leads with the contest line when there is one, else the
-  // thread line.
-  const leadLine = total === 0 ? (contestLine ?? threadLine) : null;
+  // A digest can carry the contest line (AECI-1942), the data flow report line
+  // (AECI-2229) or the thread line (§15.8) with no finding. It then leads with the
+  // first of them it has, in that order: the two carry a 30-day answer window.
+  const leadLine = total === 0 ? (contestLine ?? pairReportLine ?? threadLine) : null;
   const subject = leadLine
     ? leadLine
     : total === 1 && first
@@ -1587,10 +1604,16 @@ export function sendAttestationDigestEmail(
       ? `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`
       : leadLine === contestLine
         ? `Other vendors have asked ${company} to change details of integrations it maintains. Accept or decline each one under Change requests in Messages on your vendor portal.`
-        : `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`;
+        : leadLine === pairReportLine
+          ? `Other vendors have reported a wrong data flow on integrations ${company} maintains. Accept or decline each one under Data flow reports you received in Messages on your vendor portal.`
+          : `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`;
   const contestText =
     contestLine && leadLine !== contestLine
       ? `${contestLine}. Answer each one under Change requests in Messages on your vendor portal.`
+      : null;
+  const pairReportText =
+    pairReportLine && leadLine !== pairReportLine
+      ? `${pairReportLine}. Answer each one under Data flow reports you received in Messages on your vendor portal.`
       : null;
   // The line never quotes a message: an email can be forwarded, and a thread is
   // private to the two companies (§15.3).
@@ -1598,7 +1621,9 @@ export function sendAttestationDigestEmail(
     threadLine && leadLine !== threadLine
       ? `${threadLine}. Your vendor portal shows each one.`
       : null;
-  const extraTexts = [contestText, threadText].filter((t): t is string => t !== null);
+  const extraTexts = [contestText, pairReportText, threadText].filter(
+    (t): t is string => t !== null,
+  );
 
   const sections = (link: LinkTagger) =>
     listed.map((f) => {
@@ -4342,6 +4367,91 @@ export function sendContestSubmittedOwnerEmail(
       ),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },
+  });
+}
+
+/** A data flow direction in a pair's A/B frame, in words. `null` names no product. */
+function pairDirectionWords(
+  direction: string | null,
+  productAName: string | null,
+  productBName: string | null,
+): string {
+  const a = productAName?.trim() || 'the first product';
+  const b = productBName?.trim() || 'the second product';
+  if (direction === 'a_to_b') return `From ${a} to ${b}`;
+  if (direction === 'b_to_a') return `From ${b} to ${a}`;
+  if (direction === 'both') return 'Both ways';
+  return 'not on record';
+}
+
+/**
+ * `pair-report-submitted-owner` (AECI-2229, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.7):
+ * the owner's seats learn that an endpoint vendor reported a wrong data flow on a Sync
+ * Service pair they maintain, and the date after which their silence lets the
+ * submitter ask AECi to review it (30 days, `pairProtestWindow`).
+ *
+ * Sent from the submit route after its batch commits, inside `waitUntil`, for an
+ * owner-routed report only. Only a data flow report routes to the owner: an existence
+ * report is always AECi's (§11e.3). The caller's key is
+ * `pair-report-submitted-owner:{reportId}:{profileId}`. A report is submitted once, so
+ * the report id is the event.
+ */
+export function sendPairReportSubmittedOwnerEmail(
+  c: EmailContext,
+  opts: ContestSeatRecipient & {
+    reportId: string;
+    integrationName: string;
+    flowName: string;
+    /** Both in the pair's A/B frame. `proposedDirection` `null`: "should not be listed". */
+    currentDirection: string | null;
+    proposedDirection: string | null;
+    productAName: string | null;
+    productBName: string | null;
+    submitterVendorName: string;
+    reason: string;
+    answerBy: string;
+    pairSlugs: readonly [string, string] | null;
+    dedupeKey: string;
+  },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName?.trim() || 'your company';
+  const by = formatDeadline(opts.answerBy);
+  const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
+  const words = (d: string | null) => pairDirectionWords(d, opts.productAName, opts.productBName);
+  const proposed =
+    opts.proposedDirection === null ? 'It should not be listed' : words(opts.proposedDirection);
+  const lead = `${opts.submitterVendorName} says the ${opts.flowName} data flow on ${opts.integrationName} is wrong. ${company} maintains its data flows, so you decide.`;
+  const answer = `Accept or decline it under Data flow reports you received in Messages on your vendor portal. If you have not answered by ${by}, ${opts.submitterVendorName} may ask AEC Integrations to review it. Until they do, you can still answer.`;
+  const quiet =
+    'The listing keeps the data flow as it is while the report is open, and does not show that a report exists.';
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  const shared = (link: LinkTagger) => ({
+    preheader: `Answer by ${by}.`,
+    heading: `Data flow reported on ${opts.integrationName}`,
+    table: [
+      ['Integration', opts.integrationName, PLAIN] as const,
+      ['Data flow', opts.flowName, PLAIN] as const,
+      ['Direction on record', words(opts.currentDirection), PLAIN] as const,
+      ['What they say is right', proposed, PLAIN] as const,
+      ...(pair ? [['Pair page', link(pair)] as const] : []),
+      ['Their reason', opts.reason, PLAIN] as const,
+      ['Answer by', by] as const,
+    ],
+    ...(messages ? { cta: { label: 'Answer in Messages', url: link(messages) } } : {}),
+    note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'pair-report-submitted-owner',
+    subject: `Answer by ${by}: data flow report on ${opts.integrationName}`,
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, answer, quiet],
+        [escapeHtml(lead), escapeHtml(answer), escapeHtml(quiet)],
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'sync_service_pair_contest', id: opts.reportId },
   });
 }
 

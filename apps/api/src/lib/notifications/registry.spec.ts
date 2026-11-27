@@ -59,8 +59,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1942 added `contest-submitted-owner`: 102.
  * AECI-2139 added `portal-flow-corrected-by-aeci` and `portal-flow-correction-lifted-by-aeci`: 104.
  * AECI-1870 added `legal-first-effective`: 105.
+ * AECI-2229 added `pair-report-submitted-owner`: 106.
  */
-const EXPECTED_COUNT = 105;
+const EXPECTED_COUNT = 106;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -120,8 +121,9 @@ describe('notification registry shape', () => {
       // AECI-1942 added `contest-submitted-owner`.
       // AECI-2139 added `portal-flow-corrected-by-aeci` and
       // `portal-flow-correction-lifted-by-aeci`.
-      // AECI-1870 added `legal-first-effective`.
-      email: 61,
+      // AECI-1870 added `legal-first-effective`. AECI-2229 added
+      // `pair-report-submitted-owner`.
+      email: 62,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 38,
@@ -263,6 +265,8 @@ const ALWAYS_ON = [
   // AECI-1705: the only record of a listing request.
   'listing-request-alert',
   'mailing-list-welcome-operator-copy',
+  // AECI-2229: carries the 30-day answer date.
+  'pair-report-submitted-owner',
   'product-request-decided',
   'review-approved',
   'review-rejected',
