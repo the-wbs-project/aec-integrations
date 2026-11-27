@@ -1,6 +1,11 @@
 import { Component, Injectable } from '@angular/core';
 
 import type {
+  AdminDecidePairProtestInput,
+  AdminPairContest,
+  AdminPairContestResponse,
+  AdminPairContestsResponse,
+  AdminVetoesResponse,
   AdminContest,
   ContestProtest,
   DecideContestInput,
@@ -15,7 +20,8 @@ import { ContestQueue } from '../../admin/contests/contest-queue';
 /**
  * AECI-1009 — the `/admin/contests` queue, fed synthetic rows through a
  * component-provided fake of {@link AdminContestsApi}, so the Protests view and
- * its decision form can be reviewed, axe-scanned and `impeccable detect`-ed
+ * its decision form, and (AECI-2110) the Sync Service section's review of an owner's
+ * answer, can be reviewed, axe-scanned and `impeccable detect`-ed
  * without an admin session (the real route is behind the SSR admin gate, which a
  * dev server cannot pass without minting a real session).
  *
@@ -160,6 +166,59 @@ const CONTESTS: readonly AdminContest[] = [
   }),
 ];
 
+/** AECI-2110: the Sync Service section's review of an owner's answer, reply still open. */
+const PAIR = {
+  integration_id: uuid(530),
+  anchor: 'evidenced_pair' as const,
+  name: 'Procore and Acumatica (Rivets Sync)',
+  connector: { id: uuid(520), slug: 'rivets-sync', name: 'Rivets Sync' },
+  product_a: { id: uuid(510), slug: 'procore', name: 'Procore' },
+  product_b: { id: uuid(511), slug: 'acumatica', name: 'Acumatica' },
+};
+const PAIR_PROTESTS: readonly AdminPairContest[] = [
+  {
+    id: uuid(540),
+    kind: 'data_flow',
+    pair: PAIR,
+    flow: {
+      claim_id: uuid(541),
+      data_object_slug: 'rfis',
+      data_object_name: 'RFIs',
+      current_direction: 'a_to_b',
+      proposed_direction: null,
+    },
+    reason: 'We do not send RFIs to this product.',
+    submitter_vendor_id: uuid(503),
+    submitter_name: 'Acumatica Inc',
+    routed_to: 'owner',
+    owner_vendor_id: uuid(501),
+    owner_name: 'Rivets',
+    status: 'declined',
+    decision_note: 'RFIs sync on the Pro plan.',
+    decided_at: days(-3),
+    accept_mode: null,
+    protest: {
+      status: 'open',
+      basis: 'declined',
+      reason: 'Rivets’ own help page lists RFIs as not supported.',
+      evidence_urls: ['https://help.rivets.example/sync/rfis'],
+      protested_at: days(-1),
+      reply_due_at: days(13),
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
+      decision_note: null,
+      decided_at: null,
+    },
+    protest_closes_at: null,
+    cooldown_until: null,
+    created_at: days(-10),
+    updated_at: days(-1),
+    key_rows: null,
+    retract_by: null,
+  },
+];
+
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
 @Injectable()
 class PreviewAdminContestsApi extends AdminContestsApi {
@@ -171,6 +230,34 @@ class PreviewAdminContestsApi extends AdminContestsApi {
         ? PROTESTS.filter((c) => c.protest?.status === query.protest_status)
         : CONTESTS.filter((c) => c.status === (query.status ?? 'open'));
     return { data: structuredClone([...rows]), page: 1, perPage: 100, total: rows.length };
+  }
+
+  override async listPairContests(
+    query: { protests?: boolean; retractions?: boolean } = {},
+  ): Promise<AdminPairContestsResponse> {
+    return { data: query.protests ? structuredClone([...PAIR_PROTESTS]) : [] };
+  }
+
+  override async listVetoes(): Promise<AdminVetoesResponse> {
+    return { data: [] };
+  }
+
+  override async decidePairProtest(
+    id: string,
+    input: AdminDecidePairProtestInput,
+  ): Promise<AdminPairContestResponse> {
+    const row = PAIR_PROTESTS.find((c) => c.id === id) ?? PAIR_PROTESTS[0]!;
+    return {
+      contest: {
+        ...row,
+        protest: row.protest && {
+          ...row.protest,
+          status: input.decision,
+          decision_note: input.note,
+          decided_at: new Date().toISOString(),
+        },
+      },
+    };
   }
 
   override async decide(id: string, input: DecideContestInput): Promise<AdminContest> {

@@ -38,6 +38,7 @@ import { AdminDisclosureButton } from '../console/disclosure-button';
 import { adminStatusTone } from '../console/status-tones';
 import { QUEUE_DETAIL_GRID_CLASS, QUEUE_FORM_CLASS } from '../reviews/queue-classes';
 
+import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminContestsApi } from './admin-contests-api';
 
 type Form = {
@@ -524,13 +525,80 @@ type Form = {
                       <div [class]="t.detailInner">
                         <div [class]="detailGridClass" class="text-t-14">
                           <div class="grid min-w-0 content-start gap-2">
-                            <p class="text-(--text-secondary)">{{ r.protest?.reason }}</p>
+                            @if (r.protest; as p) {
+                              <dl
+                                class="mt-1 grid gap-x-3 gap-y-1 sm:grid-cols-[max-content_minmax(0,1fr)]"
+                                data-admin-pair-protest-record
+                              >
+                                <dt
+                                  class="text-(--text-secondary)"
+                                  i18n="@@admin.pairRights.protests.case"
+                                >
+                                  The reporter's case
+                                </dt>
+                                <dd class="break-words text-(--text-primary)">
+                                  {{ p.reason }}
+                                  @for (url of p.evidence_urls; track url) {
+                                    <a
+                                      [href]="url"
+                                      rel="noopener nofollow"
+                                      target="_blank"
+                                      class="block break-all rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                                      >{{ url }}</a
+                                    >
+                                  }
+                                </dd>
+                                <dt
+                                  class="text-(--text-secondary)"
+                                  i18n="@@admin.pairRights.protests.reply"
+                                >
+                                  The owner's reply
+                                </dt>
+                                <dd class="break-words text-(--text-primary)">
+                                  @if (p.reply; as reply) {
+                                    {{ reply }}
+                                    @for (url of p.reply_evidence_urls; track url) {
+                                      <a
+                                        [href]="url"
+                                        rel="noopener nofollow"
+                                        target="_blank"
+                                        class="block break-all rounded-mark text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                                        >{{ url }}</a
+                                      >
+                                    }
+                                  } @else if (replyPending(r)) {
+                                    <ng-container i18n="@@admin.pairRights.protests.replyDue"
+                                      >Reply due {{ p.reply_due_at | date: 'medium' }}</ng-container
+                                    >
+                                  } @else if (p.reply_due_at) {
+                                    <ng-container i18n="@@admin.pairRights.protests.noReplyBy"
+                                      >No reply by
+                                      {{ p.reply_due_at | date: 'medium' }}</ng-container
+                                    >
+                                  } @else {
+                                    <ng-container i18n="@@admin.pairRights.protests.noReplyStep"
+                                      >No reply step. This review was filed before owners could
+                                      reply.</ng-container
+                                    >
+                                  }
+                                </dd>
+                              </dl>
+                            }
                             <p
                               class="text-(--text-secondary)"
                               i18n="@@admin.pairRights.protests.advice"
                             >
                               Your answer is advice. It does not change the listing.
                             </p>
+                            @if (replyPending(r)) {
+                              <p
+                                class="text-(--text-secondary)"
+                                i18n="@@admin.pairRights.protests.early"
+                              >
+                                The owner can still reply. Deciding now means deciding without that
+                                reply. Say why in your note.
+                              </p>
+                            }
                           </div>
                           <div class="grid min-w-0 content-start gap-3">
                             <div class="flex flex-wrap gap-2">
@@ -937,6 +1005,9 @@ type Form = {
 })
 export class AdminPairRights {
   private readonly api = inject(AdminContestsApi);
+  /** AECI-2110: this section counts toward the `contests` badge (`ADMIN_PANEL_SPEC.md`
+   *  §5.0c). Each decision ticks it down; a refusal does not. */
+  private readonly summaryStore = inject(AdminSummaryStore);
   private readonly locale = inject(LOCALE_ID);
 
   /** An objection past its five business days is a missed policy clock: critical. */
@@ -1033,6 +1104,7 @@ export class AdminPairRights {
   ): Promise<void> {
     return this.write(async () => {
       await this.api.decideVetoObjection(id, { decision, note });
+      this.summaryStore.decrement('contests');
       this.status.set(
         decision === 'accept'
           ? $localize`:@@admin.pairRights.objection.accepted:Objection accepted. The removal ended and the integration is back on the site.`
@@ -1186,8 +1258,32 @@ export class AdminPairRights {
         note,
         ...(this.source().trim() ? { source_url: this.source().trim() } : {}),
       });
+      // The report leaves the badge. An existence accept that leaves an AECi-held row
+      // to retract adds a "To retract" entry, unless its pair key already had one.
+      if (!res.contest.retract_by || this.keyAwaitsRetraction(res.contest)) {
+        this.summaryStore.decrement('contests');
+      }
       this.status.set(this.acceptedStatus(res.contest));
     });
+  }
+
+  /** An open protest whose owner may still reply (§11b.12.11's early-decision note). */
+  protected replyPending(r: AdminPairContest): boolean {
+    const p = r.protest;
+    return (
+      !!p &&
+      p.status === 'open' &&
+      p.reply === null &&
+      !!p.reply_due_at &&
+      Date.parse(p.reply_due_at) > this.readAt()
+    );
+  }
+
+  /** Whether "To retract" already holds an entry for this report's pair key. */
+  private keyAwaitsRetraction(contest: AdminPairContest): boolean {
+    const key = (c: AdminPairContest) =>
+      `${c.pair.connector?.id}|${c.pair.product_a?.id}|${c.pair.product_b?.id}`;
+    return this.retractions().some((r) => r.id !== contest.id && key(r) === key(contest));
   }
 
   /** What an accept did, read back from the report after the write (AECI-2170). */
@@ -1211,6 +1307,7 @@ export class AdminPairRights {
         decision: 'decline',
         ...(reason ? { note: reason } : {}),
       });
+      this.summaryStore.decrement('contests');
       this.status.set($localize`:@@admin.pairRights.done:Decided.`);
     });
   }
@@ -1224,6 +1321,7 @@ export class AdminPairRights {
     }
     return this.write(async () => {
       await this.api.decidePairProtest(r.id, { decision, note });
+      this.summaryStore.decrement('contests');
       this.status.set($localize`:@@admin.pairRights.done:Decided.`);
     });
   }
