@@ -298,6 +298,39 @@ export const PREVIEW_RECEIVED_FLOW_REPORT: PairContest = {
   updated_at: '2026-11-22T10:00:00.000Z',
 };
 
+/** Acumatica asked AEC Integrations to review Summit's decline on the Submittals flow
+ *  (AECI-2110): an open protest with the reply still open, relative to the real clock. */
+const PROTESTED_AT = new Date(Date.now() - 2 * 86_400_000).toISOString();
+export const PREVIEW_RECEIVED_PROTESTED_REPORT: PairContest = {
+  ...PREVIEW_RECEIVED_FLOW_REPORT,
+  id: '00000000-0000-4000-8000-00000000527a',
+  flow: {
+    claim_id: '00000000-0000-4000-8000-000000005266',
+    data_object_slug: 'submittals',
+    data_object_name: 'Submittals',
+    current_direction: 'a_to_b',
+    proposed_direction: null,
+  },
+  reason: 'Submittals are not part of this sync.',
+  status: 'declined',
+  decision_note: 'Submittals sync on the Pro plan.',
+  decided_at: '2026-11-20T10:00:00.000Z',
+  protest: {
+    status: 'open',
+    basis: 'declined',
+    reason: 'Their own help page lists Submittals as not supported.',
+    evidence_urls: ['https://help.example.test/sync/submittals'],
+    protested_at: PROTESTED_AT,
+    reply_due_at: new Date(Date.parse(PROTESTED_AT) + 14 * 86_400_000).toISOString(),
+    reply: null,
+    reply_evidence_urls: [],
+    replied_at: null,
+    decision_note: null,
+    decided_at: null,
+  },
+  updated_at: PROTESTED_AT,
+};
+
 /** The endpoint vendor's view: Rivet Sync, another company's Sync Service, delivers a
  *  pair on Summit Model Coordination. Summit is not its owner, so the rights render. */
 export const PREVIEW_ENDPOINT_PAIR_ID = '00000000-0000-4000-8000-000000005281';

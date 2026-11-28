@@ -33,6 +33,7 @@ import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from './removal-labels';
+import { VendorPairProtest } from './vendor-pair-protest';
 
 /**
  * Removals and reports on Sync Service pairs, in Messages (AECI-2042,
@@ -63,7 +64,7 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
  */
 @Component({
   selector: 'aec-vendor-pair-rights-list',
-  imports: [AecButton, CloseOnEscape, DatePipe],
+  imports: [AecButton, CloseOnEscape, DatePipe, VendorPairProtest],
   host: { class: 'block' },
   template: `
     @if (hasAny()) {
@@ -307,9 +308,6 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                   @if (r.decision_note) {
                     <p class="text-(--text-secondary)">{{ r.decision_note }}</p>
                   }
-                  @if (r.protest) {
-                    <p class="text-(--text-secondary)">{{ protestText(r) }}</p>
-                  }
                   <div class="mt-2 flex flex-wrap gap-2">
                     @if (r.status === 'open') {
                       <button
@@ -324,20 +322,8 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                         Withdraw
                       </button>
                     }
-                    @if (r.protest_closes_at && !r.protest) {
-                      <button
-                        type="button"
-                        aecButton
-                        variant="secondary"
-                        compact
-                        [disabled]="busy()"
-                        (click)="protest(r)"
-                        i18n="@@vendor.pairRights.submitted.protest"
-                      >
-                        Ask AEC Integrations to review it
-                      </button>
-                    }
                   </div>
+                  <aec-vendor-pair-protest [report]="r" side="submitted" (changed)="reload()" />
                 </li>
               }
             </ul>
@@ -360,6 +346,7 @@ import { objectionGroundLabel, removalEndReasonLabel, removalReasonText } from '
                     From {{ r.submitter_name ?? unknownVendor }}: {{ r.reason }}
                   </p>
                   <p class="text-(--text-secondary)">{{ statusText(r) }}</p>
+                  <aec-vendor-pair-protest [report]="r" side="received" (changed)="reload()" />
                   @if (r.status === 'open') {
                     <p class="text-(--text-secondary)" i18n="@@vendor.pairRights.inbox.acceptHelp">
                       Accept changes the data flow on the public page as the report asks.
@@ -603,19 +590,6 @@ export class VendorPairRightsList {
     }
   }
 
-  protected protestText(r: PairContest): string {
-    switch (r.protest?.status) {
-      case 'open':
-        return $localize`:@@vendor.pairRights.protest.open:With AEC Integrations for review.`;
-      case 'upheld':
-        return $localize`:@@vendor.pairRights.protest.upheld.v2:AEC Integrations agrees with the report. This is advice. The Sync Service decides the listing of that data flow.`;
-      case 'rejected':
-        return $localize`:@@vendor.pairRights.protest.rejected:AEC Integrations agrees with the Sync Service.`;
-      default:
-        return $localize`:@@vendor.pairRights.protest.withdrawn:The review was withdrawn.`;
-    }
-  }
-
   protected withdrawVeto(v: SyncServicePairVeto): Promise<void> {
     return this.write(async () => {
       const res = await this.api.withdrawVeto(v.id);
@@ -631,18 +605,6 @@ export class VendorPairRightsList {
     return this.write(async () => {
       await this.api.withdrawPairContest(r.id);
       this.announcer.announce($localize`:@@vendor.pairRights.report.withdrawn:Report withdrawn.`);
-    });
-  }
-
-  protected protest(r: PairContest): Promise<void> {
-    return this.write(async () => {
-      await this.api.protestPairContest(
-        r.id,
-        $localize`:@@vendor.pairRights.protest.defaultReason:Please review the owner's answer on this data flow.`,
-      );
-      this.announcer.announce(
-        $localize`:@@vendor.pairRights.protest.sent:Sent to AEC Integrations for review.`,
-      );
     });
   }
 
@@ -670,6 +632,11 @@ export class VendorPairRightsList {
       this.busy.set(false);
       await this.load();
     }
+  }
+
+  /** A child protest wrote, or was refused: re-read both lists. */
+  protected reload(): void {
+    void this.load();
   }
 
   private async load(): Promise<void> {

@@ -23,6 +23,7 @@ import {
   claimOwnerAnswers,
   claims,
   connectorEvidencedPairs,
+  integrations,
   productVendors,
   products,
   profiles,
@@ -44,6 +45,7 @@ import {
   createAdminListPairContestsHandler,
 } from './admin-pair-contests';
 import { createProductPairHandler } from './integrations';
+import { createListVendorIntegrationsHandler } from './vendor-attestations';
 import {
   createDecidePairContestHandler,
   createFilePairProtestHandler,
@@ -204,6 +206,7 @@ function app(auth: AuthzVariables['auth']) {
   a.patch('/api/admin/pair-contests/:id', createAdminDecidePairContestHandler(t.factory));
   a.patch('/api/admin/pair-contests/:id/protest', createAdminDecidePairProtestHandler(t.factory));
   a.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler(t.factory));
+  a.get('/api/vendor/integrations', createListVendorIntegrationsHandler(t.factory));
   return a;
 }
 
@@ -814,5 +817,62 @@ describe('the contests badge counts the Sync Service section (AECI-2110)', () =>
       .set({ retiredAt: new Date().toISOString() })
       .where(eq(connectorEvidencedPairs.id, PAIR_SEEDED));
     expect(await badge()).toBe(0);
+  });
+});
+
+describe('an integrations row a Sync Service delivers carries the rights (AECI-2110, §11e.6)', () => {
+  const ROW = uuid(60);
+  const ROW_CLAIM = uuid(61);
+  beforeEach(async () => {
+    // Acumatica → Procore, so the source sorts second: flows come back in the pair frame.
+    await t.db.insert(integrations).values({
+      id: ROW,
+      name: 'Acumatica to Procore (Rivets Sync)',
+      sourceProductId: P_ACUMATICA,
+      targetProductId: P_PROCORE,
+      poweredByProductId: S_SYNC,
+      direction: 'a_to_b',
+    });
+    await t.db
+      .insert(claims)
+      .values({ id: ROW_CLAIM, integrationId: ROW, dataObjectId: DO_RFIS, direction: 'a_to_b' });
+  });
+
+  const rightsOf = async (auth: AuthzVariables['auth']) => {
+    const res = await call(auth, '/api/vendor/integrations', 'GET');
+    expect(res.status).toBe(200);
+    return (res.body.integrations as JsonBody[])
+      .filter((e) => e.id === ROW)
+      .map((e) => e.sync_service_rights);
+  };
+
+  it('an endpoint vendor gets its three rights, flows in the pair frame', async () => {
+    const [rights] = await rightsOf(AUTH_ACUMATICA);
+    expect(rights).toMatchObject({
+      veto_id: null,
+      open_reports: [],
+      flows: [{ claim_id: ROW_CLAIM, data_object_name: 'RFIs', direction: 'b_to_a' }],
+      flows_decided_by_owner: false,
+    });
+  });
+
+  it('carries the caller’s open report, and a report filed there routes like a pair’s', async () => {
+    const res = await submit(ROW, {
+      kind: 'data_flow',
+      claim_id: ROW_CLAIM,
+      reason: 'We do not send RFIs.',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.contest.pair.anchor).toBe('integration');
+    const [rights] = await rightsOf(AUTH_ACUMATICA);
+    expect(rights.open_flow_claim_ids).toEqual([ROW_CLAIM]);
+  });
+
+  it('is null on a retired row', async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: new Date().toISOString() })
+      .where(eq(integrations.id, ROW));
+    for (const rights of await rightsOf(AUTH_ACUMATICA)) expect(rights ?? null).toBeNull();
   });
 });

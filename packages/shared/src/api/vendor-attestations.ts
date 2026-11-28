@@ -13,6 +13,7 @@ import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vend
 import { OwnedFlowCorrectionSchema } from './flow-corrections';
 import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
+import { SyncServiceRightsSchema } from './sync-service-pair-rights';
 import type { AttestationSource } from './promote';
 
 /**
@@ -383,6 +384,15 @@ export const VendorIntegrationSchema = z.object({
    * the flag and never this field for the decision.
    */
   powered_by: ProductLinkSchema.nullable().default(null),
+  /**
+   * AECI-2110 (§11e.6): what the caller may file on this row when a Sync Service
+   * delivers it: remove it, report it not offered, report a wrong data flow. The same
+   * shape as the Connectors section's `EvidencedPairContestTarget.sync_service_rights`,
+   * flows in the pair frame. `null` on any other row, on a retired row, and for the
+   * row's owner or the Sync Service's own vendor. Optional for deploy skew: absent
+   * reads as `null`.
+   */
+  sync_service_rights: SyncServiceRightsSchema.nullable().optional(),
   claims: z.array(VendorClaimSchema),
   /**
    * Whether the caller's vendor OWNS this integration (`built_by_vendor_id`,

@@ -211,6 +211,7 @@ import {
 import {
   PREVIEW_HYBRID_ENDPOINT_INTEGRATION,
   PREVIEW_RECEIVED_FLOW_REPORT,
+  PREVIEW_RECEIVED_PROTESTED_REPORT,
   PREVIEW_RECEIVED_VETO,
   PREVIEW_RECEIVED_VETO_DECIDED,
   PREVIEW_RECEIVED_VETO_OBJECTED,
@@ -692,7 +693,10 @@ function previewSyncRights(sync: boolean): {
             clone(PREVIEW_RECEIVED_VETO_DECIDED),
           ],
         },
-        reports: { submitted: [], received: [clone(PREVIEW_RECEIVED_FLOW_REPORT)] },
+        reports: {
+          submitted: [],
+          received: [clone(PREVIEW_RECEIVED_FLOW_REPORT), clone(PREVIEW_RECEIVED_PROTESTED_REPORT)],
+        },
       }
     : { vetoes: { filed: [], received: [] }, reports: { submitted: [], received: [] } };
 }
@@ -3554,7 +3558,11 @@ export class PreviewVendorApi extends VendorApi {
     return { contest: clone(contest) };
   }
 
-  override async protestPairContest(id: string, reason: string): Promise<PairContestResponse> {
+  override async protestPairContest(
+    id: string,
+    body: { reason: string; evidence_urls?: string[] },
+  ): Promise<PairContestResponse> {
+    const reason = body.reason;
     const contest = this.pairReports.submitted.find((c) => c.id === id);
     if (!contest) throw apiError(404, 'NOT_FOUND', 'Report not found');
     if (!contest.protest_closes_at || contest.protest) {
@@ -3565,7 +3573,7 @@ export class PreviewVendorApi extends VendorApi {
       status: 'open',
       basis: contest.status === 'declined' ? 'declined' : 'silence',
       reason,
-      evidence_urls: [],
+      evidence_urls: [...new Set(body.evidence_urls ?? [])],
       protested_at: now,
       reply_due_at: new Date(Date.parse(now) + 14 * 86_400_000).toISOString(),
       reply: null,
@@ -3576,6 +3584,40 @@ export class PreviewVendorApi extends VendorApi {
     };
     contest.protest_closes_at = null;
     contest.updated_at = now;
+    return { contest: clone(contest) };
+  }
+
+  override async replyPairProtest(
+    id: string,
+    body: { reply: string; evidence_urls?: string[] },
+  ): Promise<PairContestResponse> {
+    const contest = this.pairReports.received.find((c) => c.id === id);
+    if (!contest?.protest) throw apiError(404, 'NOT_FOUND', 'Report not found');
+    if (contest.protest.status !== 'open') {
+      throw apiError(409, 'PROTEST_NOT_OPEN', 'This review is no longer open');
+    }
+    if (contest.protest.reply !== null) {
+      throw apiError(409, 'PROTEST_REPLY_EXISTS', 'Already replied');
+    }
+    const now = new Date().toISOString();
+    contest.protest = {
+      ...contest.protest,
+      reply: body.reply,
+      reply_evidence_urls: [...new Set(body.evidence_urls ?? [])],
+      replied_at: now,
+    };
+    contest.updated_at = now;
+    return { contest: clone(contest) };
+  }
+
+  override async withdrawPairProtest(id: string): Promise<PairContestResponse> {
+    const contest = this.pairReports.submitted.find((c) => c.id === id);
+    if (!contest?.protest) throw apiError(404, 'NOT_FOUND', 'Report not found');
+    if (contest.protest.status !== 'open') {
+      throw apiError(409, 'PAIR_PROTEST_NOT_OPEN', 'This review is no longer open');
+    }
+    contest.protest = { ...contest.protest, status: 'withdrawn' };
+    contest.updated_at = new Date().toISOString();
     return { contest: clone(contest) };
   }
 }

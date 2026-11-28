@@ -126,6 +126,8 @@ import type {
   PairContestResponse,
   VendorPairContestsResponse,
   DecidePairContestInput,
+  FilePairProtestInput,
+  ReplyPairProtestInput,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -1128,12 +1130,33 @@ export class VendorApi {
     );
   }
 
-  /** `POST /api/vendor/pair-contests/:id/protest` — ask AECi to review a decline. */
-  protestPairContest(id: string, reason: string): Promise<PairContestResponse> {
+  /** `POST /api/vendor/pair-contests/:id/protest` — ask AECi to review a decline, with
+   *  the vendor's own reason and up to three links (AECI-2110). */
+  protestPairContest(id: string, body: FilePairProtestInput): Promise<PairContestResponse> {
     return firstValueFrom(
       this.http.post<PairContestResponse>(
         `/api/vendor/pair-contests/${encodeURIComponent(id)}/protest`,
-        { reason },
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/protest/reply` — the owner's one reply (AECI-2110). */
+  replyPairProtest(id: string, body: ReplyPairProtestInput): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/protest/reply`,
+        body,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/pair-contests/:id/protest/withdraw` — the submitter withdraws. */
+  withdrawPairProtest(id: string): Promise<PairContestResponse> {
+    return firstValueFrom(
+      this.http.post<PairContestResponse>(
+        `/api/vendor/pair-contests/${encodeURIComponent(id)}/protest/withdraw`,
+        {},
       ),
     );
   }

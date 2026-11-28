@@ -11,7 +11,7 @@ import {
 
 import {
   REMOVAL_REASON_CODES,
-  type EvidencedPairContestTarget,
+  type SyncServiceRights,
   type PairFlowDirection,
   type RemovalReasonCode,
 } from '@aeci/shared';
@@ -29,6 +29,21 @@ import { CloseOnEscape } from '../shared/close-on-escape';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 
 type Panel = 'none' | 'veto' | 'existence' | 'flow';
+
+/**
+ * What the rights block reads from its row (AECI-2110). A Connectors-section delivered
+ * pair (`EvidencedPairContestTarget`) fits as it is; a connector-powered `integrations`
+ * row is shaped to it on the integration page. Both write through the same routes,
+ * which resolve the id in either table (§11e.1).
+ */
+export interface SyncRightsTarget {
+  readonly id: string;
+  readonly sync_service_rights?: SyncServiceRights | null;
+  readonly connector: { readonly name: string };
+  readonly owner: { readonly name: string } | null;
+  readonly context_product: { readonly id: string; readonly name: string };
+  readonly other_product: { readonly id: string; readonly name: string };
+}
 
 /**
  * An endpoint vendor's three rights on a pair a Sync Service delivers (AECI-2042,
@@ -347,7 +362,7 @@ type Panel = 'none' | 'veto' | 'existence' | 'flow';
   `,
 })
 export class VendorSyncServiceRights {
-  readonly target = input.required<EvidencedPairContestTarget>();
+  readonly target = input.required<SyncRightsTarget>();
   /** Emitted after a veto, so the section reloads and the pair drops out of it. */
   readonly changed = output<void>();
 
