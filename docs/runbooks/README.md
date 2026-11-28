@@ -8,6 +8,7 @@ them by name.
 |---|---|
 | [`alerts.md`](./alerts.md) | An alert, a failed-job email, or the CI liveness sweep paged you. Its "Alert → runbook" table maps every signal to a section |
 | [`catalog.md`](./catalog.md) | A promote job failed or stuck, the strand audit is red, retractions are pending, you retracted a product or vendor by hand, you promote a connector and its pairs or withdraw one, the review-app mirror drifted, someone asked for a removal, a data flow on a Sync Service integration is wrong, a live slug must change, or a deploy added an Algolia record field |
+| [`catalog-freshness.md`](./catalog-freshness.md) | It is the first week of the month. The monthly check for live products that were retired, discontinued, renamed, merged or pivoted out of AEC |
 | [`subscriptions.md`](./subscriptions.md) | A Stripe refund, opt-out, webhook or reconcile issue, a pilot or granted term, or a vendor must be suspended or ended |
 | [`legal.md`](./legal.md) | A data breach, an accessibility barrier report or demand letter, a copyright notice or counter-notice, a subpoena for a reviewer's identity, a matter that needs a litigation hold, a request to show a plan did not change a product's ranking or that an acceptance was not edited, a legal change notice that did not go out, a check that the day-of notice went out when the first versions took effect, a company stuck on the acceptance screen, or a digest report about a legal version |
 | [`listing-submissions.md`](./listing-submissions.md) | Someone asked to be listed: who may list what, identity proof, reply templates; a Sync Service integration veto that arrives by email (§6b) |
@@ -28,5 +29,6 @@ rehearsed on staging under AECI-2185. Its production steps are AECI-2248.
 | An endpoint vendor with no seat emails to remove a Sync Service integration | `listing-submissions.md` §6b |
 | A Sync Service with no seat emails to object to a removal | `listing-submissions.md` §6c |
 
-Post-launch daily and weekly checks are not here. They are in
+The monthly catalog freshness check is the one scheduled check kept here. Post-launch daily and
+weekly checks are not here. They are in
 [`../POST_LAUNCH_MONITORING.md`](../POST_LAUNCH_MONITORING.md).
