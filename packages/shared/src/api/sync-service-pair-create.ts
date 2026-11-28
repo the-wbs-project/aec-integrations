@@ -110,11 +110,14 @@ export type CreateSyncServicePairResponse = z.infer<typeof CreateSyncServicePair
  * `details` on `409 INTEGRATION_ALREADY_ON_RECORD`: the row that already holds the
  * pair through this connector. `anchor` says which table. `owned_by_caller` and
  * `retired` tell the portal what to offer: open it, claim it, or restore it.
+ * `retired_by_aeci` (AECI-2268) is `true` when an admin retired it, so only AEC
+ * Integrations can restore it and the portal must not offer the restore.
  */
 export const SyncServicePairOnRecordDetailsSchema = z.object({
   existing_id: z.string(),
   anchor: z.enum(['integration', 'evidenced_pair']),
   retired: z.boolean(),
+  retired_by_aeci: z.boolean(),
   owned_by_caller: z.boolean(),
   claimed: z.boolean(),
 });

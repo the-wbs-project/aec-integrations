@@ -62,23 +62,20 @@
     </p>
     }
 
-    <!-- The owner test (§8.10 / §5.2 step 1a, AECI-1041). A vendor that owns
-         integrations and wants to manage them pays, so this free seat is the
-         wrong tool for it. Warns, never disables: only the claimant can say
-         whether it wants to manage them. The catalogue-only alternative and the
-         v1 caveat apply to a pure connector vendor only; an endpoint vendor has
-         no connector catalogue to maintain. -->
+    <!-- The owner test (§5.2 step 1a, AECI-1041). Since ruling 14 (AECI-1663,
+         2026-11-09) an owner manages its integrations on every plan, so this
+         note only says what the vendor owns and that a seat manages it on Free
+         (AECI-2250). It never tells the operator to charge. Warns, never
+         disables. -->
     @if (ownsIntegrations()) {
     <div [class]="noticeClass" class="grid gap-2" role="note">
-      <p i18n="@@admin.vendors.provision.warn.owner">
-        This vendor owns integrations: {{ ownedLabel() }}. If it wants to manage them through the
-        portal it is a paying owner: grant its claim, or open an entitlement on this page.
+      <p i18n="@@admin.vendors.provision.warn.owner.v2">
+        This vendor owns integrations: {{ ownedLabel() }}. A seat can claim, edit and retire them on
+        the Free plan. Managing them needs no payment.
       </p>
       @if (isPureConnectorVendor()) {
-      <p i18n="@@admin.vendors.provision.warn.ownerConnector">
-        Add a seat here only if it wants its connector catalogue maintained and nothing more. Before
-        arranging payment, tell the claimant that in v1 the seat cannot yet claim, edit or retire
-        connector-powered integrations.
+      <p i18n="@@admin.vendors.provision.warn.ownerConnector.v2">
+        The same seat also maintains this vendor's connector catalogue.
       </p>
       }
     </div>

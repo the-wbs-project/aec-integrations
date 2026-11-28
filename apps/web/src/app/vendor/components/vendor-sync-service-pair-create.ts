@@ -668,6 +668,10 @@ export function syncServicePairErrorMessage(err: unknown): string {
   switch (info?.code) {
     case 'INTEGRATION_ALREADY_ON_RECORD': {
       const retired = info.details?.['retired'] === true;
+      // AECI-2268: an AECi retire cannot be restored from the portal.
+      if (retired && info.details?.['retired_by_aeci'] === true) {
+        return $localize`:@@vendor.syncCreate.error.onRecordRetiredByAeci:This integration is already on record through your Sync Service, and AEC Integrations retired it. Only AEC Integrations can restore it. To ask about it, email support@aecintegrations.com.`;
+      }
       return retired
         ? $localize`:@@vendor.syncCreate.error.onRecordRetired:This integration is already on record through your Sync Service, and it is retired. Restore it from the list below.`
         : $localize`:@@vendor.syncCreate.error.onRecord:This integration is already on record through your Sync Service. Look for it in the list below.`;

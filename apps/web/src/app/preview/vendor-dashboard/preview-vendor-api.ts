@@ -3210,6 +3210,7 @@ export class PreviewVendorApi extends VendorApi {
           existing_id: existing.id,
           anchor: existing.anchor,
           retired: existing.retired_at !== null,
+          retired_by_aeci: existing.retired_at !== null && existing.retired_by === 'aeci',
           owned_by_caller: true,
           claimed: existing.claimed_at !== null,
         },

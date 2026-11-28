@@ -232,11 +232,11 @@
               ></a
             >
             @if (v.is_pure_connector_vendor) { @if (v.owned_integrations.total > 0) {
-            <!-- AECI-1041 / §8.10: a connector vendor that owns integrations is a
-                 paying owner, so the "no paid access" chip would be wrong here. -->
+            <!-- AECI-1041: a connector vendor that owns integrations manages them
+                 through the portal, on any plan (ruling 14, AECI-1663). -->
             <aec-chip density="dense" [tone]="tone('pureConnectorOwner')" class="mt-1"
-              ><span i18n="@@admin.vendors.detail.roles.pureConnectorOwner"
-                >pure connector that owns integrations: pays if it manages them</span
+              ><span i18n="@@admin.vendors.detail.roles.pureConnectorOwner.v2"
+                >pure connector that owns integrations</span
               ></aec-chip
             >
             } @else {
