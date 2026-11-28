@@ -14,5 +14,19 @@ them by name.
 | [`gsc-reindex.md`](./gsc-reindex.md) | Working the Google Search Console re-crawl queue |
 | [`launch-cutover.md`](./launch-cutover.md) | A DNS or launch cutover |
 
+## Sync Service events
+
+The Sync Service procedures span two files. Find the event, then open the section. Each was
+rehearsed on staging under AECI-2185. Its production steps are AECI-2248.
+
+| What happened | Procedure |
+|---|---|
+| A new Sync Service, or a connector that delivers its own pairs, is ready to go live | `catalog.md` "Promoting a connector and its pairs" |
+| A Sync Service stops trading, or its connector leaves the directory with its pairs | `catalog.md` "Withdrawing a connector" |
+| A deploy added a field to an Algolia record, such as `connector_kind` | `catalog.md` "After a new Algolia record field" |
+| An endpoint vendor reported a Sync Service integration as not offered | `catalog.md` "Removal requests", the Sync Service paragraph |
+| An endpoint vendor with no seat emails to remove a Sync Service integration | `listing-submissions.md` §6b |
+| A Sync Service with no seat emails to object to a removal | `listing-submissions.md` §6c |
+
 Post-launch daily and weekly checks are not here. They are in
 [`../POST_LAUNCH_MONITORING.md`](../POST_LAUNCH_MONITORING.md).
