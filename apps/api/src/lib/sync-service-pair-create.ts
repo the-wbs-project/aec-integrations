@@ -101,19 +101,26 @@ export function alreadyOnRecordError(block: SyncServicePairBlock, vendorId: stri
       'A vendor of one of these products removed this integration from its product, so it cannot be added again. That vendor can withdraw the removal.',
     );
   }
+  const retired = block.retiredAt !== null;
+  // AECI-2268: an AECi retire is not the owner's to restore (the restore answers
+  // `403 INTEGRATION_RETIRED_BY_AECI`), so the refusal must not say "restore it".
+  const retiredByAeci = retired && block.retiredBy === 'aeci';
   const details: SyncServicePairOnRecordDetails = {
     existing_id: block.id,
     anchor: block.anchor,
-    retired: block.retiredAt !== null,
+    retired,
+    retired_by_aeci: retiredByAeci,
     owned_by_caller: block.builtByVendorId === vendorId,
     claimed: block.claimedAt !== null,
   };
   return new ApiError(
     409,
     ApiErrorCode.INTEGRATION_ALREADY_ON_RECORD,
-    block.retiredAt !== null
-      ? 'This integration is already on record through this connector, and it is retired. Restore it instead of adding it again.'
-      : 'This integration is already on record through this connector.',
+    retiredByAeci
+      ? 'This integration is already on record through this connector, and AEC Integrations retired it. Only AEC Integrations can restore it. To ask about it, email support@aecintegrations.com.'
+      : retired
+        ? 'This integration is already on record through this connector, and it is retired. Restore it instead of adding it again.'
+        : 'This integration is already on record through this connector.',
     { details },
   );
 }

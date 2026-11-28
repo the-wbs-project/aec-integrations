@@ -279,4 +279,28 @@ describe('syncServicePairErrorMessage', () => {
   ])('%s has its own sentence', (code, text) => {
     expect(syncServicePairErrorMessage(err(code))).toContain(text);
   });
+
+  // AECI-2268: who retired the row decides whether "restore it" is true.
+  const onRecord = (details: Record<string, unknown>) =>
+    new HttpErrorResponse({
+      status: 409,
+      error: { error: { code: 'INTEGRATION_ALREADY_ON_RECORD', message: 'x', details } },
+    });
+
+  it('sends the owner to Restore when the owner retired the row', () => {
+    const msg = syncServicePairErrorMessage(
+      onRecord({ retired: true, retired_by_aeci: false, owned_by_caller: true }),
+    );
+    expect(msg).toContain('Restore it from the list below');
+  });
+
+  it('says AEC Integrations retired the row, and how to ask, when an admin retired it', () => {
+    const msg = syncServicePairErrorMessage(
+      onRecord({ retired: true, retired_by_aeci: true, owned_by_caller: true }),
+    );
+    expect(msg).toContain('AEC Integrations retired it');
+    expect(msg).toContain('Only AEC Integrations can restore it');
+    expect(msg).toContain('support@aecintegrations.com');
+    expect(msg).not.toContain('Restore it from the list below');
+  });
 });

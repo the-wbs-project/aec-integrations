@@ -473,6 +473,7 @@ describe('the twin guard, across both tables and the same connector', () => {
       existing_id: uuid(40),
       anchor: 'evidenced_pair',
       retired: false,
+      retired_by_aeci: false,
       owned_by_caller: false,
       claimed: false,
     });
@@ -495,9 +496,37 @@ describe('the twin guard, across both tables and the same connector', () => {
     expect(res.body.error.details).toMatchObject({
       existing_id: uuid(41),
       retired: true,
+      retired_by_aeci: false,
       owned_by_caller: true,
     });
     expect(res.body.error.message).toMatch(/Restore it/);
+  });
+
+  it('refuses a pair AECi retired without telling the owner to restore it (AECI-2268)', async () => {
+    // The restore answers `403 INTEGRATION_RETIRED_BY_AECI`, so "restore it" is a dead end.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(41),
+      connectorProductId: S_SYNC,
+      productAId: a,
+      productBId: b,
+      builtByVendorId: RIVETS,
+      origin: 'vendor',
+      claimedAt: OWNED_AT,
+      retiredAt: OWNED_AT,
+      retiredBy: 'aeci',
+    });
+    const res = await create(valid());
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_ALREADY_ON_RECORD');
+    expect(res.body.error.details).toMatchObject({
+      existing_id: uuid(41),
+      retired: true,
+      retired_by_aeci: true,
+      owned_by_caller: true,
+    });
+    expect(res.body.error.message).toMatch(/AEC Integrations retired it/);
+    expect(res.body.error.message).toMatch(/support@aecintegrations\.com/);
+    expect(res.body.error.message).not.toMatch(/Restore it/);
   });
 
   it('refuses an `integrations` row through the same connector, in either order', async () => {

@@ -404,6 +404,9 @@ export interface SyncServicePairBlock {
   readonly builtByVendorId: string | null;
   readonly claimedAt: string | null;
   readonly retiredAt: string | null;
+  /** `'aeci'` when an admin retired the row, so the owner cannot restore it
+   *  (AECI-1046, AECI-2268). */
+  readonly retiredBy: string | null;
 }
 
 function integrationTwinOfPairWhere(candidate: SyncServicePairCandidate): SQL {
@@ -443,6 +446,7 @@ export async function findSyncServicePairBlock(
       builtByVendorId: null,
       claimedAt: null,
       retiredAt: null,
+      retiredBy: null,
     };
   }
 
@@ -452,6 +456,7 @@ export async function findSyncServicePairBlock(
       builtByVendorId: connectorEvidencedPairs.builtByVendorId,
       claimedAt: connectorEvidencedPairs.claimedAt,
       retiredAt: connectorEvidencedPairs.retiredAt,
+      retiredBy: connectorEvidencedPairs.retiredBy,
     })
     .from(connectorEvidencedPairs)
     .where(evidencedKeyWhere(candidate))
@@ -464,6 +469,7 @@ export async function findSyncServicePairBlock(
       builtByVendorId: integrations.builtByVendorId,
       claimedAt: integrations.claimedAt,
       retiredAt: integrations.retiredAt,
+      retiredBy: integrations.retiredBy,
     })
     .from(integrations)
     .where(integrationTwinOfPairWhere(candidate))

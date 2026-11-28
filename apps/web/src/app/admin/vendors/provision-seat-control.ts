@@ -76,11 +76,10 @@ const REASON_MAX_LENGTH = 500;
  * legitimate operator, and §5.2 is an operator procedure rather than an API rule.
  * Turning the procedure into a gate is a separate decision.
  *
- * It also warns on a vendor that OWNS integrations (AECI-1041). `STAGE_2_SPEC.md`
- * §8.10 made such a vendor a paying owner when it wants to manage them, so the
- * free §8.9 seat is the wrong tool for it: it takes the claim Grant, or an
- * entitlement opened on this page. Same rule: a warning, never a disabled button,
- * because only the claimant can say whether it wants to manage those integrations.
+ * It also notes a vendor that OWNS integrations (AECI-1041). Since ruling 14
+ * (AECI-1663, 2026-11-09) an owner manages them on every plan, so the note says
+ * a seat can claim, edit and retire them on Free and that no payment is needed
+ * (AECI-2250). Same rule: a note, never a disabled button.
  *
  * ── HOST-OWNED CHROME ───────────────────────────────────────────────────────
  * No heading and no live region, matching `ManagedByControl`'s extraction
@@ -141,8 +140,8 @@ export class ProvisionSeatControl {
    *  this is only about which sentence to show. */
   protected readonly noProducts = computed(() => this.productRoles().total === 0);
 
-  /** A vendor that owns live integrations is a paying owner if it manages them
-   *  (§8.10), so the free seat needs a warning too, whatever its product roles. */
+  /** A vendor that owns live integrations gets the owner note, whatever its
+   *  product roles. Managing them is free (ruling 14, AECI-1663). */
   protected readonly ownsIntegrations = computed(() => this.ownedIntegrations().total > 0);
   protected readonly ownedLabel = computed(() => ownedIntegrationsLabel(this.ownedIntegrations()));
 

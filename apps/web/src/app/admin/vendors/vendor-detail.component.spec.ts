@@ -1341,8 +1341,8 @@ describe('VendorDetail — products by role', () => {
     expect(el.textContent).toContain('no paid vendor access');
   });
 
-  it('reads a pure connector vendor that owns integrations as a paying owner (AECI-1041)', async () => {
-    // §8.10: the third-party owner. "No paid vendor access" would be wrong advice.
+  it('reads a pure connector vendor that owns integrations as an owner, not a payer (AECI-1041, AECI-2250)', async () => {
+    // The third-party owner. Ruling 14 (AECI-1663): managing owned rows needs no payment.
     const { el } = await setup(
       makeApiMock(
         makeVendor({
@@ -1357,6 +1357,7 @@ describe('VendorDetail — products by role', () => {
     expect(el.textContent).toContain('Integrations owned');
     expect(el.textContent).toContain('5 (via a connector)');
     expect(el.textContent).toContain('pure connector that owns integrations');
+    expect(el.textContent).not.toContain('pays if it manages them');
     expect(el.textContent).not.toContain('no paid vendor access');
   });
 
@@ -1544,7 +1545,8 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
   });
 
   it('warns on a pure connector vendor that OWNS integrations, WITHOUT disabling the action', async () => {
-    // AECI-1041 / §8.10: a paying owner should not get the free §8.9 seat by accident.
+    // AECI-1041: the owner note. AECI-2250: it says what a seat can do on Free, and
+    // never that the vendor must pay to manage its integrations (ruling 14, AECI-1663).
     const vendor = makeVendor({
       product_roles: { application: 0, connector: 1, hybrid: 0, total: 1 },
       is_pure_connector_vendor: true,
@@ -1557,10 +1559,11 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
 
     expect(el.textContent).toContain('This vendor owns integrations');
     expect(el.textContent).toContain('3 (1 direct, 2 via a connector)');
-    expect(el.textContent).toContain('a paying owner');
-    // The catalogue-only alternative and the v1 caveat (AECI-1040).
-    expect(el.textContent).toContain('connector catalogue maintained');
-    expect(el.textContent).toContain('cannot yet claim, edit or retire');
+    expect(el.textContent).toContain('A seat can claim, edit and retire them on the Free plan');
+    expect(el.textContent).toContain('Managing them needs no payment');
+    expect(el.textContent).toContain("maintains this vendor's connector catalogue");
+    expect(el.textContent).not.toContain('a paying owner');
+    expect(el.textContent).not.toContain('cannot yet claim');
     expect(buttonByText(el, 'Add the seat')!.disabled).toBe(false);
   });
 
@@ -1570,8 +1573,8 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     await openForm(el, fixture);
 
     expect(el.textContent).toContain('This vendor owns integrations');
-    expect(el.textContent).not.toContain('connector catalogue maintained');
-    expect(el.textContent).not.toContain('cannot yet claim, edit or retire');
+    expect(el.textContent).toContain('A seat can claim, edit and retire them on the Free plan');
+    expect(el.textContent).not.toContain("maintains this vendor's connector catalogue");
   });
 
   it('treats a vendor with NO products as unknown, not exempt', async () => {
