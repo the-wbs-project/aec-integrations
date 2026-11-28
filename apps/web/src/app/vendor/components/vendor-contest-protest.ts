@@ -1,16 +1,18 @@
-import { DatePipe, DOCUMENT, NgTemplateOutlet } from '@angular/common';
+import { DatePipe, DOCUMENT } from '@angular/common';
 import {
   Component,
   Injector,
+  LOCALE_ID,
   afterNextRender,
   computed,
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { CONTEST_PROTEST_MAX_EVIDENCE, isHttpUrl, type VendorContest } from '@aeci/shared';
+import { CONTEST_PROTEST_MAX_EVIDENCE, type VendorContest } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
@@ -24,32 +26,24 @@ import {
 } from './vendor-contest-labels';
 import { AecButton } from '../../shared/button/button';
 import { Chip, type ChipTone } from '../../shared/chip/chip';
-import {
-  FIELD_ERROR_CLASS,
-  FIELD_INPUT_CLASS,
-  FIELD_LABEL_CLASS,
-} from '../../shared/form-field/form-field-classes';
-import { AecFormSubmit } from '../../shared/form-field/form-submit';
-import { FORM_PANEL, IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
-import { PORTAL_NESTED_SAVE_BAR_CLASS, PORTAL_SAVE_BUTTON_CLASS } from '../shared/portal-form';
-import { CloseOnEscape } from '../shared/close-on-escape';
-import { KeepClearOfSaveBar } from '../shared/keep-clear-of-save-bar';
+import { FIELD_ERROR_CLASS } from '../../shared/form-field/form-field-classes';
+import { IN_TEXT_LINK } from '../integration-detail/integration-detail-styles';
+import { ProtestFormDialog, type ProtestFormValue } from './protest-form-dialog';
 
 type Side = 'submitted' | 'received';
-type Busy = 'file' | 'reply' | 'withdraw' | null;
 
 /**
  * One contest's protest to AECi, inside a row of the Field contests lists
  * (AECI-1009 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.12).
  *
- *  - **Submitted side.** While the contest can be protested, a disclosure opens an
- *    inline form: a required reason and up to three evidence links. Cancel, or
- *    Escape (`aecCloseOnEscape`, ignored while it sends), closes it and returns focus
- *    to "Ask AEC Integrations to review". Before day 30
+ *  - **Submitted side.** While the contest can be protested, "Ask AEC Integrations to
+ *    review" opens the request in a dialog (`ProtestFormDialog`, AECI-2110, `DESIGN.md`
+ *    "The Detached-Form Rule"): a required reason and up to three evidence links.
+ *    Escape, Cancel and the close button discard it. Before day 30
  *    on an unanswered contest it says from when. An open protest can be withdrawn,
  *    with an inline confirmation, never `confirm()`.
- *  - **Received side.** The owner sees the whole protest and replies once, before
- *    the due date.
+ *  - **Received side.** The owner sees the whole protest, and "Reply" opens its one
+ *    reply in the same dialog, before the due date.
  *
  * Both sides see the whole record: each other's text and links, and AECi's note.
  * AECi's ruling is advice. Nothing here changes the public page, so no write here
@@ -66,16 +60,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
  */
 @Component({
   selector: 'aec-vendor-contest-protest',
-  imports: [
-    KeepClearOfSaveBar,
-    CloseOnEscape,
-    AecButton,
-    AecFormSubmit,
-    Chip,
-    DatePipe,
-    NgTemplateOutlet,
-    RouterLink,
-  ],
+  imports: [AecButton, Chip, DatePipe, ProtestFormDialog, RouterLink],
   styles: [':host { display: block; }'],
   template: `
     @let c = contest();
@@ -213,37 +198,28 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
         }
 
         @if (side() === 'received' && canReply()) {
-          <form method="dialog" class="space-y-2 pt-2" (aecSubmit)="reply()" novalidate>
-            <label [for]="ids.replyText" [class]="labelClass" i18n="@@vendor.protest.reply.label"
-              >Your reply</label
-            >
-            <textarea
-              [id]="ids.replyText"
-              rows="3"
-              maxlength="2000"
-              required
-              [value]="text()"
-              (input)="setText($event)"
-              [attr.aria-describedby]="ids.replyHint"
-              [attr.aria-invalid]="textError() ? 'true' : null"
-              [class]="inputClass"
-            ></textarea>
-            <p [id]="ids.replyHint" class="max-w-prose text-xs text-(--text-secondary)">
-              <ng-container i18n="@@vendor.protest.reply.hint"
-                >You can reply once, by {{ p.reply_due_at | date: 'medium' }}. AEC Integrations and
-                the vendor that sent the change request see it. Nothing about it is
-                public.</ng-container
-              >
-            </p>
-            <ng-container [ngTemplateOutlet]="evidenceFields" />
-            <button aecButton compact type="submit" [disabled]="busy() !== null">
-              @if (busy() === 'reply') {
-                <span i18n="@@vendor.protest.reply.sending">Sending…</span>
-              } @else {
-                <span i18n="@@vendor.protest.reply.send">Send reply</span>
-              }
-            </button>
-          </form>
+          <button
+            aecButton
+            compact
+            type="button"
+            [id]="'vendor-protest-reply-start-' + c.id"
+            (click)="replyDialog.open()"
+            i18n="@@vendor.protest.reply.open"
+          >
+            Reply
+          </button>
+          <aec-protest-form-dialog
+            #replyDialog
+            [idPrefix]="'contest-protest-reply-' + c.id"
+            [heading]="replyHeading"
+            [description]="replyDescription()"
+            [label]="replyLabel"
+            [sendLabel]="replySend"
+            [requiredMessage]="replyRequired"
+            [maxLinks]="maxLinks"
+            (send)="reply($event)"
+            (announce)="announce($event)"
+          />
         }
       </div>
     } @else if (side() === 'submitted') {
@@ -255,107 +231,29 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
           >
         </p>
       } @else if (windowPhase() === 'open') {
-        @if (!formOpen()) {
-          <button
-            aecButton
-            variant="secondary"
-            compact
-            type="button"
-            [id]="ids.start"
-            [attr.aria-expanded]="false"
-            [attr.aria-controls]="ids.form"
-            (click)="openForm()"
-            i18n="@@vendor.protest.start"
-          >
-            Ask AEC Integrations to review
-          </button>
-        } @else {
-          <form
-            aecKeepClearOfSaveBar
-            aecCloseOnEscape
-            [escapeBusy]="busy() !== null"
-            (escapeCancel)="closeForm()"
-            method="dialog"
-            [id]="ids.form"
-            class="mt-2 max-w-prose space-y-2"
-            [class]="formPanelClass"
-            (aecSubmit)="file()"
-            novalidate
-            [attr.aria-labelledby]="ids.formHeading"
-          >
-            <p
-              [id]="ids.formHeading"
-              class="text-t-14 font-semibold text-(--text-primary)"
-              i18n="@@vendor.protest.form.heading"
-            >
-              Ask AEC Integrations to review this request
-            </p>
-            <p class="text-sm text-(--text-secondary)">
-              @if (c.protest_basis === 'silence') {
-                <ng-container i18n="@@vendor.protest.form.silence"
-                  >The owner did not answer within 30 days, so this counts as a
-                  decline.</ng-container
-                >
-              } @else {
-                <ng-container i18n="@@vendor.protest.form.declined"
-                  >The owner declined this request.</ng-container
-                >
-              }
-            </p>
-            <p [id]="ids.formHelp" class="text-sm text-(--text-secondary)">
-              <ng-container i18n="@@vendor.protest.form.help"
-                >AEC Integrations reads both sides and says which it agrees with. Its view is
-                advice. Only the owner can change the listing. The owner can reply once. Nothing
-                about a review is public.</ng-container
-              >
-              @if (c.protest_closes_at; as closes) {
-                <ng-container i18n="@@vendor.protest.form.deadline">
-                  You can ask until {{ closes | date: 'medium' }}.</ng-container
-                >
-              }
-            </p>
-            <label [for]="ids.reason" [class]="labelClass" i18n="@@vendor.protest.form.reason"
-              >Why the proposed value is right</label
-            >
-            <textarea
-              [id]="ids.reason"
-              rows="3"
-              maxlength="2000"
-              required
-              [value]="text()"
-              (input)="setText($event)"
-              [attr.aria-describedby]="ids.formHelp"
-              [attr.aria-invalid]="textError() ? 'true' : null"
-              [class]="inputClass"
-            ></textarea>
-            <ng-container [ngTemplateOutlet]="evidenceFields" />
-            <div [class]="saveBarClass">
-              <button
-                aecButton
-                type="submit"
-                [class]="saveButtonClass"
-                [disabled]="busy() !== null"
-              >
-                @if (busy() === 'file') {
-                  <span i18n="@@vendor.protest.form.sending">Sending…</span>
-                } @else {
-                  <span i18n="@@vendor.protest.form.send">Send to AEC Integrations</span>
-                }
-              </button>
-              <button
-                aecButton
-                variant="secondary"
-                type="button"
-                [class]="saveButtonClass"
-                [disabled]="busy() !== null"
-                (click)="closeForm()"
-                i18n="@@vendor.protest.form.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        }
+        <button
+          aecButton
+          variant="secondary"
+          compact
+          type="button"
+          [id]="'vendor-protest-start-' + c.id"
+          (click)="requestDialog.open()"
+          i18n="@@vendor.protest.start"
+        >
+          Ask AEC Integrations to review
+        </button>
+        <aec-protest-form-dialog
+          #requestDialog
+          [idPrefix]="'contest-protest-request-' + c.id"
+          [heading]="requestHeading"
+          [description]="requestDescription()"
+          [label]="requestLabel"
+          [sendLabel]="requestSend"
+          [requiredMessage]="requestRequired"
+          [maxLinks]="maxLinks"
+          (send)="file($event)"
+          (announce)="announce($event)"
+        />
       }
     }
 
@@ -371,55 +269,6 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
     @if (error(); as message) {
       <p role="alert" class="mt-2" [class]="errorClass">{{ message }}</p>
     }
-
-    <ng-template #evidenceFields>
-      <fieldset class="space-y-2">
-        <legend [class]="labelClass" i18n="@@vendor.protest.links.legend">Supporting links</legend>
-        <p class="text-xs text-(--text-secondary)" i18n="@@vendor.protest.links.hint">
-          Optional. Up to three.
-        </p>
-        @for (url of links(); track $index) {
-          <div class="flex flex-wrap items-center gap-2">
-            <label [for]="ids.link + $index" class="sr-only" i18n="@@vendor.protest.links.label"
-              >Link {{ $index + 1 }}</label
-            >
-            <input
-              [id]="ids.link + $index"
-              type="url"
-              inputmode="url"
-              [value]="url"
-              (input)="setLink($index, $event)"
-              placeholder="https://"
-              [attr.aria-invalid]="linkInvalid(url) ? 'true' : null"
-              [class]="inputClass"
-              class="flex-1"
-            />
-            <button
-              aecButton
-              variant="secondary"
-              compact
-              type="button"
-              (click)="removeLink($index)"
-              i18n="@@vendor.protest.links.remove"
-            >
-              Remove <span class="sr-only">link {{ $index + 1 }}</span>
-            </button>
-          </div>
-        }
-        @if (links().length < maxLinks) {
-          <button
-            aecButton
-            variant="secondary"
-            compact
-            type="button"
-            (click)="addLink()"
-            i18n="@@vendor.protest.links.add"
-          >
-            Add a link
-          </button>
-        }
-      </fieldset>
-    </ng-template>
   `,
 })
 export class VendorContestProtest {
@@ -432,27 +281,57 @@ export class VendorContestProtest {
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
 
+  private readonly datePipe = new DatePipe(inject(LOCALE_ID));
+  private readonly requestDialog = viewChild<ProtestFormDialog>('requestDialog');
+  private readonly replyDialog = viewChild<ProtestFormDialog>('replyDialog');
+
   protected readonly maxLinks = CONTEST_PROTEST_MAX_EVIDENCE;
-  protected readonly busy = signal<Busy>(null);
+  protected readonly busy = signal<'withdraw' | null>(null);
   protected readonly error = signal<string | null>(null);
-  protected readonly formOpen = signal(false);
   protected readonly confirmingWithdraw = signal(false);
-  protected readonly text = signal('');
-  protected readonly links = signal<readonly string[]>([]);
-  protected readonly textError = signal(false);
+
+  // ── The two dialogs' copy (AECI-2110, DESIGN.md "The Detached-Form Rule") ─────
+
+  protected readonly requestHeading = $localize`:@@vendor.protest.form.heading:Ask AEC Integrations to review this request`;
+  protected readonly requestLabel = $localize`:@@vendor.protest.form.reason:Why the proposed value is right`;
+  protected readonly requestSend = $localize`:@@vendor.protest.form.send:Send to AEC Integrations`;
+  protected readonly requestRequired = $localize`:@@vendor.protest.error.reasonRequired:Say why the proposed value is right.`;
+  protected readonly replyHeading = $localize`:@@vendor.protest.reply.heading:Reply to the review request`;
+  protected readonly replyLabel = $localize`:@@vendor.protest.reply.label:Your reply`;
+  protected readonly replySend = $localize`:@@vendor.protest.reply.send:Send reply`;
+  protected readonly replyRequired = $localize`:@@vendor.protest.error.replyRequired:Write your reply before you send it.`;
+
+  protected readonly requestDescription = computed<readonly string[]>(() => {
+    const c = this.contest();
+    const why =
+      c.protest_basis === 'silence'
+        ? $localize`:@@vendor.protest.form.silence:The owner did not answer within 30 days, so this counts as a decline.`
+        : $localize`:@@vendor.protest.form.declined:The owner declined this request.`;
+    const help = $localize`:@@vendor.protest.form.help:AEC Integrations reads both sides and says which it agrees with. Its view is advice. Only the owner can change the listing. The owner can reply once. Nothing about a review is public.`;
+    const closes = c.protest_closes_at ? this.day(c.protest_closes_at) : null;
+    return closes
+      ? [
+          why,
+          help,
+          $localize`:@@vendor.protest.form.deadline.v2:You can ask until ${closes}:date:.`,
+        ]
+      : [why, help];
+  });
+
+  protected readonly replyDescription = computed<readonly string[]>(() => {
+    const p = this.contest().protest;
+    if (!p) return [];
+    const due = this.day(p.reply_due_at);
+    return [
+      $localize`:@@vendor.protest.reply.intro:The vendor that sent the change request asked AEC Integrations to review your decision. Its case: ${p.reason}:case:`,
+      $localize`:@@vendor.protest.reply.hint.v2:You can reply once, by ${due}:date:. AEC Integrations and the vendor that sent the change request see it. Nothing about it is public.`,
+    ];
+  });
 
   /** Element ids, derived from the contest id so two rows never collide. */
   protected get ids() {
     const id = this.contest().id;
     return {
-      start: `vendor-protest-start-${id}`,
-      form: `vendor-protest-form-${id}`,
-      formHeading: `vendor-protest-form-heading-${id}`,
-      formHelp: `vendor-protest-form-help-${id}`,
-      reason: `vendor-protest-reason-${id}`,
-      replyText: `vendor-protest-reply-${id}`,
-      replyHint: `vendor-protest-reply-hint-${id}`,
-      link: `vendor-protest-link-${id}-`,
       withdrawStart: `vendor-protest-withdraw-start-${id}`,
       withdrawConfirm: `vendor-protest-withdraw-${id}`,
     };
@@ -503,114 +382,59 @@ export class VendorContestProtest {
 
   protected statusLabel = protestStatusLabel;
 
-  protected openForm(): void {
-    this.error.set(null);
-    this.formOpen.set(true);
-    this.focusAfterRender(this.ids.reason);
+  /** A deadline with its time of day (§11b.12.10). */
+  private day(iso: string): string {
+    return this.datePipe.transform(iso, 'medium') ?? iso;
   }
 
-  protected closeForm(): void {
-    this.formOpen.set(false);
-    this.resetFields();
-    this.focusAfterRender(this.ids.start);
+  protected announce(sentence: string): void {
+    this.announcer.announce(sentence);
   }
 
-  protected setText(event: Event): void {
-    this.text.set((event.target as HTMLTextAreaElement).value);
-    if (this.textError()) this.textError.set(false);
-  }
-
-  protected addLink(): void {
-    if (this.links().length >= this.maxLinks) return;
-    this.links.update((current) => [...current, '']);
-    const index = this.links().length - 1;
-    this.focusAfterRender(`${this.ids.link}${index}`);
-  }
-
-  protected removeLink(index: number): void {
-    this.links.update((current) => current.filter((_, i) => i !== index));
-  }
-
-  protected setLink(index: number, event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.links.update((current) => current.map((u, i) => (i === index ? value : u)));
-  }
-
-  protected linkInvalid(url: string): boolean {
-    const trimmed = url.trim();
-    return trimmed !== '' && !isHttpUrl(trimmed);
-  }
-
-  /** The trimmed body, or `null` after setting an error the vendor can act on. */
-  private body(): { text: string; evidence_urls: string[] } | null {
-    const text = this.text().trim();
-    const evidence = this.links()
-      .map((u) => u.trim())
-      .filter((u) => u !== '');
-    if (text === '') {
-      this.textError.set(true);
-      this.error.set(
-        this.side() === 'submitted'
-          ? $localize`:@@vendor.protest.error.reasonRequired:Say why the proposed value is right.`
-          : $localize`:@@vendor.protest.error.replyRequired:Write your reply before you send it.`,
-      );
-      return null;
-    }
-    if (evidence.some((u) => !isHttpUrl(u))) {
-      this.error.set(
-        $localize`:@@vendor.protest.error.link:Each link must be a full web address that starts with http:// or https://.`,
-      );
-      return null;
-    }
-    return { text, evidence_urls: evidence };
-  }
-
-  protected async file(): Promise<void> {
-    if (this.busy()) return;
-    this.error.set(null);
-    const body = this.body();
-    if (!body) return;
-    this.busy.set('file');
+  protected async file(body: ProtestFormValue): Promise<void> {
     const c = this.contest();
+    const dialog = this.requestDialog();
     try {
       await this.api.fileContestProtest(c.id, {
         reason: body.text,
         evidence_urls: body.evidence_urls,
       });
       const field = contestFieldLabel(c.field);
-      this.announcer.announce(
+      await dialog?.succeed(
         $localize`:@@vendor.protest.live.filed:Sent to AEC Integrations for review: ${field}:FIELD:. The owner can reply once.`,
       );
-      this.formOpen.set(false);
-      this.resetFields();
       await this.store.revalidate(['contests']);
     } catch (err) {
-      await this.fail(err);
-    } finally {
-      this.busy.set(null);
+      await this.refused(dialog, err);
     }
   }
 
-  protected async reply(): Promise<void> {
-    if (this.busy()) return;
-    this.error.set(null);
-    const body = this.body();
-    if (!body) return;
-    this.busy.set('reply');
+  protected async reply(body: ProtestFormValue): Promise<void> {
+    const dialog = this.replyDialog();
     try {
       await this.api.replyContestProtest(this.contest().id, {
         reply: body.text,
         evidence_urls: body.evidence_urls,
       });
-      this.announcer.announce(
+      await dialog?.succeed(
         $localize`:@@vendor.protest.live.replied:Reply sent. AEC Integrations and the company that sent the request can read it.`,
       );
-      this.resetFields();
       await this.store.revalidate(['contests']);
     } catch (err) {
-      await this.fail(err);
-    } finally {
-      this.busy.set(null);
+      await this.refused(dialog, err);
+    }
+  }
+
+  /** A refusal that means the row moved closes the dialog, says why on the row and
+   *  reloads the list. Anything else keeps the draft and says why in the dialog. */
+  private async refused(dialog: ProtestFormDialog | undefined, err: unknown): Promise<void> {
+    const message = protestErrorMessage(err);
+    if (protestErrorReloads(err)) {
+      this.error.set(message);
+      await dialog?.abandon();
+      await this.store.reload('contests');
+    } else {
+      dialog?.fail(message);
     }
   }
 
@@ -646,16 +470,7 @@ export class VendorContestProtest {
 
   private async fail(err: unknown): Promise<void> {
     this.error.set(protestErrorMessage(err));
-    if (protestErrorReloads(err)) {
-      this.formOpen.set(false);
-      await this.store.reload('contests');
-    }
-  }
-
-  private resetFields(): void {
-    this.text.set('');
-    this.links.set([]);
-    this.textError.set(false);
+    if (protestErrorReloads(err)) await this.store.reload('contests');
   }
 
   private focusAfterRender(id: string): void {
@@ -672,11 +487,6 @@ export class VendorContestProtest {
   /** The review record: the sunken panel a note takes inside a row. */
   protected readonly recordClass =
     'mt-2 max-w-prose space-y-2 rounded-panel bg-(--surface-sunken) p-4';
-  protected readonly formPanelClass = FORM_PANEL;
-  protected readonly saveBarClass = PORTAL_NESTED_SAVE_BAR_CLASS;
-  protected readonly saveButtonClass = PORTAL_SAVE_BUTTON_CLASS;
   protected readonly linkClass = IN_TEXT_LINK;
-  protected readonly labelClass = FIELD_LABEL_CLASS;
-  protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
 }

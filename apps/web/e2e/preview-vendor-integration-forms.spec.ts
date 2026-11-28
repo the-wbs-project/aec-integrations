@@ -11,8 +11,9 @@ import { untilAppStable } from './hydration';
  * then runs axe with the form open. Driven on the ungated dev preview, so no vendor
  * session is needed.
  *
- * The forms: add a row, the answer ("No") form, the request form, the protest to
- * AECi on a declined request, and "Not ours?". Since AECI-1812 also the integrations
+ * The forms: add a row, the answer ("No") form, the request form, and "Not ours?".
+ * The protest to AECi on a declined request left this list with AECI-2110: it opens
+ * in a dialog now (`preview-vendor-protest-dialog.spec.ts`). Since AECI-1812 also the integrations
  * list's forms, which took `aecKeepClearOfSaveBar`: "Add an integration" step 2, "Ask
  * us to add it", the owner edit form, the connector catalogue's match form, and "Add a
  * product". Since AECI-2132 also "Request a change" on a connector-delivered pair.
@@ -23,7 +24,6 @@ import { untilAppStable } from './hydration';
 const PRODUCTS = '/preview/vendor-dashboard/products';
 const PROCORE = `${PRODUCTS}/summit-model-coordination/integrations/00000000-0000-4000-8000-000000005310`;
 const UNCLAIMED = `${PRODUCTS}/summit-field-issues/integrations/00000000-0000-4000-8000-000000005312`;
-const DECLINED = '00000000-0000-4000-8000-000000005c14';
 
 test.beforeEach(async ({ context }) => {
   await context.route('**/*', (route) => {
@@ -119,18 +119,6 @@ const FORMS: readonly {
       { trigger: '[data-testid="request-correction"]', shows: '[data-testid="request-form"]' },
     ],
     form: '[data-testid="request-form"]',
-  },
-  {
-    name: 'the protest to AECi',
-    url: PROCORE,
-    steps: [
-      {
-        trigger: `[data-testid="closed-toggle-${DECLINED}"]`,
-        shows: `#vendor-protest-start-${DECLINED}`,
-      },
-      { trigger: `#vendor-protest-start-${DECLINED}`, shows: `#vendor-protest-form-${DECLINED}` },
-    ],
-    form: `#vendor-protest-form-${DECLINED}`,
   },
   {
     name: '"Not ours?"',

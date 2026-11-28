@@ -16,6 +16,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 
 import { VendorPairProtest } from './vendor-pair-protest';
+import { expectTitleFirstDialog } from '../../core/testing/title-first-dialog.harness';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
@@ -98,24 +99,39 @@ const type = (field: HTMLTextAreaElement | HTMLInputElement, value: string) => {
 };
 const submit = (scope: HTMLElement) =>
   scope.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+/** BrnDialog closes after its default 100 ms `closeDelay`. */
+const afterClose = async (fixture: ComponentFixture<unknown>) => {
+  await settle(fixture);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await settle(fixture);
+};
+/** The open dialog, which the CDK renders in its overlay outside the component. */
+const dialog = () => document.querySelector<HTMLElement>('.cdk-overlay-container .aec-dialog');
+afterEach(() => document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove()));
 
 describe('VendorPairProtest — the submitter', () => {
-  it('sends the vendor’s own reason and links, and tells the list to re-read', async () => {
+  it('opens the request in a dialog and sends the vendor’s own reason and links', async () => {
     const fixture = await create(DECLINED, 'submitted');
     const changed = vi.fn();
     fixture.componentInstance.changed.subscribe(changed);
     button(el(fixture), 'Ask AEC Integrations to review it').click();
     await settle(fixture);
-    type(el(fixture).querySelector('textarea')!, '  Their help page lists no RFI sync.  ');
-    button(el(fixture), 'Add a link').click();
+    expect(el(fixture).querySelector('form')).toBeNull();
+    const d = dialog()!;
+    expectTitleFirstDialog('Ask AEC Integrations to review this report');
+    expect(d.textContent).toContain('The Sync Service declined this report.');
+    type(d.querySelector('textarea')!, '  Their help page lists no RFI sync.  ');
+    button(d, 'Add a link').click();
     await settle(fixture);
-    type(el(fixture).querySelector('input[type="url"]')!, 'https://example.test/help');
-    submit(el(fixture));
+    type(d.querySelector('input[type="url"]')!, 'https://example.test/help');
+    submit(d);
     await settle(fixture);
     expect(api.protestPairContest).toHaveBeenCalledWith(DECLINED.id, {
       reason: 'Their help page lists no RFI sync.',
       evidence_urls: ['https://example.test/help'],
     });
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
     expect(announce).toHaveBeenCalled();
     expect(changed).toHaveBeenCalled();
   });
@@ -124,18 +140,19 @@ describe('VendorPairProtest — the submitter', () => {
     const fixture = await create(DECLINED, 'submitted');
     button(el(fixture), 'Ask AEC Integrations to review it').click();
     await settle(fixture);
-    submit(el(fixture));
+    const d = dialog()!;
+    submit(d);
     await settle(fixture);
-    expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain(
+    expect(d.querySelector('[role="alert"]')?.textContent).toContain(
       'Say why the data flow should change.',
     );
-    type(el(fixture).querySelector('textarea')!, 'A reason.');
-    button(el(fixture), 'Add a link').click();
+    type(d.querySelector('textarea')!, 'A reason.');
+    button(d, 'Add a link').click();
     await settle(fixture);
-    type(el(fixture).querySelector('input[type="url"]')!, 'not a link');
-    submit(el(fixture));
+    type(d.querySelector('input[type="url"]')!, 'not a link');
+    submit(d);
     await settle(fixture);
-    expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain('full web address');
+    expect(d.querySelector('[role="alert"]')?.textContent).toContain('full web address');
     expect(api.protestPairContest).not.toHaveBeenCalled();
   });
 
@@ -169,12 +186,16 @@ describe('VendorPairProtest — the submitter', () => {
 });
 
 describe('VendorPairProtest — the owner', () => {
-  it('shows the whole protest and replies once', async () => {
+  it('shows the whole protest, and Reply opens one reply in a dialog', async () => {
     const fixture = await create(PROTESTED, 'received');
     expect(el(fixture).textContent).toContain('Their help page says otherwise.');
     expect(el(fixture).querySelector('a[href="https://example.test/help"]')).toBeTruthy();
-    type(el(fixture).querySelector('textarea')!, 'Our release notes list RFIs.');
-    submit(el(fixture));
+    button(el(fixture), 'Reply').click();
+    await settle(fixture);
+    const d = dialog()!;
+    expectTitleFirstDialog('Reply to the review request');
+    type(d.querySelector('textarea')!, 'Our release notes list RFIs.');
+    submit(d);
     await settle(fixture);
     expect(api.replyPairProtest).toHaveBeenCalledWith(PROTESTED.id, {
       reply: 'Our release notes list RFIs.',
@@ -187,26 +208,43 @@ describe('VendorPairProtest — the owner', () => {
       { ...PROTESTED, protest: { ...PROTESTED.protest!, reply_due_at: days(-1) } },
       'received',
     );
-    expect(el(late).querySelector('form')).toBeNull();
+    expect(button(el(late), 'Reply')).toBeUndefined();
     expect(el(late).textContent).toContain('No reply');
     const replied = await create(
       { ...PROTESTED, protest: { ...PROTESTED.protest!, reply: 'We do.', replied_at: days(0) } },
       'received',
     );
-    expect(el(replied).querySelector('form')).toBeNull();
+    expect(button(el(replied), 'Reply')).toBeUndefined();
     expect(el(replied).textContent).toContain('We do.');
   });
 
-  it('maps a refusal to plain copy', async () => {
+  it('says why on the row when the reply window closed meanwhile', async () => {
     api.replyPairProtest.mockRejectedValueOnce({
       error: { error: { code: 'PROTEST_REPLY_CLOSED' } },
     });
     const fixture = await create(PROTESTED, 'received');
-    type(el(fixture).querySelector('textarea')!, 'Late.');
-    submit(el(fixture));
+    button(el(fixture), 'Reply').click();
     await settle(fixture);
+    type(dialog()!.querySelector('textarea')!, 'Late.');
+    submit(dialog()!);
+    await settle(fixture);
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
     expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain(
       'The time to reply has passed.',
     );
+  });
+
+  it('keeps the draft and says why in the dialog when the network fails', async () => {
+    api.replyPairProtest.mockRejectedValueOnce(new Error('offline'));
+    const fixture = await create(PROTESTED, 'received');
+    button(el(fixture), 'Reply').click();
+    await settle(fixture);
+    type(dialog()!.querySelector('textarea')!, 'Our answer.');
+    submit(dialog()!);
+    await settle(fixture);
+    expect(dialog()).not.toBeNull();
+    expect(dialog()!.querySelector('textarea')!.value).toBe('Our answer.');
+    expect(dialog()!.querySelector('[role="alert"]')?.textContent).toContain('Try again');
   });
 });
