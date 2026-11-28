@@ -814,7 +814,7 @@ Each row is ticked with the commits that made it current (AECI-1820, 2026-11-22)
 | `docs/ANALYTICS.md` | Events for the new controls, and the public use of view counts | ✅ The redesign added no event. The "Most viewed" row reads the AECI-1572 view counts, unchanged. No change needed. |
 | `docs/STAGE_2_PAID_TIERS_SPEC.md` | The firewall section, for on-page ordering and the new test | ✅ #1293 (AECI-1814), #1319 (AECI-1841), #1337, #1340. This PR marked closest matches covered and recorded ruling 63. |
 | `docs/TESTING_STRATEGY.md` | The new firewall test | ✅ #1293, #1432. This PR added the redesign's guard specs. |
-| The "How ranking works" help page | See 8.3 | ✅ Version 1.2, #1434 (AECI-1894). Its recorded date is November 27, 2026, set by Chris on 2026-11-23. It may move again. |
+| The "How ranking works" help page | See 8.3 | ✅ Version 1.2, #1434 (AECI-1894). Its recorded date is November 30, 2026, the day the redesign is promoted to production, set by Chris on 2026-11-28. |
 | The Privacy Policy | See 8.3 | ✅ Not needed yet. Its capture lines (AECI-1825) ship with the deferred captures. |
 | `ANGULAR_STYLE_GUIDE.md` | The lint rule map, if the colour guard changes | ✅ #1300 (AECI-1752), #1376 (AECI-1919), #1410 (AECI-1937). This PR added the redesign's gates to §24. |
 

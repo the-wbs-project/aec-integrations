@@ -32,13 +32,13 @@ export const RANKING_PAGE_KNOWN_VERSIONS: readonly string[] = ['1.0', '1.1', '1.
 export const RANKING_PAGE_RECORDED_ON: Readonly<Record<string, string>> = {
   '1.0': 'November 16, 2026',
   '1.1': 'November 18, 2026',
-  // AECI-1894: Chris set 1.2's recorded date to November 27, 2026 on 2026-11-23, and it
-  // may change again before the redesign reaches production. Change it in four places
+  // AECI-1894: Chris set 1.2's recorded date to November 30, 2026 on 2026-11-28. It is the
+  // day the redesign is promoted to production. If that day moves, change it in four places
   // together: this entry, the live page's frontmatter `last_updated` and its
   // `## Versions` line (docs/trust/how-ranking-works.md), and the archive copy's
   // `recorded_on` (docs/trust/versions/how-ranking-works/v1.2.md). 1.2 stays provisional
   // in ranking-page-versions.spec.ts (no hash) until Chris approves the final text.
-  '1.2': 'November 27, 2026',
+  '1.2': 'November 30, 2026',
 };
 
 /** One version's archive page: `/docs/trust/how-ranking-works/v<version>`. */
