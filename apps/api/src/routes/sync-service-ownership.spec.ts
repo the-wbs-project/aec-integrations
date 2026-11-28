@@ -42,6 +42,7 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import type { LinearIssueOutcome } from '../lib/linear';
 import type { AuthzVariables } from '../lib/authz';
 import type { DbFactory } from '../lib/handler-utils';
 import { isIntegrationClaimed } from '../lib/integration-contests';
@@ -226,7 +227,7 @@ function app(auth: Auth) {
   );
   a.patch('/api/admin/contests/:id', createModerateContestHandler(f, fileIssue));
   a.get('/api/admin/products/:id/delivered-pairs', createAdminDeliveredPairsHandler(f));
-  a.put('/api/admin/integrations/:id/owner', createAdminSetIntegrationOwnerHandler(f));
+  a.put('/api/admin/integrations/:id/owner', createAdminSetIntegrationOwnerHandler(f, ownerIssue));
   return a;
 }
 
@@ -257,6 +258,16 @@ const askOwner = (auth: Auth, id: string, proposed: string | null, field = 'owne
   });
 const pairRow = async (id: string) =>
   (await t.db.select().from(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, id)))[0]!;
+
+/** The AECI-2110 Linear filer for the admin owner write, never reaching Linear. */
+const ownerIssue = vi.fn(
+  async (): Promise<LinearIssueOutcome> => ({
+    status: 'created',
+    issueId: 'lin_owner_1',
+    issueUrl: 'https://linear.app/x/issue/AECI-9',
+  }),
+);
+beforeEach(() => ownerIssue.mockClear());
 
 // ─── The vendor read ─────────────────────────────────────────────────────────
 
@@ -455,6 +466,41 @@ describe('PUT /api/admin/integrations/:id/owner', () => {
     )[0]!;
     expect(row.builtByVendorId).toBe(VENDOR_R);
     expect(row.claimedAt).toBeNull();
+  });
+
+  it('files a REVIEW - issue on an unclaimed row, and records its id (AECI-2110)', async () => {
+    const res = await setOwner(ROW_POWERED, VENDOR_R);
+    expect(res.status).toBe(200);
+    expect(ownerIssue).toHaveBeenCalledTimes(1);
+    expect((ownerIssue.mock.calls[0] as unknown[])[1]).toMatchObject({
+      notification: 'linear-owner-write-issue',
+      integrationId: ROW_POWERED,
+      anchor: 'integration',
+      newOwnerVendorId: VENDOR_R,
+      adminReason: 'Rivets sells it.',
+    });
+    const linked = (await t.db.select().from(auditLog)).filter(
+      (r) => r.action === 'integration.owner_write.linear_linked',
+    );
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ entityType: 'integration', entityId: ROW_POWERED });
+    expect(linked[0]!.metadata).toMatchObject({ linear_issue_id: 'lin_owner_1' });
+  });
+
+  it('files no issue on a claimed row, which promote no longer writes', async () => {
+    await setOwner(PAIR_OTHER, VENDOR_R);
+    expect(ownerIssue).not.toHaveBeenCalled();
+  });
+
+  it('a failed filing changes nothing about the write', async () => {
+    ownerIssue.mockResolvedValueOnce({ status: 'failed', reason: 'network' });
+    const res = await setOwner(ROW_POWERED, VENDOR_R);
+    expect(res.status).toBe(200);
+    expect(res.body.changed).toBe(true);
+    const linked = (await t.db.select().from(auditLog)).filter(
+      (r) => r.action === 'integration.owner_write.linear_linked',
+    );
+    expect(linked).toHaveLength(0);
   });
 
   it('records that nobody offers it', async () => {

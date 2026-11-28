@@ -1097,11 +1097,20 @@ create table sync_service_pair_contests (
   protested_by text references profiles(id) on delete set null, protested_at text,
   protest_decision_note text, protest_decided_by text references profiles(id) on delete set null,
   protest_decided_at text,
+  -- AECI-2110, migration 0140 (eight plain ADD COLUMNs, every FK SET NULL):
+  protest_evidence text,              -- JSON array, up to three http(s) links
+  protest_reply_due_at text,          -- protested_at + 14 days, stored
+  protest_reply text, protest_reply_evidence text,
+  protest_replied_by text references profiles(id) on delete set null, protest_replied_at text,
+  workflow_id text references workflow_instances(id) on delete set null,
+  protest_workflow_id text references workflow_instances(id) on delete set null,
   created_at text not null, updated_at text not null
   -- CHECKs: exactly one anchor; kind; claim_id iff data_flow; proposed_direction;
   -- routed_to; status; protest_status; protest_basis.
 );
 ```
+
+- **Workflow pointers (AECI-2110).** `workflow_id` and `protest_workflow_id` point at `correction_request` instances, as on `integration_field_challenges` (§8.7). A report filed before migration 0140 has NULL, and its next step creates the instance under `restored-pair-report-{id}` (or `restored-pair-protest-{id}`), the rule for an instance the retention prune deleted (`lib/workflow-restore.ts`).
 
 - **Why the veto keeps the pair key.** Its anchor FKs are `SET NULL`, so a veto keeps refusing a re-create of the pair (by a Sync Service or by promote) after the row it was filed on is deleted.
 - **`vetoed_at` is the reader's column, and its rule is key-wide.** On every row on a veto's pair key it holds the earliest open veto on that key's `filed_at`, or NULL. A `connector_evidenced_pairs` row is on the key by its (`connector_product_id`, `product_a_id`, `product_b_id`). An `integrations` row is on it by `powered_by_product_id` and its source and target in either order. Every veto, withdraw and lift batch recomputes it from this table on every row on the key (`vetoedAtKeyRecompute`), not only on the anchor. Every count, id set and public read filters it through the live predicates (`lib/live-integration.ts`). The `vetoed_at_mismatch` data-quality check (severity `error`) reports a row that disagrees with the rule. When the anchor row is deleted the veto keeps its key, and the other rows on it keep `vetoed_at`. No migration: the indexes `sync_service_pair_vetoes_key_idx`, `connector_evidenced_pairs_pair_idx` and `integrations_powered_by_idx` serve the key reads.

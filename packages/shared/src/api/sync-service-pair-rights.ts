@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isHttpUrl } from './https-url-rule';
 import {
   OBJECTION_EXPLANATION_MAX,
   OBJECTION_GROUNDS,
@@ -32,6 +33,31 @@ import {
 
 export const PAIR_RIGHT_REASON_MAX = 1000;
 export const PAIR_PROTEST_REASON_MAX = 2000;
+
+/**
+ * The §11b.12.8 time rules and evidence cap, applied to a data flow report's protest
+ * (AECI-2110). They equal `CONTEST_PROTEST_REPLY_DAYS`, `CONTEST_PROTEST_COOLDOWN_DAYS`
+ * and `CONTEST_PROTEST_MAX_EVIDENCE` in `integration-contests.ts`, which imports this
+ * module, so they are restated here rather than imported (a cycle). A spec holds them
+ * equal.
+ */
+export const PAIR_PROTEST_REPLY_DAYS = 14;
+export const PAIR_PROTEST_COOLDOWN_DAYS = 90;
+export const PAIR_PROTEST_MAX_EVIDENCE = 3;
+
+/** Up to three absolute `http(s)` URLs on a protest or a reply. The server deduplicates
+ *  them. The same rule as `ProtestEvidenceSchema`. */
+export const PairProtestEvidenceSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(2048)
+      .refine(isHttpUrl, 'Each evidence link must be an absolute http(s) URL'),
+  )
+  .max(PAIR_PROTEST_MAX_EVIDENCE)
+  .default([]);
 
 /** The stored frame of a flow direction. */
 export const PairFlowDirectionSchema = z.enum(['a_to_b', 'b_to_a', 'both']);
@@ -268,9 +294,22 @@ export type AdminDecidePairContestInput = z.infer<typeof AdminDecidePairContestS
 
 /** `POST /api/vendor/pair-contests/:id/protest`. */
 export const FilePairProtestSchema = z
-  .object({ reason: z.string().trim().min(1).max(PAIR_PROTEST_REASON_MAX) })
+  .object({
+    reason: z.string().trim().min(1).max(PAIR_PROTEST_REASON_MAX),
+    evidence_urls: PairProtestEvidenceSchema,
+  })
   .strict();
-export type FilePairProtestInput = z.infer<typeof FilePairProtestSchema>;
+export type FilePairProtestInput = z.input<typeof FilePairProtestSchema>;
+
+/** `POST /api/vendor/pair-contests/:id/protest/reply` (AECI-2110). The snapshot owner's
+ *  one reply, before `reply_due_at`. */
+export const ReplyPairProtestSchema = z
+  .object({
+    reply: z.string().trim().min(1).max(PAIR_PROTEST_REASON_MAX),
+    evidence_urls: PairProtestEvidenceSchema,
+  })
+  .strict();
+export type ReplyPairProtestInput = z.input<typeof ReplyPairProtestSchema>;
 
 /** `PATCH /api/admin/pair-contests/:id/protest`. Advice only: the note is required and
  *  nothing on the listing changes. */
@@ -283,7 +322,15 @@ export const PairProtestSchema = z.object({
   status: z.enum(['open', 'upheld', 'rejected', 'withdrawn']),
   basis: z.enum(['declined', 'silence']),
   reason: z.string(),
+  /** AECI-2110. Default `[]` / `null` for deploy skew. */
+  evidence_urls: z.array(z.string()).default([]),
   protested_at: z.string(),
+  /** The owner's reply closes at this instant. `null` on a protest filed before
+   *  AECI-2110, which had no reply step. */
+  reply_due_at: z.string().nullable().default(null),
+  reply: z.string().nullable().default(null),
+  reply_evidence_urls: z.array(z.string()).default([]),
+  replied_at: z.string().nullable().default(null),
   decision_note: z.string().nullable(),
   decided_at: z.string().nullable(),
 });
@@ -316,6 +363,9 @@ export const PairContestSchema = z.object({
   protest: PairProtestSchema.nullable(),
   /** When the submitter may protest now: the window's close. `null` otherwise. */
   protest_closes_at: z.string().nullable(),
+  /** Submitted side only (AECI-2110): set on a rejected protest while it still bars a
+   *  new data flow report on the same flow (§11b.12.8's cooldown). */
+  cooldown_until: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -424,6 +474,8 @@ export const PAIR_RIGHT_NOTIFICATION_EVENTS = [
   'report_accepted',
   'report_declined',
   'protest_filed',
+  'protest_replied',
+  'protest_withdrawn',
   'protest_decided',
   'objection_declined',
 ] as const;
@@ -456,6 +508,8 @@ export const VendorPairRightNotificationSchema = z.object({
   /** True on a veto event when the pair is on the public site after it. */
   pair_public: z.boolean().nullable(),
   pair_path: z.string().nullable(),
+  /** On a `protest_filed` row to the owner (AECI-2110): when its one reply closes. */
+  reply_due_at: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export type VendorPairRightNotification = z.infer<typeof VendorPairRightNotificationSchema>;

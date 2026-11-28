@@ -1874,6 +1874,24 @@ export const NOTIFICATIONS = {
     summary: 'Files the REVIEW - issue that carries an accepted contest to the review lane.',
     note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
   },
+  'linear-owner-write-issue': {
+    channel: 'linear',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'PUT /api/admin/integrations/:id/owner on an unclaimed row (routes/admin-integration-owner.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'None. Each committed owner write on an unclaimed row files once; a failure is not retried.',
+    ledger: ['none'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/ADMIN_PANEL_SPEC.md §5.7',
+    summary:
+      'Files the REVIEW - issue that asks the review lane to record an owner AECi set on an unclaimed connector-delivered pair, so the next promote does not undo it.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
+  },
   'linear-request-resolution': {
     channel: 'linear',
     audience: 'operator',

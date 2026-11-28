@@ -9,21 +9,25 @@
  *   POST /api/vendor/pair-contests/:id/decision        — the owner accepts or declines a data flow report (200)
  *   POST /api/vendor/pair-contests/:id/protest         — the submitter asks AECi to review a decline (200)
  *   POST /api/vendor/pair-contests/:id/protest/withdraw — the submitter withdraws its protest (200)
+ *   POST /api/vendor/pair-contests/:id/protest/reply    — the owner replies once (200, AECI-2110)
  *
  * Every write: `requireVendor()` → `rateLimit('write')`, then the handler. A seat is the
  * whole gate. A report on another vendor's row, or a decision on a report not routed to
  * the caller, is the same `404` as an unknown id. Every transition is one batch: the
  * guarded row write and its sentinel, the audit row, the `notification.sent` row for
- * the other side. The AECi alert email goes out after commit on an AECi-routed submit,
- * and the owner's seats get `pair-report-submitted-owner` on an owner-routed one
- * (AECI-2229).
+ * the other side, and since AECI-2110 the report's `correction_request` workflow
+ * instance and transition (§11e.5). The AECi alert email goes out after commit on an
+ * AECi-routed submit, and the owner's seats get `pair-report-submitted-owner` on an
+ * owner-routed one (AECI-2229).
  */
 
 import {
   ApiErrorCode,
   DecidePairContestSchema,
   FilePairProtestSchema,
+  PAIR_PROTEST_REPLY_DAYS,
   PairContestResponseSchema,
+  ReplyPairProtestSchema,
   SubmitPairContestSchema,
   VendorPairContestsResponseSchema,
   pairProtestWindow,
@@ -31,22 +35,41 @@ import {
   type VendorPairContestsResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
-import { claims, syncServicePairContests, taxonomyDataObjects, vendors } from '../db/schema';
+import {
+  claims,
+  syncServicePairContests,
+  taxonomyDataObjects,
+  vendors,
+  workflowInstances,
+} from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import {
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
 import { auditActorType } from '../lib/authz';
-import { emailPairReportSubmittedToOwner } from '../lib/contest-protest-emails';
 import { sendPairContestSubmittedNotification } from '../lib/email';
+import {
+  emailPairProtestFiled,
+  emailPairReportSubmittedToOwner,
+} from '../lib/contest-protest-emails';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { integrationRetiredError, integrationVetoedError } from '../lib/live-integration';
 import { ownerFlowContextOf, ownerMaintainsFlows, resolveOwnerFlowClaim } from '../lib/owner-flows';
 import {
   isPairContestRaceError,
+  noOtherOpenPairReportSentinel,
   openDuplicate,
+  pairProtestSubmitRefusal,
+  pairWorkflowStepStmts,
+  PAIR_CONTEST_WORKFLOW_TYPE,
+  storedPairEvidence,
   pairContestChangedSentinel,
   pairContestDuplicateSentinel,
   PAIR_CONTEST_ENTITY_TYPE,
@@ -81,12 +104,16 @@ function param(c: VendorContext): string {
   return value;
 }
 
-export async function contestBody(db: Db, id: string): Promise<PairContestResponse> {
+export async function contestBody(
+  db: Db,
+  id: string,
+  side: 'submitted' | 'received' = 'submitted',
+): Promise<PairContestResponse> {
   const row = await db.query.syncServicePairContests.findFirst({
     where: eq(syncServicePairContests.id, id),
   });
   if (!row) throw notFoundError('pair_contest', { id });
-  const [contest] = await pairContestWireRows(db, [row]);
+  const [contest] = await pairContestWireRows(db, [row], new Date(), { side });
   return { contest: contest! };
 }
 
@@ -203,6 +230,14 @@ export function createSubmitPairContestHandler(
       protestDecisionNote: null,
       protestDecidedBy: null,
       protestDecidedAt: null,
+      protestEvidence: null,
+      protestReplyDueAt: null,
+      protestReply: null,
+      protestReplyEvidence: null,
+      protestRepliedBy: null,
+      protestRepliedAt: null,
+      workflowId: crypto.randomUUID(),
+      protestWorkflowId: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -212,6 +247,32 @@ export function createSubmitPairContestHandler(
         ApiErrorCode.PAIR_CONTEST_DUPLICATE,
         'Your company already has this report open on this integration.',
       );
+    }
+    // §11b.12.8 applied to a data flow report (AECI-2110): one live dispute per flow
+    // per vendor, and the 90-day bar after AECi agreed with the owner, unless the flow's
+    // direction changed since.
+    if (claimId !== null && currentDirection !== null) {
+      const refusal = await pairProtestSubmitRefusal(
+        db,
+        { submitterVendorId: vendorId, claimId, liveDirection: currentDirection },
+        new Date(),
+      );
+      if (refusal?.code === 'CONTEST_PROTEST_OPEN') {
+        throw new ApiError(
+          409,
+          ApiErrorCode.CONTEST_PROTEST_OPEN,
+          'You already asked AEC Integrations to review a report on this data flow. Wait for its answer, or withdraw that request first.',
+          { details: { contest_id: refusal.contestId } },
+        );
+      }
+      if (refusal?.code === 'CONTEST_COOLDOWN') {
+        throw new ApiError(
+          409,
+          ApiErrorCode.CONTEST_COOLDOWN,
+          'AEC Integrations agreed with the owner on this data flow, so it cannot be reported again yet unless its direction changes.',
+          { details: { until: refusal.until } },
+        );
+      }
     }
 
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
@@ -266,8 +327,25 @@ export function createSubmitPairContestHandler(
       // holds an endpoint and is not the owner, the owner and claim the routing read
       // are unchanged, and the row is still live. Otherwise nothing is written.
       pairRightTargetSentinel(db, target, vendorId, { ownerUnchanged: true, live: true }),
+      // The instance first: the report's `workflow_id` FK points at it (AECI-2110).
+      db.insert(workflowInstances).values({
+        id: row.workflowId!,
+        workflowType: PAIR_CONTEST_WORKFLOW_TYPE,
+        entityId: row.id,
+        currentState: 'open',
+        initiatedBy: session.userId,
+        initiatedAt: row.createdAt,
+      }),
       db.insert(syncServicePairContests).values(row),
       pairContestDuplicateSentinel(db, row),
+      workflowTransitionInsert(db, {
+        workflowId: row.workflowId!,
+        fromState: null,
+        toState: 'open',
+        actorId: session.userId,
+        reason: 'report submitted',
+        metadata: { kind: row.kind, routedTo },
+      }),
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     try {
@@ -343,8 +421,8 @@ export function createListVendorPairContestsHandler(
         .limit(LIST_CAP),
     ]);
     const body: VendorPairContestsResponse = {
-      submitted: await pairContestWireRows(db, submitted),
-      received: await pairContestWireRows(db, received),
+      submitted: await pairContestWireRows(db, submitted, new Date(), { side: 'submitted' }),
+      received: await pairContestWireRows(db, received, new Date(), { side: 'received' }),
     };
     validateResponseInDev(c.env, () => VendorPairContestsResponseSchema.parse(body));
     return json(body);
@@ -366,7 +444,7 @@ async function runTransition(
   db: Db,
   stmts: BatchStmt[],
   audits: AuditLogEntry[],
-  onRace: () => ApiError,
+  onRace: () => ApiError | Promise<ApiError>,
 ): Promise<void> {
   try {
     await db.batch([
@@ -375,7 +453,7 @@ async function runTransition(
     ] as BatchTuple);
   } catch (error) {
     if (!isPairContestRaceError(error)) throw error;
-    throw onRace();
+    throw await onRace();
   }
   afterVendorWrite(c, [], audits, undefined, db);
 }
@@ -447,6 +525,13 @@ export function createWithdrawPairContestHandler(
             ),
           ),
         pairContestChangedSentinel(db),
+        ...pairWorkflowStepStmts(
+          db,
+          row,
+          { which: 'report', toState: 'withdrawn' },
+          { actorId: session.userId, reason: 'withdrawn by the submitter' },
+          now,
+        ),
       ],
       audits,
       notOpenError,
@@ -531,8 +616,21 @@ export function createDecidePairContestHandler(
       }),
     ];
 
+    const workflow = pairWorkflowStepStmts(
+      db,
+      row,
+      { which: 'report', toState: accepted ? 'accepted' : 'declined' },
+      { actorId: session.userId, reason: `${accepted ? 'accepted' : 'declined'} by the owner` },
+      now,
+    );
     if (!accepted) {
-      await runTransition(c, db, [update, pairContestChangedSentinel(db)], audits, notOpenError);
+      await runTransition(
+        c,
+        db,
+        [update, pairContestChangedSentinel(db), ...workflow],
+        audits,
+        notOpenError,
+      );
     } else {
       // The owner gate, again, now: owner, Sync Service, claimed, live. A row returned
       // to AECi or reclassified answers the gate's own error and writes nothing.
@@ -543,7 +641,7 @@ export function createDecidePairContestHandler(
         : null;
       const plan = await planOwnerFlowChange(db, claim, direction);
       await commitOwnerFlowWrite(c, db, claim.target, plan.changes, plan.extras, {
-        prefix: [update, pairContestChangedSentinel(db)],
+        prefix: [update, pairContestChangedSentinel(db), ...workflow],
         audits,
         onRace: async () => {
           const now2 = await loadRow(db, row.id);
@@ -557,7 +655,7 @@ export function createDecidePairContestHandler(
         },
       });
     }
-    const body = await contestBody(db, row.id);
+    const body = await contestBody(db, row.id, 'received');
     validateResponseInDev(c.env, () => PairContestResponseSchema.parse(body));
     return json(body);
   };
@@ -567,7 +665,10 @@ export function createDecidePairContestHandler(
  * `POST /api/vendor/pair-contests/:id/protest`. The submitter of an owner-routed data
  * flow report, inside the §11b.12.2 window: 30 days from a decline, or days 30 to 60 of
  * silence. A silence protest records the decline at day 30 in the same batch, as
- * §11b.12.3 does. Advice only: AECi's answer never writes the listing.
+ * §11b.12.3 does. Since AECI-2110 the body carries the vendor's own reason and up to
+ * three links, the owner may reply once within 14 days (`protest_reply_due_at`, stored),
+ * and the protest has its own workflow instance. Advice only: AECi's answer never writes
+ * the listing.
  */
 export function createFilePairProtestHandler(
   dbFor: DbFactory = getDb,
@@ -578,7 +679,6 @@ export function createFilePairProtestHandler(
     const { db } = writeDb(c, dbFor);
     const row = await loadRow(db, param(c));
     if (row.submitterVendorId !== vendorId) throw notFoundError('pair_contest', { id: row.id });
-    const { reason } = await parseJsonBody(c, FilePairProtestSchema);
     const window = pairProtestWindow(row, new Date());
     if (!window) {
       throw new ApiError(
@@ -587,19 +687,29 @@ export function createFilePairProtestHandler(
         'This report cannot be sent to AEC Integrations for review now.',
       );
     }
+    // One live dispute per flow per vendor, from the protest side (§11b.12.15 ruling 8).
+    if (await otherOpenReportOnFlow(db, row)) throw otherReportOpenError();
+    const payload = await parseJsonBody(c, FilePairProtestSchema);
+    const reason = payload.reason;
+    const evidence = storedPairEvidence(payload.evidence_urls ?? []);
     const now = new Date().toISOString();
-    const silenceDecidedAt = new Date(Date.parse(row.createdAt) + 30 * 86_400_000).toISOString();
+    const replyDueAt = new Date(Date.parse(now) + PAIR_PROTEST_REPLY_DAYS * DAY_MS).toISOString();
+    const silenceDecidedAt = new Date(Date.parse(row.createdAt) + 30 * DAY_MS).toISOString();
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
     const facts = await rowFacts(db, row);
     const anchor = row.integrationId ? 'integration' : 'evidenced_pair';
+    const protestWorkflowId = crypto.randomUUID();
     const update = db
       .update(syncServicePairContests)
       .set({
         protestStatus: 'open',
         protestBasis: window.basis,
         protestReason: reason,
+        protestEvidence: evidence,
         protestedBy: session.userId,
         protestedAt: now,
+        protestReplyDueAt: replyDueAt,
+        protestWorkflowId,
         ...(window.basis === 'silence' ? { status: 'declined', decidedAt: silenceDecidedAt } : {}),
         updatedAt: now,
       })
@@ -612,12 +722,31 @@ export function createFilePairProtestHandler(
         ),
       );
     const audits: AuditLogEntry[] = [
+      // Silence only: the report's own close is recorded as its own action, so the log
+      // never shows the submitter's seat as the one that declined (§11b.12.7).
+      ...(window.basis === 'silence'
+        ? [
+            {
+              ...actor,
+              action: 'integration.pair_contest.lapsed',
+              entityType: PAIR_CONTEST_ENTITY_TYPE,
+              entityId: row.id,
+              beforeState: { status: 'open' },
+              afterState: { status: 'declined', decided_at: silenceDecidedAt },
+              metadata: { source: AUDIT_SOURCE, vendorId, reason: 'owner silent 30 days' },
+            },
+          ]
+        : []),
       {
         ...actor,
         action: 'integration.pair_contest.protested',
         entityType: PAIR_CONTEST_ENTITY_TYPE,
         entityId: row.id,
-        afterState: { protest_status: 'open', protest_basis: window.basis },
+        afterState: {
+          protest_status: 'open',
+          protest_basis: window.basis,
+          protest_reply_due_at: replyDueAt,
+        },
         metadata: { source: AUDIT_SOURCE, vendorId },
       },
       ...(row.ownerVendorId
@@ -632,6 +761,7 @@ export function createFilePairProtestHandler(
               reason: null,
               pairPublic: null,
               pairSlugs: facts.pairSlugs,
+              replyDueAt,
             }),
           ]
         : []),
@@ -639,14 +769,39 @@ export function createFilePairProtestHandler(
     await runTransition(
       c,
       db,
-      [update, pairContestChangedSentinel(db)],
+      [
+        // The instance first: the new `protest_workflow_id` FK points at it.
+        db.insert(workflowInstances).values({
+          id: protestWorkflowId,
+          workflowType: PAIR_CONTEST_WORKFLOW_TYPE,
+          entityId: row.id,
+          currentState: 'open',
+          initiatedBy: session.userId,
+          initiatedAt: now,
+        }),
+        update,
+        pairContestChangedSentinel(db),
+        noOtherOpenPairReportSentinel(db, row),
+        ...(window.basis === 'silence'
+          ? pairWorkflowStepStmts(
+              db,
+              row,
+              { which: 'report', toState: 'declined' },
+              { actorId: null, reason: 'owner silent 30 days' },
+              now,
+            )
+          : []),
+        workflowTransitionInsert(db, {
+          workflowId: protestWorkflowId,
+          fromState: null,
+          toState: 'open',
+          actorId: session.userId,
+          reason: 'protest filed',
+          metadata: { basis: window.basis },
+        }),
+      ],
       audits,
-      () =>
-        new ApiError(
-          409,
-          ApiErrorCode.PAIR_PROTEST_NOT_ALLOWED,
-          'The owner answered, or a review was already asked for. Reload to see where it stands.',
-        ),
+      () => protestRaceError(db, row),
     );
     const [wire] = await pairContestWireRows(db, [await loadRow(db, row.id)]);
     c.executionCtx.waitUntil(
@@ -663,13 +818,72 @@ export function createFilePairProtestHandler(
         () => undefined,
       ),
     );
+    // The owner's seats are emailed its reply window (AECI-1205's rule, AECI-2110).
+    c.executionCtx.waitUntil(
+      emailPairProtestFiled(c, db, wire, {
+        basis: window.basis,
+        reason,
+        protestedAt: now,
+        replyDueAt,
+      }),
+    );
     const body = await contestBody(db, row.id);
     validateResponseInDev(c.env, () => PairContestResponseSchema.parse(body));
     return json(body);
   };
 }
 
-/** `POST /api/vendor/pair-contests/:id/protest/withdraw`. The submitter only. */
+const DAY_MS = 86_400_000;
+
+/** Another open data flow report by the same submitter on the same flow, if any. */
+async function otherOpenReportOnFlow(db: Db, row: PairContestRow): Promise<boolean> {
+  if (row.claimId === null) return false;
+  const t = syncServicePairContests;
+  const hit = await db
+    .select({ id: t.id })
+    .from(t)
+    .where(
+      and(
+        eq(t.submitterVendorId, row.submitterVendorId),
+        eq(t.kind, 'data_flow'),
+        eq(t.claimId, row.claimId),
+        eq(t.status, 'open'),
+        sql`${t.id} <> ${row.id}`,
+      ),
+    )
+    .limit(1);
+  return hit.length > 0;
+}
+
+function otherReportOpenError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.PAIR_PROTEST_NOT_ALLOWED,
+    'Your company has another report open on this data flow. Wait for its answer, or withdraw it first.',
+    { details: { reason: 'contest_open' } },
+  );
+}
+
+/** Which sentinel fired on a lost protest file: a protest landed first, the owner
+ *  answered first, or another report on the flow was filed meanwhile. */
+async function protestRaceError(db: Db, row: PairContestRow): Promise<ApiError> {
+  const now = await loadRow(db, row.id);
+  if (
+    now.protestStatus === null &&
+    now.status === row.status &&
+    (await otherOpenReportOnFlow(db, row))
+  ) {
+    return otherReportOpenError();
+  }
+  return new ApiError(
+    409,
+    ApiErrorCode.PAIR_PROTEST_NOT_ALLOWED,
+    'The owner answered, or a review was already asked for. Reload to see where it stands.',
+  );
+}
+
+/** `POST /api/vendor/pair-contests/:id/protest/withdraw`. The submitter only. No
+ *  cooldown and no refile. The owner is told (AECI-2110). */
 export function createWithdrawPairProtestHandler(
   dbFor: DbFactory = getDb,
 ): (c: VendorContext) => Promise<Response> {
@@ -684,6 +898,8 @@ export function createWithdrawPairProtestHandler(
     if (row.protestStatus !== 'open') throw notOpen();
     const now = new Date().toISOString();
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
+    const facts = await rowFacts(db, row);
+    const anchor = row.integrationId ? 'integration' : 'evidenced_pair';
     await runTransition(
       c,
       db,
@@ -695,9 +911,17 @@ export function createWithdrawPairProtestHandler(
             and(
               eq(syncServicePairContests.id, row.id),
               eq(syncServicePairContests.protestStatus, 'open'),
+              eq(syncServicePairContests.submitterVendorId, vendorId),
             ),
           ),
         pairContestChangedSentinel(db),
+        ...pairWorkflowStepStmts(
+          db,
+          row,
+          { which: 'protest', toState: 'withdrawn' },
+          { actorId: session.userId, reason: 'protest withdrawn' },
+          now,
+        ),
       ],
       [
         {
@@ -709,10 +933,136 @@ export function createWithdrawPairProtestHandler(
           afterState: { protest_status: 'withdrawn' },
           metadata: { source: AUDIT_SOURCE, vendorId },
         },
+        ...(row.ownerVendorId
+          ? [
+              pairRightNotificationAudit('portal-sync-service-pair-report', actor, anchor, {
+                event: 'protest_withdrawn',
+                vendorId: row.ownerVendorId,
+                integrationId: row.integrationId ?? row.evidencedPairId!,
+                integrationName: facts.name,
+                reportKind: 'data_flow',
+                byVendorName: null,
+                reason: null,
+                pairPublic: null,
+                pairSlugs: facts.pairSlugs,
+              }),
+            ]
+          : []),
       ],
       notOpen,
     );
     const body = await contestBody(db, row.id);
+    validateResponseInDev(c.env, () => PairContestResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+/**
+ * `POST /api/vendor/pair-contests/:id/protest/reply` (AECI-2110, §11b.12.6 applied).
+ * The snapshot owner (`owner_vendor_id` on an owner-routed report) replies once, before
+ * `protest_reply_due_at`. The reply does not re-check current ownership: it writes
+ * nothing to the catalog, and the vendor that decided is the right one to explain.
+ */
+export function createReplyPairProtestHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const session = c.get('auth');
+    const vendorId = sessionVendorId(c);
+    const { db } = writeDb(c, dbFor);
+    const row = await loadRow(db, param(c));
+    if (row.routedTo !== 'owner' || row.ownerVendorId !== vendorId || row.protestStatus === null) {
+      throw notFoundError('pair_contest', { id: row.id });
+    }
+    const replyError = (current: PairContestRow, at: string): ApiError => {
+      if (current.protestStatus !== 'open') {
+        return new ApiError(
+          409,
+          ApiErrorCode.PROTEST_NOT_OPEN,
+          'This review was already decided or withdrawn.',
+        );
+      }
+      if (current.protestReply !== null) {
+        return new ApiError(409, ApiErrorCode.PROTEST_REPLY_EXISTS, 'You already replied.');
+      }
+      if (current.protestReplyDueAt === null || at >= current.protestReplyDueAt) {
+        return new ApiError(
+          409,
+          ApiErrorCode.PROTEST_REPLY_CLOSED,
+          'The time to reply has passed.',
+          current.protestReplyDueAt ? { details: { reply_due_at: current.protestReplyDueAt } } : {},
+        );
+      }
+      return new ApiError(409, ApiErrorCode.PROTEST_NOT_OPEN, 'This review changed. Reload.');
+    };
+    const now = new Date().toISOString();
+    if (
+      row.protestStatus !== 'open' ||
+      row.protestReply !== null ||
+      row.protestReplyDueAt === null ||
+      now >= row.protestReplyDueAt
+    ) {
+      throw replyError(row, now);
+    }
+    const payload = await parseJsonBody(c, ReplyPairProtestSchema);
+    const actor = { actorId: session.userId, actorType: auditActorType(session) };
+    const facts = await rowFacts(db, row);
+    const anchor = row.integrationId ? 'integration' : 'evidenced_pair';
+    await runTransition(
+      c,
+      db,
+      [
+        db
+          .update(syncServicePairContests)
+          .set({
+            protestReply: payload.reply,
+            protestReplyEvidence: storedPairEvidence(payload.evidence_urls ?? []),
+            protestRepliedBy: session.userId,
+            protestRepliedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(syncServicePairContests.id, row.id),
+              eq(syncServicePairContests.protestStatus, 'open'),
+              eq(syncServicePairContests.ownerVendorId, vendorId),
+              isNull(syncServicePairContests.protestReply),
+              sql`${syncServicePairContests.protestReplyDueAt} > ${now}`,
+            ),
+          ),
+        pairContestChangedSentinel(db),
+        ...pairWorkflowStepStmts(
+          db,
+          row,
+          { which: 'protest', toState: 'open' },
+          { actorId: session.userId, reason: 'owner replied' },
+          now,
+        ),
+      ],
+      [
+        {
+          ...actor,
+          action: 'integration.pair_contest.protest_replied',
+          entityType: PAIR_CONTEST_ENTITY_TYPE,
+          entityId: row.id,
+          afterState: { protest_replied_at: now },
+          metadata: { source: AUDIT_SOURCE, vendorId },
+        },
+        pairRightNotificationAudit('portal-sync-service-pair-report', actor, anchor, {
+          event: 'protest_replied',
+          vendorId: row.submitterVendorId,
+          integrationId: row.integrationId ?? row.evidencedPairId!,
+          integrationName: facts.name,
+          reportKind: 'data_flow',
+          byVendorName: null,
+          reason: null,
+          pairPublic: null,
+          pairSlugs: facts.pairSlugs,
+        }),
+      ],
+      async () => replyError(await loadRow(db, row.id), new Date().toISOString()),
+    );
+    const body = await contestBody(db, row.id, 'received');
     validateResponseInDev(c.env, () => PairContestResponseSchema.parse(body));
     return json(body);
   };

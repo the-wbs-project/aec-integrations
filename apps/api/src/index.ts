@@ -314,6 +314,7 @@ import {
   createSubmitPairContestHandler,
   createWithdrawPairContestHandler,
   createWithdrawPairProtestHandler,
+  createReplyPairProtestHandler,
 } from './routes/vendor-pair-contests';
 import {
   createAdminDecideVetoObjectionHandler,
@@ -1815,6 +1816,13 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createWithdrawPairProtestHandler(),
+);
+// AECI-2110 (§11e.5): the owner's one reply to a protest on a data flow report.
+authVendor.post(
+  '/api/vendor/pair-contests/:id/protest/reply',
+  requireVendor(),
+  rateLimit('write'),
+  createReplyPairProtestHandler(),
 );
 // AECI-1377 (§4.7.6): ask AECi to add the other product of an integration. A seat is
 // the whole gate, as for the create above. Under /api/vendor/*, not /api/requests/*:

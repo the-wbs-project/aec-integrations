@@ -963,6 +963,7 @@ function toPairRightNotification(row: {
     end_reason: isRemovalEndReason(meta.endReason) ? meta.endReason : null,
     pair_public: typeof meta.pairPublic === 'boolean' ? meta.pairPublic : null,
     pair_path: pairPathFor(pairSlugs),
+    reply_due_at: typeof meta.replyDueAt === 'string' ? meta.replyDueAt : null,
     created_at: row.createdAt,
   };
 }

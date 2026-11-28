@@ -2002,8 +2002,8 @@ export class PreviewVendorApi extends VendorApi {
       protest: null,
       protest_opens_at: null,
       protest_closes_at: null,
-      protest_basis: null,
       cooldown_until: null,
+      protest_basis: null,
     };
     this.contests.submitted.unshift(contest);
     return { contest: clone(contest) };
@@ -2052,8 +2052,8 @@ export class PreviewVendorApi extends VendorApi {
       protest: null,
       protest_opens_at: null,
       protest_closes_at: null,
-      protest_basis: null,
       cooldown_until: null,
+      protest_basis: null,
     };
     this.contests.submitted.unshift(contest);
     return { contest: clone(contest) };
@@ -2127,8 +2127,8 @@ export class PreviewVendorApi extends VendorApi {
       protest: null,
       protest_opens_at: null,
       protest_closes_at: null,
-      protest_basis: null,
       cooldown_until: null,
+      protest_basis: null,
     };
     this.contests.submitted.unshift(contest);
     const touched = [productA.id, productB.id, owned?.connector?.id];
@@ -3476,6 +3476,7 @@ export class PreviewVendorApi extends VendorApi {
       accept_mode: null,
       protest: null,
       protest_closes_at: null,
+      cooldown_until: null,
       created_at: now,
       updated_at: now,
     };
@@ -3564,7 +3565,12 @@ export class PreviewVendorApi extends VendorApi {
       status: 'open',
       basis: contest.status === 'declined' ? 'declined' : 'silence',
       reason,
+      evidence_urls: [],
       protested_at: now,
+      reply_due_at: new Date(Date.parse(now) + 14 * 86_400_000).toISOString(),
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
       decision_note: null,
       decided_at: null,
     };

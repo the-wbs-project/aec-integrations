@@ -971,6 +971,123 @@ function buildContestDescription(env: Env, input: LinearContestIssueInput): stri
   return lines.join('\n');
 }
 
+// ─── Admin owner write on an unclaimed pair (AECI-2110) ──────────────────────
+
+/** What the `REVIEW - Record integration owner: …` issue for an admin owner write
+ *  needs (AECI-2045's `PUT /api/admin/integrations/:id/owner`, AECI-2110). */
+export interface LinearOwnerWriteIssueInput {
+  notification: 'linear-owner-write-issue';
+  /** The row's id, in the table `anchor` names. */
+  integrationId: string;
+  anchor: 'integration' | 'evidenced_pair';
+  integrationName: string | null;
+  sourceProductName: string;
+  targetProductName: string;
+  connectorProductName: string | null;
+  pairPath: string | null;
+  previousOwnerName: string | null;
+  previousOwnerVendorId: string | null;
+  newOwnerName: string | null;
+  newOwnerVendorId: string | null;
+  adminReason: string;
+}
+
+/**
+ * File the `REVIEW - Record integration owner: …` issue after an admin owner write on
+ * an UNCLAIMED connector-delivered row (AECI-2110, ruled 2026-11-27). Promote still
+ * writes an unclaimed row, so the next promote of the edge would set the owner the
+ * review app holds. This issue asks the review lane to record the new owner there, as
+ * an owner-contest accept does (`createLinearIssueForContest`, `'owner-recorded'`).
+ *
+ * Never throws. No read-guard and no persisted id: each committed write is its own
+ * event and files once. A failure warns and is not retried (no sweep, accepted).
+ */
+export async function createLinearIssueForOwnerWrite(
+  c: LinearContext,
+  input: LinearOwnerWriteIssueInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LinearIssueOutcome> {
+  const apiKey = c.env.LINEAR_API_KEY;
+  if (!apiKey) return { status: 'failed', reason: 'no_api_key' };
+  const started = Date.now();
+  const assigneeId = pickAssignee(input.integrationId);
+  const subject = input.integrationName?.trim()
+    ? input.integrationName.trim()
+    : `${input.sourceProductName} ↔ ${input.targetProductName}`;
+  try {
+    const createRes = await linearNotificationWrite<IssueCreatePayload>(
+      input.notification,
+      apiKey,
+      ISSUE_CREATE_MUTATION,
+      {
+        input: {
+          teamId: AECI_TEAM_ID,
+          title: `REVIEW - Record integration owner: ${subject}`,
+          description: buildOwnerWriteDescription(c.env, input, subject),
+          ...(assigneeId ? { assigneeId } : {}),
+        },
+      },
+      fetchImpl,
+    );
+    const issue = createRes.ok ? createRes.data.issueCreate.issue : null;
+    if (!createRes.ok || !createRes.data.issueCreate.success || !issue) {
+      const reason: LinearIssueFailureReason = createRes.ok ? 'graphql_error' : createRes.reason;
+      const message = createRes.ok ? 'issueCreate success=false' : createRes.message;
+      error(c, `linear owner-write issueCreate failed (${reason}): ${message}`, input.notification);
+      emit(c, 'failed', 'owner_write', reason, Date.now() - started);
+      return { status: 'failed', reason, message };
+    }
+    emit(c, 'ok', 'owner_write', undefined, Date.now() - started);
+    return { status: 'created', issueId: issue.id, issueUrl: issue.url };
+  } catch (err) {
+    const message = errMsg(err);
+    error(c, `linear owner-write issue failed: ${message}`, input.notification);
+    emit(c, 'failed', 'owner_write', 'network', Date.now() - started);
+    return { status: 'failed', reason: 'network', message };
+  }
+}
+
+function ownerName(name: string | null, id: string | null): string {
+  if (!id) return '_no owner on file_';
+  return name ? `${name} (\`${id}\`)` : `\`${id}\``;
+}
+
+function buildOwnerWriteDescription(
+  env: Env,
+  input: LinearOwnerWriteIssueInput,
+  subject: string,
+): string {
+  const lines = [
+    `**Integration:** ${subject}`,
+    input.anchor === 'evidenced_pair'
+      ? `**App-DB evidenced pair id:** \`${input.integrationId}\` (table \`connector_evidenced_pairs\`)`
+      : `**App-DB integration id:** \`${input.integrationId}\``,
+    `**Endpoints:** A = ${input.sourceProductName}, B = ${input.targetProductName}`,
+  ];
+  if (input.connectorProductName) {
+    lines.push(`**Delivered through:** ${input.connectorProductName}`);
+  }
+  if (input.pairPath) {
+    lines.push(`**Pair page:** ${publicPairUrl(env, input.pairPath) ?? input.pairPath}`);
+  }
+  lines.push(
+    `**Owner before:** ${ownerName(input.previousOwnerName, input.previousOwnerVendorId)}`,
+    `**Owner now:** ${ownerName(input.newOwnerName, input.newOwnerVendorId)}`,
+  );
+  const host = environmentHost(env);
+  if (host) lines.push(`**Environment:** ${host}`);
+  lines.push(
+    '',
+    '**Admin reason:**',
+    '',
+    `> ${input.adminReason.replace(/\n/g, '\n> ')}`,
+    '',
+    `Record the new owner (\`builtByVendor\`) in the review app. Playbook: ${CONTEST_PLAYBOOK_ISSUE}.`,
+    'AECi set the owner on its side from the admin console. The row is unclaimed, so promote still writes it: until the review app holds the same owner, the next promote of this edge sets the old one back.',
+  );
+  return lines.join('\n');
+}
+
 /**
  * Site → Linear sync on an admin resolve/reject (`STAGE_1_PHASE_6_SPEC.md` §6.5;
  * `STAGE_1_SPEC.md` §26.4 — the outbound half of the bidirectional sync). After
@@ -1242,7 +1359,7 @@ function buildDuplicateNote(input: LinearIssueInput): string {
 function emit(
   c: LinearContext,
   outcome: 'ok' | 'failed' | 'skipped_exists',
-  kind: RequestKind | 'contest',
+  kind: RequestKind | 'contest' | 'owner_write',
   reason?: string,
   durationMs?: number,
 ): void {

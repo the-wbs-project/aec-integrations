@@ -80,8 +80,8 @@ run `pnpm docs:notifications` and commit this file.
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 38 |
-| `linear` | 4 |
-| **Total** | **106** |
+| `linear` | 5 |
+| **Total** | **107** |
 
 ## Email (Resend) (`email`, 62)
 
@@ -230,7 +230,7 @@ notification at all.
 | `portal-thread-closed` | Tells both companies a private row thread closed, and links the thread's page by id. | external | route: Every thread close: retire, withdrawn row, vendor row delete, promote claim delete, stale-twin delete and move, retract-product, the datatool prune and the retraction consumer (lib/claim-thread-lifecycle.ts) | `any-tier` | One row per company per close, in the close batch. A thread closes once. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Not pausable: a portal row, not email. Sent for every close reason, so a thread whose row is later deleted keeps a link back. The company's Conversations list (AECI-1551) is the path past the 90-day feed. The row carries ids and names, never a message. |
 | `portal-thread-message` | Tells the other company a seat wrote on a private row thread, and links the thread's page by id. | external | route: POST /api/vendor/claims/:claimId/thread/messages (routes/vendor-threads.ts) | `any-tier` | One row per message, in the post batch. The Messages list shows only the newest row per thread. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Not pausable: a portal row, not email. The row carries ids, never the message. |
 
-## Linear (`linear`, 4)
+## Linear (`linear`, 5)
 
 Writes to Linear. Linear then emails or pings whoever is subscribed there, and AECi does
 not control that fan-out.
@@ -238,6 +238,7 @@ not control that fan-out.
 | Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Pausable | Doc | Note |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `linear-contest-issue` | Files the REVIEW - issue that carries an accepted contest to the review lane. | operator | route: PATCH /api/admin/contests/:id accept (routes/admin-contests.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.6 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email. |
+| `linear-owner-write-issue` | Files the REVIEW - issue that asks the review lane to record an owner AECi set on an unclaimed connector-delivered pair, so the next promote does not undo it. | operator | route: PUT /api/admin/integrations/:id/owner on an unclaimed row (routes/admin-integration-owner.ts) | `any-tier` | None. Each committed owner write on an unclaimed row files once; a failure is not retried. | `none` | `none` | no | docs/ADMIN_PANEL_SPEC.md §5.7 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email. |
 | `linear-request-duplicate-comment` | Comments on a new request issue that it may duplicate an open request. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts) | `any-tier` | Once per issue create. | `none` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §7.2 | Production only: it needs the issue that linear-request-issue creates. Not pausable: a Linear write, not email. |
 | `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts), and POST /api/requests/confirm for an anonymous claim (routes/request-confirmations.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email. |
 | `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled when the request is decided on AECi, and comments who decided and why. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts), PATCH /api/admin/claims/:id (routes/admin-claims.ts), and POST /api/vendor/seats/claims/:id/accept or /decline, including the accept auto-reject (routes/vendor-seat-claims.ts) | `any-tier` | None. Each committed decision pushes once. | `none` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email. |
