@@ -377,12 +377,12 @@ export class VendorPairProtest {
         reason: body.text,
         evidence_urls: body.evidence_urls,
       });
-      dialog?.succeed(
+      await dialog?.succeed(
         $localize`:@@vendor.pairProtest.live.filed:Sent to AEC Integrations for review. The Sync Service can reply once.`,
       );
       this.changed.emit();
     } catch (err) {
-      this.refused(dialog, err);
+      await this.refused(dialog, err);
     }
   }
 
@@ -393,23 +393,23 @@ export class VendorPairProtest {
         reply: body.text,
         evidence_urls: body.evidence_urls,
       });
-      dialog?.succeed(
+      await dialog?.succeed(
         $localize`:@@vendor.pairProtest.live.replied:Reply sent. AEC Integrations and the company that sent the report can read it.`,
       );
       this.changed.emit();
     } catch (err) {
-      this.refused(dialog, err);
+      await this.refused(dialog, err);
     }
   }
 
   /** A refusal that means the row moved closes the dialog, shows why on the row and
    *  re-reads the list. Anything else keeps the draft and says why in the dialog. */
-  private refused(dialog: ProtestFormDialog | undefined, err: unknown): void {
+  private async refused(dialog: ProtestFormDialog | undefined, err: unknown): Promise<void> {
     const code = (err as { error?: { error?: { code?: string } } }).error?.error?.code;
     const message = pairProtestErrorMessage(code);
     if (code && code !== 'VALIDATION_FAILED') {
-      dialog?.abandon();
       this.error.set(message);
+      await dialog?.abandon();
       this.changed.emit();
     } else {
       dialog?.fail(message);

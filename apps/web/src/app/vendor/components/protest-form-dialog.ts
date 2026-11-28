@@ -1,6 +1,7 @@
 import { DOCUMENT } from '@angular/common';
 import {
   Component,
+  DestroyRef,
   Injector,
   afterNextRender,
   inject,
@@ -216,7 +217,16 @@ export class ProtestFormDialog {
   private readonly dialog = viewChild(BrnDialog);
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
+  private readonly destroyRef = inject(DestroyRef);
   private pendingAnnouncement = '';
+  /** Resolvers for the promises `succeed()` and `abandon()` return. */
+  private closeWaiters: Array<() => void> = [];
+
+  constructor() {
+    // A row that re-renders under an open dialog destroys it before `closed` fires.
+    // Release any waiting host so its refetch still runs.
+    this.destroyRef.onDestroy(() => this.releaseWaiters());
+  }
 
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -236,13 +246,15 @@ export class ProtestFormDialog {
     this.dialog()?.open();
   }
 
-  /** The write landed: close, then announce `sentence`. */
-  succeed(sentence: string): void {
+  /**
+   * The write landed: close, then announce `sentence`. Resolves once the dialog has
+   * closed and announced. The host refetches only then: a refetch that lands first
+   * re-renders the row, destroys this dialog and loses the announcement.
+   */
+  succeed(sentence: string): Promise<void> {
     this.busy.set(false);
     this.pendingAnnouncement = sentence;
-    // `disableClose` reaches the open dialog through an effect, so close after the
-    // render that lifts it (the logo dialog's rule).
-    afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
+    return this.closeAfterRender();
   }
 
   /** The write was refused: keep the draft and say why. */
@@ -251,10 +263,11 @@ export class ProtestFormDialog {
     this.error.set(message);
   }
 
-  /** The write was refused and the row moved: close without announcing. */
-  abandon(): void {
+  /** The write was refused and the row moved: close without announcing. Resolves
+   *  once the dialog has closed. */
+  abandon(): Promise<void> {
     this.busy.set(false);
-    afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
+    return this.closeAfterRender();
   }
 
   protected onClosed(): void {
@@ -262,6 +275,21 @@ export class ProtestFormDialog {
     const pending = this.pendingAnnouncement;
     this.pendingAnnouncement = '';
     if (pending) this.announce.emit(pending);
+    this.releaseWaiters();
+  }
+
+  private closeAfterRender(): Promise<void> {
+    const closed = new Promise<void>((resolve) => this.closeWaiters.push(resolve));
+    // `disableClose` reaches the open dialog through an effect, so close after the
+    // render that lifts it (the logo dialog's rule).
+    afterNextRender(() => this.dialog()?.close(), { injector: this.injector });
+    return closed;
+  }
+
+  private releaseWaiters(): void {
+    const waiters = this.closeWaiters;
+    this.closeWaiters = [];
+    waiters.forEach((resolve) => resolve());
   }
 
   protected setText(event: Event): void {

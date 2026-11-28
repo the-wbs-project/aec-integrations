@@ -145,6 +145,37 @@ describe('VendorContestProtest — the submitter', () => {
     expect(api.getContests).toHaveBeenCalledTimes(2);
   });
 
+  it('refetches only after the dialog closes, so a refetch that moves the row keeps the announcement', async () => {
+    const fixture = await create();
+    const filed: VendorContest = {
+      ...PROTESTABLE,
+      protest: REJECTED.protest && { ...REJECTED.protest, status: 'open', decision_note: null },
+    };
+    api.getContests.mockResolvedValue(
+      withContests({
+        submitted: VENDOR_CONTESTS_FIXTURE.submitted.map((c) =>
+          c.id === PROTESTABLE.id ? filed : c,
+        ),
+      }),
+    );
+    button(row(fixture, PROTESTABLE.id), 'Ask AEC Integrations to review').click();
+    await settle(fixture);
+    const d = dialog()!;
+    type(d.querySelector('textarea')!, 'The guide moved in August.');
+    submit(d);
+    await settle(fixture);
+
+    expect(api.fileContestProtest).toHaveBeenCalled();
+    expect(api.getContests).toHaveBeenCalledTimes(1);
+    await afterClose(fixture);
+    expect(dialog()).toBeNull();
+    expect(api.getContests).toHaveBeenCalledTimes(2);
+    expect(row(fixture, PROTESTABLE.id).textContent).toContain('Review by AEC Integrations');
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain(
+      'Sent to AEC Integrations for review',
+    );
+  });
+
   it('Escape discards the draft; the next open starts empty', async () => {
     const fixture = await create();
     const r = row(fixture, PROTESTABLE.id);

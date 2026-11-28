@@ -398,7 +398,7 @@ export class VendorContestProtest {
         evidence_urls: body.evidence_urls,
       });
       const field = contestFieldLabel(c.field);
-      dialog?.succeed(
+      await dialog?.succeed(
         $localize`:@@vendor.protest.live.filed:Sent to AEC Integrations for review: ${field}:FIELD:. The owner can reply once.`,
       );
       await this.store.revalidate(['contests']);
@@ -414,7 +414,7 @@ export class VendorContestProtest {
         reply: body.text,
         evidence_urls: body.evidence_urls,
       });
-      dialog?.succeed(
+      await dialog?.succeed(
         $localize`:@@vendor.protest.live.replied:Reply sent. AEC Integrations and the company that sent the request can read it.`,
       );
       await this.store.revalidate(['contests']);
@@ -428,8 +428,8 @@ export class VendorContestProtest {
   private async refused(dialog: ProtestFormDialog | undefined, err: unknown): Promise<void> {
     const message = protestErrorMessage(err);
     if (protestErrorReloads(err)) {
-      dialog?.abandon();
       this.error.set(message);
+      await dialog?.abandon();
       await this.store.reload('contests');
     } else {
       dialog?.fail(message);
