@@ -6,7 +6,7 @@ import { untilAppStable } from './hydration';
  * AECI-2133: in a portal nested form, Escape does what Cancel does and focus returns
  * to the form's opener (`aecCloseOnEscape`, `vendor/shared/close-on-escape.ts`).
  *
- * For each of the four contest forms: open it, type a draft, press Escape, and check
+ * For each of the three contest forms: open it, type a draft, press Escape, and check
  * the form is gone and focus is on the button that opened it. Then the guards a real
  * browser decides: Escape on an open native `<select>` (Chromium still sends it to the
  * page) leaves the form open, and so does Escape on an open tooltip. Once the list or
@@ -20,7 +20,8 @@ const PRODUCTS = '/preview/vendor-dashboard/products';
 const PROCORE = `${PRODUCTS}/summit-model-coordination/integrations/00000000-0000-4000-8000-000000005310`;
 const UNCLAIMED = `${PRODUCTS}/summit-field-issues/integrations/00000000-0000-4000-8000-000000005312`;
 const LIST = `${PRODUCTS}/summit-model-coordination/integrations`;
-const DECLINED = '00000000-0000-4000-8000-000000005c14';
+// The protest to AECi left this list with AECI-2110: it opens in a dialog now
+// (`preview-vendor-protest-dialog.spec.ts`).
 
 test.beforeEach(async ({ context }) => {
   await context.route('**/*', (route) => {
@@ -78,19 +79,6 @@ const FORMS: readonly {
     field: '#request-field',
     // The toolbar button is re-created when the form closes.
     opener: '[data-testid="request-correction"]',
-  },
-  {
-    name: 'the protest to AECi',
-    url: PROCORE,
-    steps: [
-      {
-        trigger: `[data-testid="closed-toggle-${DECLINED}"]`,
-        shows: `#vendor-protest-start-${DECLINED}`,
-      },
-      { trigger: `#vendor-protest-start-${DECLINED}`, shows: `#vendor-protest-form-${DECLINED}` },
-    ],
-    form: `#vendor-protest-form-${DECLINED}`,
-    opener: `#vendor-protest-start-${DECLINED}`,
   },
   {
     name: '"Not ours?"',

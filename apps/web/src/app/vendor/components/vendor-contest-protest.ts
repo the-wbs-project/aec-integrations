@@ -202,6 +202,7 @@ type Side = 'submitted' | 'received';
             aecButton
             compact
             type="button"
+            [id]="'vendor-protest-reply-start-' + c.id"
             (click)="replyDialog.open()"
             i18n="@@vendor.protest.reply.open"
           >
@@ -235,6 +236,7 @@ type Side = 'submitted' | 'received';
           variant="secondary"
           compact
           type="button"
+          [id]="'vendor-protest-start-' + c.id"
           (click)="requestDialog.open()"
           i18n="@@vendor.protest.start"
         >
