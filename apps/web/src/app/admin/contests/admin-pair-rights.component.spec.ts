@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminPairContest, AdminVeto } from '@aeci/shared';
 
+import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminContestsApi } from './admin-contests-api';
 import { AdminPairRights } from './admin-pair-rights';
 
@@ -130,6 +131,7 @@ beforeEach(() => {
     listVetoes: vi.fn().mockResolvedValue({ data: [VETO] }),
     liftVeto: vi.fn().mockResolvedValue({ veto: VETO, pair_public: true }),
     decideVetoObjection: vi.fn().mockResolvedValue({ objection: VETO.objection }),
+    decidePairProtest: vi.fn().mockResolvedValue({ contest: REPORT }),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -611,5 +613,113 @@ describe('AdminPairRights — each list is a console table (AECI-2191)', () => {
     expect(line('data-admin-retractions')).toBe('Nothing to retract.');
     expect(line('data-admin-pair-protests')).toBe('No open reviews.');
     expect(line('data-admin-vetoes')).toBe('No removals in force.');
+  });
+});
+
+describe('AdminPairRights — the contests badge and the protest card (AECI-2110)', () => {
+  const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
+  const PROTEST: AdminPairContest = {
+    ...REPORT,
+    id: '00000000-0000-4000-8000-000000000302',
+    kind: 'data_flow',
+    routed_to: 'owner',
+    status: 'declined',
+    key_rows: null,
+    protest: {
+      status: 'open',
+      basis: 'declined',
+      reason: 'Their help page lists no RFI sync.',
+      evidence_urls: ['https://help.example.test/rfis'],
+      protested_at: days(-1),
+      reply_due_at: days(13),
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
+      decision_note: null,
+      decided_at: null,
+    },
+  };
+  const lists = (
+    reports: AdminPairContest[],
+    protests: AdminPairContest[],
+    retractions: AdminPairContest[] = [],
+  ) =>
+    api['listPairContests']!.mockImplementation(
+      async (q: { protests?: boolean; retractions?: boolean } = {}) => ({
+        data: q.retractions ? retractions : q.protests ? protests : reports,
+      }),
+    );
+  const badge = () => TestBed.inject(AdminSummaryStore).pendingContests();
+  beforeEach(() => TestBed.inject(AdminSummaryStore).seed({ contests: 5 }));
+
+  async function decideFirstProtest(fixture: ComponentFixture<AdminPairRights>) {
+    buttonsByText(fixture, 'Agree with the owner')[0]!.click();
+    await settle(fixture);
+    const note = el(fixture).querySelector<HTMLTextAreaElement>(`#pp-note-${PROTEST.id}`)!;
+    type(note, 'The owner is right.');
+    await settle(fixture);
+    note.closest('form')!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    await settle(fixture);
+  }
+
+  it('shows the reporter’s links, the reply due date and the early-decision note', async () => {
+    lists([], [PROTEST]);
+    const fixture = await mount();
+    const card = el(fixture).querySelector('[data-admin-pair-protest-record]')!;
+    expect(card.querySelector('a[href="https://help.example.test/rfis"]')).toBeTruthy();
+    expect(card.textContent).toContain('Reply due');
+    expect(text(fixture)).toContain('The owner can still reply.');
+  });
+
+  it('shows the owner’s reply once on file, without the early note', async () => {
+    lists([], [{ ...PROTEST, protest: { ...PROTEST.protest!, reply: 'We do send RFIs.' } }]);
+    const fixture = await mount();
+    expect(text(fixture)).toContain('We do send RFIs.');
+    expect(text(fixture)).not.toContain('The owner can still reply.');
+  });
+
+  it('a protest decision ticks the badge down; a refusal does not', async () => {
+    lists([], [PROTEST]);
+    const fixture = await mount();
+    await decideFirstProtest(fixture);
+    expect(api['decidePairProtest']).toHaveBeenCalledWith(PROTEST.id, {
+      decision: 'rejected',
+      note: 'The owner is right.',
+    });
+    expect(badge()).toBe(4);
+    api['decidePairProtest']!.mockRejectedValueOnce({ status: 409 });
+    await decideFirstProtest(fixture);
+    expect(badge()).toBe(4);
+  });
+
+  it('an objection decision ticks the badge down', async () => {
+    lists([], []);
+    const fixture = await mount();
+    buttonsByText(fixture, 'Accept and end the removal')[0]!.click();
+    await settle(fixture);
+    const form = el(fixture).querySelector<HTMLFormElement>(
+      '[data-admin-objection] form:not([hidden])',
+    )!;
+    type(form.querySelector('textarea')!, 'Their marketplace page lists the sync.');
+    await settle(fixture);
+    form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    await settle(fixture);
+    expect(badge()).toBe(4);
+  });
+
+  it('an accept that leaves a row to retract trades the report for a retraction', async () => {
+    lists([REPORT], []);
+    const fixture = await mount();
+    buttonsByText(fixture, 'Accept')[0]!.click();
+    await settle(fixture);
+    const note = el(fixture).querySelector<HTMLTextAreaElement>(`#rpt-note-${REPORT.id}`)!;
+    type(note, 'Rivets confirmed.');
+    const source = el(fixture).querySelector<HTMLInputElement>(`#rpt-src-${REPORT.id}`)!;
+    source.value = 'https://rivets.example/changelog';
+    source.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    note.closest('form')!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+    await settle(fixture);
+    expect(badge()).toBe(5);
   });
 });

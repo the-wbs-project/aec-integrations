@@ -1622,7 +1622,11 @@ row, in the Objection column. An empty list is one line and no table.
   retract."
 - **Reviews of an owner's answer**, over `?protests=true`: "Agree with the report" or "Agree
   with the owner", with a required note. The screen says the answer is advice and does not
-  change the listing.
+  change the listing. Since AECI-2110 each card shows both sides, as §11b.12.11's protest card
+  does: the reporter's case and its links, then the owner's reply and its links, or "Reply due
+  {date}", or "No reply by {date}" (a review filed before owners could reply says so). Before
+  the due date with no reply on file it adds that the owner can still reply, and that
+  deciding now means deciding without that reply, so the note says why.
 - **Removals in force**, over `GET /api/admin/vetoes`: each endpoint veto with the vetoing
   vendor, the filed date and time, "Reason the vendor gave" with its fixed reason (or an older
   removal's own words, or "The vendor gave another reason" for a stored code outside today's
