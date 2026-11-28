@@ -429,9 +429,12 @@ moves a claimed row (`REVIEW_APP_PROMOTE_API.md` §3.4a, §4b).
 
 1. **Promote the connector product first.** In the review app, `promote_product` on the connector.
    This creates its vendor and product in the live app.
-2. **Set its kind.** An AECi admin sets Sync Service or Integration platform on the product's admin
-   page (`PATCH /api/admin/products/:id/connector-kind`). Promote never sets it. A pair on an
-   owned endpoint is written only once the kind is Sync Service (§4a).
+2. **Set its kind.** An AECi admin opens the connector vendor's page, `/admin/vendors/:id`,
+   Products tab. On the connector's row, open **Actions** and choose **Set connector type…**, then
+   pick Sync Service or Integration platform and save (`PATCH /api/admin/products/:id/connector-kind`).
+   The row then reads "Type: Sync Service". There is no product-level admin page. Promote never
+   sets the kind. A pair on an owned endpoint is written only once the kind is Sync Service (§4a).
+   The save re-indexes the product by id, so the `/search` "Connector type" filter shows it at once.
 3. **Re-promote the endpoints of every pair.** A pair travels in its endpoints' bundles, not the
    connector's. One endpoint per pair is enough. When both endpoints of a pair are owned, their
    bundles skip it, so send it as an integration-only push (§3.5).
@@ -440,7 +443,11 @@ moves a claimed row (`REVIEW_APP_PROMOTE_API.md` §3.4a, §4b).
    connector, then repeat step 3. Do not let the owner claim it first.
 5. **Only then tell the owner to claim its pairs.** The claim route refuses a row typed `iPaaS`
    with no connector (`409 INTEGRATION_CONNECTOR_UNRESOLVED`). It cannot see a row typed
-   `marketplace-app` with no connector, so step 4 is the only check for that one.
+   `marketplace-app` with no connector, so step 4 is the only check for that one. The owner needs
+   a seat (the vendor page's Seats panel, **Add a seat**) but no subscription: a seat on Free
+   claims. It claims each pair on its connector product's **Integrations** tab in the portal with
+   **Claim this integration**. One click claims it, with no confirm step. Adding the first seat
+   also marks the vendor as owning its records, so promote then skips its vendor row (ADR 0042).
 
 **A pair already stuck.** A claimed pair in `integrations` with no connector stays there until an
 admin un-claims it. Ask Chris before changing a claimed row. After the un-claim, repeat steps 3
@@ -464,14 +471,27 @@ catalogue.
    run no longer lists a catalogue.
 2. **Dry run.** It prints the footprint and one line per pair the run would delete, with each
    pair's endpoints, hold, builder and claim count. Put the product's slug in place of `SLUG`.
+   To rehearse on staging, use `--env staging` instead. Staging needs no `--allow-production`. A
+   dry run that ends "Refusing without --force" names what else the delete would destroy, such
+   as an integration where the product is an endpoint. Stop and check that with Chris.
 
 ```bash
 pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector
 ```
 
 3. **Check every listed pair with Chris.** A claimed pair is the vendor's text. Withdrawing it is a
-   deletion, not a hide.
-4. **Apply.** Production needs Chris's go-ahead and `--allow-production`. Add `--force` only if the
+   deletion, not a hide. Each line reads like `[connector; unclaimed; builder …; 3 claim(s)]`.
+   "Unclaimed" or "claimed" is the vendor hold. "3 claim(s)" counts the listing's data-flow claims
+   (`claims` rows), which the delete removes with their attestations. It is not a vendor claim. A
+   pair can be unclaimed and still show claims.
+4. **Note the restore point.** From `apps/api`, run the command below and keep the bookmark it
+   prints. Use `staging` in both places on staging.
+
+```bash
+npx wrangler d1 time-travel info aeci-app-production --env production
+```
+
+5. **Apply.** Production needs Chris's go-ahead and `--allow-production`. Add `--force` only if the
    dry run listed blockers (integrations, reviews, versions or a live license) you also mean to
    delete.
 
@@ -479,10 +499,20 @@ pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --wi
 pnpm --filter @aeci/api ops:retract-product -- --slug SLUG --env production --withdraw-connector --apply --allow-production --operator chrisw@thewbsproject.com
 ```
 
-5. **Work down the printed follow-ups**, as in "Retracting a product or vendor by hand" above.
-6. **Re-send the connector vendor's ownership record.** The withdrawn pairs were in its
+6. **Work down the printed follow-ups**, as in "Retracting a product or vendor by hand" above.
+   Until AECI-2249 lands, expect two of them to find work, and run both for real:
+   - The Algolia drift check reports each withdrawn pair as an orphan in `<env>_integrations`.
+     The withdraw de-indexes the connector's product record only. Re-run it with `--apply`.
+   - The count check reports drift on each pair's endpoints, because the delete does not
+     recompute their `integration_count`. Re-run it with `-- --fix`. The fix does not stamp
+     `updated_at`, so an endpoint's search record keeps the old count until the product is next
+     touched.
+
+   The purge needs `ADMIN_PURGE_TOKEN`. Skip it if a 15-minute lag is acceptable, because detail
+   pages cache for 900 s.
+7. **Re-send the connector vendor's ownership record.** The withdrawn pairs were in its
    `deliveredPairs[]` (§4d). The steps are in "Ownership records not reaching the review app"
-   below, "Re-send one vendor".
+   below, "Re-send one vendor". Production only: staging and demo have no receiver.
 
 If the apply aborts saying a vendor-held row entered scope, another vendor claimed one of the
 pairs after the dry run. Nothing was written. Run the dry run again.
@@ -602,7 +632,7 @@ consumer sends v1 again.
 
 Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** There are two tools. The listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052) takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact. The value hide (§11d.7) blanks one value on a vendor-held record while AECi checks it, and shows "Under review" in its place.
 
-**A Sync Service integration (AECI-2042).** An endpoint vendor with a seat removes one itself, at once, in the portal (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2). An emailed removal is `docs/runbooks/listing-submissions.md` §6b. An accepted "not offered" report on `/admin/contests` retires, in the same click, every listing of the pair a vendor holds: the same Sync Service and the same two products, in either order, in both tables, whoever owns each (AECI-2170). Before Confirm the accept form says how many listings it retires and whose, and how many AECi holds. A listing AECi holds is never written there. It appears in **To retract in the review app** on the same screen, with its table, its id and a **Retract by** date five business days (Monday to Friday, US federal holidays excluded) after the accept. **Overdue** marks one past its date. For each: reject the pair in the review app, push the retraction, and run the retraction consumer, as for any AECi-held edge. The Listing Accuracy Policy promises the pair is off the public site by that date. The entry drops off the list once the retraction lands. Then check the pair is gone from both product pages and the Sync Service's page. The decision's `audit_log` row (`integration.pair_contest.accepted`) keeps `metadata.retiredRowIds`, `upstreamRowIds` and `alreadyRetiredRowIds`, so the record survives a retraction that deletes the reported row. A `409 PAIR_CONTEST_CHANGED` on Confirm means a listing of the pair changed meanwhile and nothing was written: reload and accept again. A pair an endpoint vendor vetoed is fenced from promote until the veto ends, so do not expect a re-promote to bring it back.
+**A Sync Service integration (AECI-2042).** An endpoint vendor with a seat removes one itself, at once, in the portal (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11e.2). An emailed removal is `docs/runbooks/listing-submissions.md` §6b. An endpoint vendor's seat files a "not offered" report from its product's **Integrations** tab in the portal: in **Connectors**, on the Sync Service's card, **Report that it is not offered**, with a required "What you know". The report lands on `/admin/contests`, **Sync Service integrations**, **Reports**. Expand its row to see the text and **Accept** or **Decline**. The accept form needs a note shown to the vendor and an https **Proof link**. An accepted "not offered" report on `/admin/contests` retires, in the same click, every listing of the pair a vendor holds: the same Sync Service and the same two products, in either order, in both tables, whoever owns each (AECI-2170). Before Confirm the accept form says how many listings it retires and whose, and how many AECi holds. A listing AECi holds is never written there. It appears in **To retract in the review app** on the same screen, with its table, its id and a **Retract by** date five business days (Monday to Friday, US federal holidays excluded) after the accept. **Overdue** marks one past its date. Nothing else tracks the date yet: check this list each working day while it has entries. Chris ruled on 2026-11-28 that a daily digest check will report an overdue one (AECI-2270). For each: reject the pair in the review app, push the retraction, and run the retraction consumer, as for any AECi-held edge. The Listing Accuracy Policy promises the pair is off the public site by that date. The entry drops off the list once the retraction lands. Then check the pair is gone from both product pages and the Sync Service's page. The decision's `audit_log` row (`integration.pair_contest.accepted`) keeps `metadata.retiredRowIds`, `upstreamRowIds` and `alreadyRetiredRowIds`, so the record survives a retraction that deletes the reported row. A `409 PAIR_CONTEST_CHANGED` on Confirm means a listing of the pair changed meanwhile and nothing was written: reload and accept again. A pair an endpoint vendor vetoed is fenced from promote until the veto ends, so do not expect a re-promote to bring it back. A vendor-held listing the accept retired is an admin retire: the owner's admin **Integrations** tab shows it as "Retired by AEC Integrations" with **Restore**, and the owner's own restore answers `403 INTEGRATION_RETIRED_BY_AECI`. Rehearsed on staging 2026-11-28 for a vendor-held pair (AECI-2185). The AECi-held half and the time the retraction takes are rehearsed on production in AECI-2248.
 
 **An objection to a Sync Service removal (AECI-2192, ruling 66).** A removal takes effect when the vendor sends it, with a reason from a fixed list, and nobody checks it first. The Sync Service may then object on three grounds only. The objection lands on `/admin/contests`, in the Sync Service integrations section, inside the removal it names, and the alert email goes to the support inbox. AECi admins see it. The AECi operator, today Chris, owns the queue and decides it. Answer it, accepted or declined, within five business days of receiving it: Monday to Friday, US federal holidays excluded, as the Listing Accuracy Policy defines them. The alert email is the trigger. The queue shows each open objection's answer-by date and marks it "Answer overdue" once that date has passed. The evidence each ground needs and what we never decide are in `ADMIN_PANEL_SPEC.md` §5.12 "Who owns the objection queue". **Accept and end the removal** brings every row on the pair key back at once, and both vendors are told why. **Decline** leaves it, and the Sync Service is told why. The same five grounds are the only reasons to use **End this removal** without an objection: the three objection grounds, the vendor's claim to the product ended or suspended, or the law requires it. A claim ending does not end a removal by itself: when you end or suspend a claim (`docs/runbooks/README.md`), check `/admin/contests` for removals that vendor filed, and end each with `claim_ended_or_suspended`. An objection by email from a Sync Service with no seat is `docs/runbooks/listing-submissions.md` §6c.
 
@@ -741,11 +771,11 @@ Not an alert. Run this once per environment after a deploy that adds a field to 
 
 In run order, per environment (staging, then demo, then production):
 
-1. **Check the deploy.** The environment's settings apply step must have run (`SEARCH_RANKING.md` §1.1). Without it the facet returns no counts.
+1. **Check the deploy.** The environment's settings apply step must have run (`SEARCH_RANKING.md` §1.1). Without it the facet returns no counts. In GitHub Actions, open the latest run for the environment: `deploy.yml` "Deploy staging", `promote-to-demo.yml` or `promote-to-prod.yml`. The step "Update Algolia … index settings" must be green, on a commit that carries the field.
 2. **Pick the path.** The cheapest is the watermark reset for `products` (`SEARCH_RANKING.md` §1.2). It schedules a full products sweep at the next 08:00 UTC run and never empties the index. The datatool full reindex is faster but clears the index, so search returns nothing while it runs. Use it only off-peak.
 3. **Reset the `products` watermark** with the script in `scripts/ops/2026-09-algolia-integration-watermark-reset/`, `--entity products`. Run the dry run first, then `--apply`. Production also needs `--allow-production`. The README there holds the commands.
 4. **Verify after the next 08:00 UTC run.** Check the field the deploy added:
-   - `connector_kind` (AECI-1662): open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. In production on 2026-11-24 the kind was set only where an admin had set it, so a short list is expected.
+   - `connector_kind` (AECI-1662): open `/search`, filter "Sync Service", and check that the known Sync Services appear with their chip. The filter lists only products whose kind an admin has set, on that environment. If it shows nothing, check that at least one kind is set ("Promoting a connector and its pairs", step 2) before suspecting the sweep. Production did not have the field on 2026-11-28 (AECI-2248).
    - `connected_product_names` (AECI-2090): search `/search` for two products a known Sync Service connects, such as "Procore Acumatica". The Sync Services that deliver the pair must appear.
 
 Do not run the reindex to fix one product. A change of its kind re-indexes it by id. Saving the same value does nothing.
