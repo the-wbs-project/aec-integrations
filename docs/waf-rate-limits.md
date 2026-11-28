@@ -1332,6 +1332,9 @@ put` that had never been placed on any API Worker, so the poll no-op'd even afte
   CI then pushes it to each env's Worker (`deploy.yml` → staging, `promote-to-demo.yml`
   → demo, `promote-to-prod.yml` → production — graceful warn-skip, no hard gate).
   Absent → the poll logs `outcome:skipped_no_creds` and no-ops (fail-safe).
+  Scope the token to **The WBS Project** account or the zone itself. The old "AEC Integrations"
+  account has held no zones since the 2026-10-04 move, so a token scoped to it fails every poll.
+  Rotation steps: `docs/runbooks/alerts.md` ("WAF rate-limit / challenge spike", first check 3).
 
   **Per-env host scoping.** All app envs share the one `aecintegrations.com` zone,
   so each env's poll filters `firewallEventsAdaptiveGroups` to its **own** host

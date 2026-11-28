@@ -1881,6 +1881,14 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
    absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
    error log for the Cloudflare GraphQL `reason` (e.g. an expired/under-scoped token — it needs
    `Zone Analytics: Read`).
+   **Rotating the token:** set it as the `CF_ANALYTICS_API_TOKEN` repo secret on `aec-integrations`,
+   not on the review repo. A GitHub secret change does not reach a Worker by itself. Each Worker gets
+   the new value only on its next `deploy.yml` (staging), `promote-to-demo` or `promote-to-prod` run,
+   or from a direct `wrangler secret put CF_ANALYTICS_API_TOKEN --env <env>` in `apps/api`.
+   Scope the token's zone resource to **The WBS Project** account or the `aecintegrations.com` zone.
+   The old "AEC Integrations" account has had no zones since the 2026-10-04 move. A token scoped to it
+   fails with `does not have permission 'com.cloudflare.api.account.zone.analytics.read'`.
+   Each run's result, including that reason, is in the env's `job_runs` table (`job = 'waf-poll'`).
 
 **Repair:** the WAF itself is already mitigating — this alert is **awareness**, not an outage. Escalate only
 if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
